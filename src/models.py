@@ -1,7 +1,7 @@
 # src/models.py
 import json
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal, TypeAlias
 
 
 # --- ベースオブジェクト ---
@@ -191,3 +191,16 @@ STORAGE_KEYS: Dict[str, str] = {
     "scenes": "promptBuilder_scenes",
     "sdParams": "promptBuilder_sdParams",
 }
+
+DatabaseKey = Literal[
+    "actors",
+    "costumes",
+    "poses",
+    "expressions",
+    "directions",
+    "backgrounds",
+    "lighting",
+    "compositions",
+    "scenes",
+    "sdParams",
+]
