@@ -1,0 +1,189 @@
+# src/data/mocks.py
+from src.models import (
+    FullDatabase,
+    StableDiffusionParams,
+    Actor,
+    Costume,
+    Pose,
+    Expression,
+    Direction,
+    Background,
+    Lighting,
+    Composition,
+    Scene,
+    SceneRole,
+    RoleDirection,
+)
+
+# --- デフォルトの Stable Diffusion パラメータ ---
+default_sd_params: StableDiffusionParams = StableDiffusionParams(
+    steps=20,
+    sampler_name="Euler a",
+    cfg_scale=7.0,
+    seed=-1,
+    width=512,
+    height=512,
+    denoising_strength=0.6,
+)
+
+# --- アプリケーション全体の初期データベース ---
+initialMockDatabase: FullDatabase = FullDatabase(
+    # --- 役者 (Actors) ---
+    actors={
+        "actor_default_male": Actor(
+            id="actor_default_male",
+            name="デフォルト男性",
+            tags=["male"],
+            prompt="1boy, handsome",
+            negative_prompt="ugly, deformed",
+            base_costume_id="costume_default_shirt",
+            base_pose_id="pose_default_standing",
+            base_expression_id="expr_default_neutral",
+            work_title="Default",
+            character_name="Male",
+        ),
+        "actor_default_female": Actor(
+            id="actor_default_female",
+            name="デフォルト女性",
+            tags=["female"],
+            prompt="1girl, beautiful",
+            negative_prompt="ugly, deformed",
+            base_costume_id="costume_default_shirt",
+            base_pose_id="pose_default_standing",
+            base_expression_id="expr_default_neutral",
+            work_title="Default",
+            character_name="Female",
+        ),
+    },
+    # --- 衣装 (Costumes) ---
+    costumes={
+        "costume_default_shirt": Costume(
+            id="costume_default_shirt",
+            name="デフォルトシャツ",
+            tags=[],
+            prompt="wearing a simple white shirt",
+            negative_prompt="",
+        )
+    },
+    # --- ポーズ (Poses) ---
+    poses={
+        "pose_default_standing": Pose(
+            id="pose_default_standing",
+            name="デフォルト立ち",
+            tags=[],
+            prompt="standing",
+            negative_prompt="",
+        )
+    },
+    # --- 表情 (Expressions) ---
+    expressions={
+        "expr_default_neutral": Expression(
+            id="expr_default_neutral",
+            name="デフォルト無表情",
+            tags=[],
+            prompt="neutral expression",
+            negative_prompt="smiling, laughing",
+        )
+    },
+    # --- 演出 (Directions) ---
+    directions={
+        "dir_default_base": Direction(
+            id="dir_default_base",
+            name="演出: 基本状態",
+            tags=[],
+            prompt="",
+            negative_prompt="",
+        ),
+        "dir_default_smile": Direction(
+            id="dir_default_smile",
+            name="演出: 微笑む",
+            tags=[],
+            expression_id="expr_default_smiling",
+            prompt="smiling",
+            negative_prompt="",
+        ),
+    },
+    # --- 背景 (Backgrounds) ---
+    backgrounds={
+        "bg_default_white": Background(
+            id="bg_default_white",
+            name="デフォルト白背景",
+            tags=[],
+            prompt="simple white background",
+            negative_prompt="detailed background, scenery",
+        )
+    },
+    # --- 照明 (Lighting) ---
+    lighting={
+        "light_default_studio": Lighting(
+            id="light_default_studio",
+            name="デフォルトスタジオ照明",
+            tags=[],
+            prompt="studio lighting",
+            negative_prompt="dark, night",
+        )
+    },
+    # --- 構図 (Compositions) ---
+    compositions={
+        "comp_default_medium": Composition(
+            id="comp_default_medium",
+            name="デフォルトミディアムショット",
+            tags=[],
+            prompt="medium shot",
+            negative_prompt="",
+        )
+    },
+    # --- シーン (Scenes) ---
+    scenes={
+        "scene_default_solo": Scene(
+            id="scene_default_solo",
+            name="デフォルトソロシーン",
+            tags=["solo"],
+            prompt_template="masterpiece, best quality, solo focus, ([R1])",
+            negative_template="worst quality, low quality, watermark, signature, multiple people",
+            background_id="bg_default_white",
+            lighting_id="light_default_studio",
+            composition_id="comp_default_medium",
+            roles=[SceneRole(id="r1", name_in_scene="モデル")],
+            role_directions=[
+                RoleDirection(role_id="r1", direction_ids=["dir_default_base"])
+            ],  # 基本状態のみ
+            reference_image_path="",
+            image_mode="txt2img",
+        ),
+        "scene_default_pair": Scene(
+            id="scene_default_pair",
+            name="デフォルトペアシーン",
+            tags=["pair"],
+            prompt_template="masterpiece, best quality, ([R1]) and ([R2]), (2 people:1.2)",
+            negative_template="worst quality, low quality, watermark, signature, 3 people",
+            background_id="bg_default_white",
+            lighting_id="light_default_studio",
+            composition_id="comp_default_medium",
+            roles=[
+                SceneRole(id="r1", name_in_scene="人物A"),
+                SceneRole(id="r2", name_in_scene="人物B"),
+            ],
+            role_directions=[
+                RoleDirection(role_id="r1", direction_ids=["dir_default_base"]),
+                RoleDirection(
+                    role_id="r2", direction_ids=["dir_default_smile"]
+                ),  # 片方だけ微笑む
+            ],
+            reference_image_path="",
+            image_mode="txt2img",
+        ),
+    },
+    # --- SDパラメータ ---
+    sdParams=default_sd_params,
+)
+
+# (必要に応じて、expr_default_smiling など、Directionで参照しているパーツも上記に追加してください)
+# 例:
+initialMockDatabase.expressions["expr_default_smiling"] = Expression(
+    id="expr_default_smiling",
+    name="デフォルト微笑み",
+    tags=[],
+    prompt="smiling",
+    negative_prompt="",
+)

@@ -12,7 +12,7 @@ _CLIENT_DIR = os.path.join(_PROJECT_ROOT, "StableDiffusionClient")
 _BAT_PATH = os.path.join(_CLIENT_DIR, "start_all.bat")
 
 
-def run_stable_diffusion(tasks: List[ImageGenerationTask]) -> Tuple[bool, str]:
+def run_stable_diffusion(tasks: List[ImageGenerationTask]) -> tuple[bool, str]:
     """
     Generates tasks.json in a temporary file and executes start_all.bat.
     Returns (success_status, message).

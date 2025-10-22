@@ -1,0 +1,3 @@
+[submodule "StableDiffusionClient"]
+	path = StableDiffusionClient
+	url = git@github.com.ainip:aini-p/StableDiffusionClient.git
