@@ -42,14 +42,14 @@ def generate_actor_prompt(
     役者(Actor)と単一の演出(Direction)から、
     その役者の最終的なプロンプトを生成する
     """
-    direction = db["directions"].get(directionId)
+    direction = db.directions.get(directionId)
     if not direction:
         # 演出が見つからない(ID="")場合は、役者の基本状態のみ
         baseParts: List[Optional[PromptPartBase]] = [
             actor,
-            db["costumes"].get(actor.base_costume_id),
-            db["poses"].get(actor.base_pose_id),
-            db["expressions"].get(actor.base_expression_id),
+            db.costumes.get(actor.base_costume_id),
+            db.poses.get(actor.base_pose_id),
+            db.expressions.get(actor.base_expression_id),
         ]
         valid_base_parts = [p for p in baseParts if p is not None]  # Noneを除外
 
@@ -64,16 +64,16 @@ def generate_actor_prompt(
     # 演出(Direction) に基づき、使用するパーツを「決定」
     finalParts: List[Optional[PromptPartBase]] = [
         actor,
-        db["costumes"].get(direction.costume_id)
+        db.costumes.get(direction.costume_id)
         if direction.costume_id
-        else db["costumes"].get(actor.base_costume_id),
-        db["poses"].get(direction.pose_id)
+        else db.costumes.get(actor.base_costume_id),
+        db.poses.get(direction.pose_id)
         if direction.pose_id
-        else db["poses"].get(actor.base_pose_id),
-        db["expressions"].get(direction.expression_id)
+        else db.poses.get(actor.base_pose_id),
+        db.expressions.get(direction.expression_id)
         if direction.expression_id
-        else db["expressions"].get(actor.base_expression_id),
-        direction,  # 演出 (Direction) 自体もパーツとして追加
+        else db.expressions.get(actor.base_expression_id),
+        direction,
     ]
     valid_final_parts = [p for p in finalParts if p is not None]  # Noneを除外
 
@@ -89,11 +89,12 @@ def generate_actor_prompt(
 def generate_batch_prompts(
     scene_id: str,
     actor_assignments: ActorAssignments,
-    db: FullDatabase,  # Pass the whole DB dictionary
-) -> List[GeneratedPrompt]:  # ★ 型ヒントを GeneratedPrompt (dataclass) に戻す
-    scene = db["scenes"].get(scene_id)
+    db: FullDatabase,  # ★ 型ヒントを FullDatabase に
+) -> List[GeneratedPrompt]:
+    # --- ★ 修正: db["key"] -> db.attribute ---
+    scene = db.scenes.get(scene_id)
+    # --- ★ 修正ここまで ---
     if not scene:
-        # ★ GeneratedPrompt (dataclass) を返す
         return [
             GeneratedPrompt(
                 cut=0,
@@ -104,11 +105,13 @@ def generate_batch_prompts(
         ]
 
     # --- 1. シーン共通パーツと共通プロンプト ---
+    # --- ★ 修正: db["key"] -> db.attribute ---
     common_parts: List[Optional[PromptPartBase]] = [
-        db["backgrounds"].get(scene.background_id),
-        db["lighting"].get(scene.lighting_id),
-        db["compositions"].get(scene.composition_id),
+        db.backgrounds.get(scene.background_id),
+        db.lighting.get(scene.lighting_id),
+        db.compositions.get(scene.composition_id),
     ]
+    # --- ★ 修正ここまで ---
     valid_common_parts = [p for p in common_parts if p is not None]
 
     common_positive_base = ", ".join(
@@ -125,25 +128,32 @@ def generate_batch_prompts(
     assigned_roles: List[SceneRole] = []
     direction_lists: List[List[str]] = []
     first_actor: Optional[Actor] = None
+    first_character: Optional[Character] = None  # ★ 追加
+    first_work: Optional[Work] = None  # ★ 追加
 
     for role in scene.roles:
         actor_id = actor_assignments.get(role.id)
         if actor_id:
-            actor = db["actors"].get(actor_id)
+            # --- ★ 修正: db["key"] -> db.attribute ---
+            actor = db.actors.get(actor_id)
+            # --- ★ 修正ここまで ---
             if actor:
                 assigned_roles.append(role)
                 if not first_actor:
                     first_actor = actor
+                    # ★ Actor に紐づく Character と Work を取得
+                    if actor.character_id:
+                        first_character = db.characters.get(actor.character_id)
+                        if first_character and first_character.work_id:
+                            first_work = db.works.get(first_character.work_id)
+                    # ★ 修正ここまで
                 role_dir_obj = next(
                     (rd for rd in scene.role_directions if rd.role_id == role.id), None
                 )
                 directions = role_dir_obj.direction_ids if role_dir_obj else []
-                direction_lists.append(
-                    [""] if not directions else directions
-                )  # Use [""] for base state
+                direction_lists.append([""] if not directions else directions)
 
     if not assigned_roles:
-        # ★ GeneratedPrompt (dataclass) を返す
         return [
             GeneratedPrompt(
                 cut=1,
@@ -157,7 +167,6 @@ def generate_batch_prompts(
     all_combinations = getCartesianProduct(direction_lists)
     if not all_combinations or not isinstance(all_combinations, list):
         print("Error: getCartesianProduct did not return a valid list.")
-        # ★ GeneratedPrompt (dataclass) を返す
         return [
             GeneratedPrompt(
                 cut=0,
@@ -169,23 +178,26 @@ def generate_batch_prompts(
 
     # --- 4. 組み合わせをループしてプロンプトを生成 ---
     generated_prompts: List[GeneratedPrompt] = []
-    for i, combination in enumerate(all_combinations):  # product returns lists now
+    for i, combination in enumerate(all_combinations):
         final_positive = common_positive_base
         final_negative = common_negative_base
         cut_name_parts: List[str] = []
 
         if not isinstance(combination, list):
-            continue  # Skip invalid combination
+            continue
 
         for j, role in enumerate(assigned_roles):
-            # Ensure combination has enough elements
             direction_id = combination[j] if j < len(combination) else ""
             actor_id = actor_assignments[role.id]
-            actor = db["actors"].get(actor_id)
+            # --- ★ 修正: db["key"] -> db.attribute ---
+            actor = db.actors.get(actor_id)
+            # --- ★ 修正ここまで ---
             if not actor:
                 continue
 
-            actor_prompt_parts = generate_actor_prompt(actor, direction_id, db)
+            actor_prompt_parts = generate_actor_prompt(
+                actor, direction_id, db
+            )  # ★ db (FullDatabase) を渡す
 
             placeholder = f"[{role.id.upper()}]"
             final_positive = final_positive.replace(
@@ -199,21 +211,22 @@ def generate_batch_prompts(
         final_positive = final_positive.replace(r"\[[A-Z0-9]+\]", "")
         final_negative = final_negative.replace(r"\[[A-Z0-9]+\]", "")
 
+        # --- ★ firstActorInfo に Character と Work オブジェクトを格納 ---
         first_actor_info_dict = None
-        if first_actor:
+        if first_character and first_work:  # Character と Work が取得できていれば
             first_actor_info_dict = {
-                "work_title": first_actor.work_title,
-                "character_name": first_actor.character_name,
+                "character": first_character,
+                "work": first_work,
             }
+        # --- ★ 修正ここまで ---
 
-        # ★ GeneratedPrompt (dataclass) を作成して追加
         generated_prompts.append(
             GeneratedPrompt(
                 cut=i + 1,
                 name=" & ".join(cut_name_parts),
                 positive=final_positive,
                 negative=final_negative,
-                firstActorInfo=first_actor_info_dict,  # Pass dict or None directly
+                firstActorInfo=first_actor_info_dict,  # 辞書または None を渡す
             )
         )
 
@@ -221,30 +234,44 @@ def generate_batch_prompts(
 
 
 def create_image_generation_tasks(
-    generated_prompts: List[GeneratedPrompt],  # ★ 型ヒント GeneratedPrompt (dataclass)
+    generated_prompts: List[GeneratedPrompt],
     sd_params: StableDiffusionParams,
     scene: Optional[Scene],
 ) -> List[ImageGenerationTask]:
     if not scene:
         return []
     tasks: List[ImageGenerationTask] = []
-    for prompt_data in generated_prompts:  # prompt_data is now GeneratedPrompt object
+    for prompt_data in generated_prompts:
         filename_prefix = f"output_{prompt_data.cut}"
-        # ★ dataclass の属性にアクセス
         actor_info = prompt_data.firstActorInfo
+        # --- ★ firstActorInfo から Character, Work を取得 ---
         if actor_info:
-            filename_prefix = f"{actor_info['work_title']}_{actor_info['character_name']}_cut{prompt_data.cut}"
+            char: Optional[Character] = actor_info.get("character")
+            work: Optional[Work] = actor_info.get("work")
+            if char and work:
+                # ファイル名に日本語タイトルとキャラ名を使う (ファイルシステムによっては注意)
+                work_title = getattr(work, "title_jp", "unknown_work")
+                char_name = getattr(char, "name", "unknown_char")
+                # ファイル名に使えない文字を置換 (オプション)
+                safe_work_title = "".join(
+                    c if c.isalnum() or c in "-_" else "_" for c in work_title
+                )
+                safe_char_name = "".join(
+                    c if c.isalnum() or c in "-_" else "_" for c in char_name
+                )
+                filename_prefix = (
+                    f"{safe_work_title}_{safe_char_name}_cut{prompt_data.cut}"
+                )
+        # --- ★ 修正ここまで ---
 
         mode = scene.image_mode
         source_image_path = scene.reference_image_path
         if not source_image_path:
             mode = "txt2img"
             source_image_path = ""
-
         denoising_strength = sd_params.denoising_strength if mode != "txt2img" else None
 
         task = ImageGenerationTask(
-            # ★ dataclass の属性にアクセス
             prompt=prompt_data.positive,
             negative_prompt=prompt_data.negative,
             steps=sd_params.steps,

@@ -1,9 +1,5 @@
 # src/main_window.py
-import sys
-import os
-import json
-import time
-import traceback
+import sys, os, json, time, traceback
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -31,7 +27,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Slot
 from . import database as db
-from .models import (  # 必要なモデルと型をインポート
+from .models import (
     Scene,
     Actor,
     Direction,
@@ -50,23 +46,29 @@ from .models import (  # 必要なモデルと型をインポート
     STORAGE_KEYS,
     DatabaseKey,
     FullDatabase,
+    Work,
+    Character,  # Work, Character もインポート
 )
+from typing import Dict, Optional, Any, List, Tuple, Literal, Union, TypeAlias, get_args
 
-# --- 分割したファイルをインポート ---
+# --- パネルとハンドラをインポート ---
 from .handlers.data_handler import DataHandler
 from .panels.library_panel import LibraryPanel
 from .panels.inspector_panel import InspectorPanel
+from .panels.prompt_panel import PromptPanel
+from .panels.data_management_panel import DataManagementPanel
 
 # --- フォームは新規追加時にのみ使用 ---
 from .widgets.add_actor_form import AddActorForm
 from .widgets.add_scene_form import AddSceneForm
 from .widgets.add_direction_form import AddDirectionForm
 from .widgets.add_simple_part_form import AddSimplePartForm
+from .widgets.add_work_form import AddWorkForm
+from .widgets.add_character_form import AddCharacterForm
 
 # ------------------------------------
 from .prompt_generator import generate_batch_prompts, create_image_generation_tasks
 from .batch_runner import run_stable_diffusion
-from typing import Dict, Optional, Any, List, Tuple, Literal, Union, TypeAlias, get_args
 
 # (プレースホルダー定義は変更なし)
 # ...
@@ -78,14 +80,28 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Object-Oriented Prompt Builder")
         self.setGeometry(100, 100, 1400, 850)
 
+        self.form_mapping = {
+            "WORK": (AddWorkForm, "works"),
+            "CHARACTER": (AddCharacterForm, "characters"),
+            "ACTOR": (AddActorForm, "actors"),
+            "SCENE": (AddSceneForm, "scenes"),
+            "DIRECTION": (AddDirectionForm, "directions"),
+            "COSTUME": (AddSimplePartForm, "costumes"),
+            "POSE": (AddSimplePartForm, "poses"),
+            "EXPRESSION": (AddSimplePartForm, "expressions"),
+            "BACKGROUND": (AddSimplePartForm, "backgrounds"),
+            "LIGHTING": (AddSimplePartForm, "lighting"),
+            "COMPOSITION": (AddSimplePartForm, "compositions"),
+        }
+
         # --- データ関連 ---
         self.db_data: Dict[str, Dict[str, Any]] = {}
         self.sd_params: StableDiffusionParams = StableDiffusionParams()
-        self.data_handler = DataHandler(self)  # DataHandler を初期化
+        self.data_handler = DataHandler(self)
         self.db_data, self.sd_params, initial_scene_id = (
             self.data_handler.load_all_data()
         )
-        self.current_scene_id: Optional[str] = initial_scene_id  # 初期シーンIDを設定
+        self.current_scene_id: Optional[str] = initial_scene_id
         self.actor_assignments: Dict[str, str] = {}
         self.generated_prompts: List[GeneratedPrompt] = []
 
@@ -103,16 +119,18 @@ class MainWindow(QMainWindow):
         left_panel.setMaximumWidth(600)
         splitter.addWidget(left_panel)
 
-        self._setup_data_management_ui(left_layout)  # Save/Load/Import/Export ボタン
-        self._setup_prompt_generation_ui(
-            left_layout
-        )  # シーン選択、役割割り当て、生成ボタン
+        # Data Management Panel
+        self.data_management_panel = DataManagementPanel()
+        left_layout.addWidget(self.data_management_panel)
 
-        # LibraryPanel をインスタンス化して配置
+        # Prompt Panel
+        self.prompt_panel = PromptPanel()
+        self.prompt_panel.set_data_reference(self.db_data)
+        left_layout.addWidget(self.prompt_panel)
+
+        # Library Panel
         self.library_panel = LibraryPanel()
-        self.library_panel.set_data_reference(
-            self.db_data, self.sd_params
-        )  # データ参照を渡す
+        self.library_panel.set_data_reference(self.db_data, self.sd_params)
         left_layout.addWidget(self.library_panel)
 
         left_layout.addStretch()
@@ -129,12 +147,10 @@ class MainWindow(QMainWindow):
         prompt_display_layout.addWidget(self.prompt_display_area)
         right_splitter.addWidget(prompt_display_group)
 
-        # InspectorPanel をインスタンス化して配置
+        # Inspector Panel
         self.inspector_panel = InspectorPanel()
-        self.inspector_panel.set_data_reference(
-            self.db_data, self.sd_params
-        )  # データ参照を渡す
-        right_splitter.addWidget(self.inspector_panel.group_box)  # QGroupBox を直接配置
+        self.inspector_panel.set_data_reference(self.db_data, self.sd_params)
+        right_splitter.addWidget(self.inspector_panel.group_box)  # GroupBox を直接配置
 
         # スプリッターサイズ
         splitter.setSizes([450, 950])
@@ -143,80 +159,40 @@ class MainWindow(QMainWindow):
         # --- シグナル接続 ---
         self._connect_signals()
 
-        # 初期UI更新
-        self.update_scene_combo()  # シーン選択コンボボックスの初期化
-        self.build_role_assignment_ui()  # 役割割り当てUIの初期化
-        # ライブラリリストとインスペクターはパネル内で初期化される
+        # --- 初期UI状態設定 ---
+        # PromptPanel の初期シーンを設定 (これにより関連UIも更新される)
+        self.prompt_panel.set_current_scene(self.current_scene_id)
+        # LibraryPanel は内部で初期リスト表示を行う
+        # InspectorPanel は内部で初期クリア状態
 
     def _connect_signals(self):
         """パネル間のシグナルを接続します。"""
-        # LibraryPanel からのシグナル
+        # Data Management Panel
+        self.data_management_panel.saveClicked.connect(
+            lambda: self.data_handler.save_all_data(self.db_data, self.sd_params)
+        )
+        self.data_management_panel.exportClicked.connect(
+            lambda: self.data_handler.export_data(self.db_data, self.sd_params)
+        )
+        self.data_management_panel.importClicked.connect(self._handle_import)
+
+        # Prompt Panel
+        self.prompt_panel.generatePromptsClicked.connect(self.generate_prompts)
+        self.prompt_panel.executeGenerationClicked.connect(self.execute_generation)
+        self.prompt_panel.sceneChanged.connect(self._handle_scene_change)
+        self.prompt_panel.assignmentChanged.connect(self._handle_assignment_change)
+
+        # Library Panel
         self.library_panel.itemSelected.connect(self.inspector_panel.update_inspector)
         self.library_panel.itemSelectionCleared.connect(
             self.inspector_panel.clear_inspector
         )
         self.library_panel.addNewItemClicked.connect(self._handle_add_new_item)
         self.library_panel.deleteItemClicked.connect(self._handle_delete_item)
-        # InspectorPanel からのシグナル
+        # self.library_panel.libraryTypeChanged.connect(...) # 必要なら接続
+
+        # Inspector Panel
         self.inspector_panel.changesSaved.connect(self._handle_inspector_save)
-
-    # --- UIセットアップヘルパー ---
-    def _setup_data_management_ui(self, parent_layout):
-        """Save/Load/Import/Export ボタンのUIをセットアップします。"""
-        group = QGroupBox("Data Management")
-        layout = QHBoxLayout()
-        group.setLayout(layout)
-        save_btn = QPushButton("💾 Save to DB")
-        # data_handler のメソッドを呼び出すように変更
-        save_btn.clicked.connect(
-            lambda: self.data_handler.save_all_data(self.db_data, self.sd_params)
-        )
-        export_btn = QPushButton("📤 Export JSON")
-        export_btn.clicked.connect(
-            lambda: self.data_handler.export_data(self.db_data, self.sd_params)
-        )
-        import_btn = QPushButton("📥 Import JSON")
-        import_btn.clicked.connect(
-            self._handle_import
-        )  # インポートはデータ更新が伴うため別メソッド
-        layout.addWidget(save_btn)
-        layout.addWidget(export_btn)
-        layout.addWidget(import_btn)
-        parent_layout.addWidget(group)
-
-    def _setup_prompt_generation_ui(self, parent_layout):
-        """プロンプト生成関連のUI (シーン選択、役割割り当て、ボタン) をセットアップします。"""
-        print("[DEBUG] _setup_prompt_generation_ui called.")
-        group = QGroupBox("Prompt Generation")
-        self.prompt_gen_layout = QVBoxLayout(group)  # レイアウトを直接グループに設定
-
-        # シーン選択
-        scene_layout = QHBoxLayout()
-        scene_layout.addWidget(QLabel("1. Select Scene:"))
-        self.scene_combo = QComboBox()
-        # update_scene_combo は __init__ の最後で呼ばれる
-        self.scene_combo.currentIndexChanged.connect(self.on_scene_changed)
-        scene_layout.addWidget(self.scene_combo)
-        self.prompt_gen_layout.addLayout(scene_layout)
-
-        # 役割割り当て (動的UI用ウィジェット)
-        self.role_assignment_widget = QWidget()
-        self.role_assignment_widget.setObjectName("RoleAssignmentWidgetContainer")
-        # build_role_assignment_ui は __init__ の最後で呼ばれる
-        self.prompt_gen_layout.addWidget(self.role_assignment_widget)
-
-        # ボタン
-        generate_preview_btn = QPushButton("🔄 Generate Prompt Preview")
-        generate_preview_btn.setStyleSheet("background-color: #ffc107;")
-        generate_preview_btn.clicked.connect(self.generate_prompts)
-        execute_btn = QPushButton("🚀 Execute Image Generation (Run Batch)")
-        execute_btn.setStyleSheet("background-color: #28a745; color: white;")
-        execute_btn.clicked.connect(self.execute_generation)
-        self.prompt_gen_layout.addWidget(generate_preview_btn)
-        self.prompt_gen_layout.addWidget(execute_btn)
-
-        parent_layout.addWidget(group)
-        print("[DEBUG] _setup_prompt_generation_ui complete.")
 
     # --- スロット (シグナルハンドラ) ---
     @Slot()
@@ -228,33 +204,37 @@ class MainWindow(QMainWindow):
             # 新しいデータ参照を各パネルに設定
             self.library_panel.set_data_reference(self.db_data, self.sd_params)
             self.inspector_panel.set_data_reference(self.db_data, self.sd_params)
+            self.prompt_panel.set_data_reference(
+                self.db_data, self.actor_assignments
+            )  # PromptPanel も更新
             # current_scene_id を再設定
             scenes_dict = self.db_data.get("scenes", {})
+            new_scene_id = next(iter(scenes_dict), None)
             if self.current_scene_id not in scenes_dict:
-                self.current_scene_id = next(iter(scenes_dict), None)
+                self.current_scene_id = new_scene_id
+
             # UI全体更新
             self.update_ui_after_data_change()
+            # インポート後に最初のシーンを選択状態にする
+            self.prompt_panel.set_current_scene(self.current_scene_id)
 
-    @Slot(str, str)  # LibraryPanel から str で受け取る
+    @Slot(str, str)
     def _handle_add_new_item(self, db_key_str: str, modal_title: str):
-        # db_key_str を DatabaseKey に変換 (バリデーション)
+        """LibraryPanel の Add New ボタンに対応するスロット。"""
         db_key: Optional[DatabaseKey] = (
             db_key_str if db_key_str in get_args(DatabaseKey) else None
         )
         if not db_key:
             return
-
-        # --- ★ modal_type の決定ロジック修正 ---
         modal_type = ""
-        # 複数形から単数形の名前に変換し、大文字にする (より汎用的に)
         if db_key == "scenes":
             modal_type = "SCENE"
         elif db_key == "actors":
             modal_type = "ACTOR"
         elif db_key == "works":
-            modal_type = "WORK"  # ★ 追加
+            modal_type = "WORK"
         elif db_key == "characters":
-            modal_type = "CHARACTER"  # ★ 追加
+            modal_type = "CHARACTER"
         elif db_key == "directions":
             modal_type = "DIRECTION"
         elif db_key == "costumes":
@@ -272,32 +252,25 @@ class MainWindow(QMainWindow):
 
         if modal_type:
             print(f"[DEBUG] Add New button clicked for type: {db_key} -> {modal_type}")
-            self.open_edit_dialog(modal_type, None)  # 新規追加ダイアログを開く
+            self.open_edit_dialog(modal_type, None)
         else:
             print(f"[DEBUG] Error: Cannot determine modal_type for db_key '{db_key}'")
 
-    @Slot(str, str)  # DatabaseKey -> str に変更
-    def _handle_delete_item(
-        self, db_key_str: str, item_id: str
-    ):  # db_key -> db_key_str に変更
+    @Slot(str, str)
+    def _handle_delete_item(self, db_key_str: str, item_id: str):
         """LibraryPanel の Delete ボタンに対応するスロット。"""
-        # 受け取った文字列が有効な DatabaseKey か確認
         db_key: Optional[DatabaseKey] = (
             db_key_str if db_key_str in get_args(DatabaseKey) else None
-        )  # get_args を使用
+        )
         if not db_key:
-            print(
-                f"[DEBUG] Error: _handle_delete_item received invalid db_key: {db_key_str}"
-            )
             return
-        # 削除処理を実行（確認ダイアログ表示含む）
         self.delete_item(db_key, item_id)
 
-    # --- ★★★ 修正箇所 (Slot と 型ヒント) ★★★ ---
-    @Slot(str, str, object)  # InspectorPanel から str で受け取る
+    @Slot(str, str, object)
     def _handle_inspector_save(
         self, db_key_str: str, item_id: str, updated_object: Any
     ):
+        """InspectorPanel で変更が保存されたときの処理。"""
         db_key: Optional[DatabaseKey] = (
             db_key_str if db_key_str in get_args(DatabaseKey) else None
         )
@@ -305,209 +278,51 @@ class MainWindow(QMainWindow):
             return
 
         print(f"[DEBUG] Received changesSaved signal for {db_key} - {item_id}")
+        # メモリ上のデータを更新
         if db_key == "sdParams":
             self.sd_params = updated_object
-            # db.save_sd_params(self.sd_params) # Inspector側で保存済み
+            # self.data_handler.save_sd_params(self.sd_params) # DataHandler経由に変更も可
         elif db_key in self.db_data:
             self.db_data[db_key][item_id] = updated_object
 
         # UI更新
-        # ★ LibraryPanel の update_list を呼び出す
         self.library_panel.update_list()
-        if (
-            db_key == "scenes" or db_key == "works"
-        ):  # Work名変更も Scene コンボに影響する可能性
-            self.update_scene_combo()
-        # ★ LibraryPanel の select_item_by_id を呼び出す
+        # シーン名、Work名、Character名が変更されたら関連コンボボックス更新
+        if db_key in ["scenes", "works", "characters"]:
+            self.prompt_panel.update_scene_combo()  # シーンコンボ更新
+            # 必要なら ActorインスペクターのWork/Characterコンボも更新？ (InspectorPanel内で行うべきか)
+        # 保存後にリストの選択状態を維持
         self.library_panel.select_item_by_id(item_id)
         # 役割割り当ても更新（ActorやSceneが変更された場合）
         if db_key in ["actors", "scenes"]:
-            self.build_role_assignment_ui()
+            self.prompt_panel.build_role_assignment_ui()
 
-    # --- UI更新メソッド ---
-    def update_scene_combo(self):
-        """シーン選択コンボボックスの内容を更新します。"""
-        print("[DEBUG] update_scene_combo called.")
-        current_scene_id_before_update = self.current_scene_id
-
-        self.scene_combo.blockSignals(True)
-        self.scene_combo.clear()
-        scene_list = sorted(
-            self.db_data.get("scenes", {}).values(), key=lambda s: s.name.lower()
-        )
-        print(f"[DEBUG] update_scene_combo: Found {len(scene_list)} scenes.")
-        if not scene_list:
-            self.scene_combo.addItem("No scenes available")
-            self.scene_combo.setEnabled(False)
-            print("[DEBUG] update_scene_combo: No scenes available.")
-            self.current_scene_id = None
-        else:
-            scene_ids = [s.id for s in scene_list]
-            self.scene_combo.addItems([s.name for s in scene_list])
-
-            current_scene_index = 0
-            target_id = (
-                current_scene_id_before_update
-                if current_scene_id_before_update in scene_ids
-                else (scene_ids[0] if scene_ids else None)
-            )
-
-            if target_id and target_id in scene_ids:
-                try:
-                    current_scene_index = scene_ids.index(target_id)
-                    self.current_scene_id = target_id
-                except ValueError:
-                    print(
-                        f"[DEBUG] update_scene_combo: target_id '{target_id}' not found unexpectedly."
-                    )
-                    if scene_ids:
-                        self.current_scene_id = scene_ids[0]
-                        current_scene_index = 0
-                    else:
-                        self.current_scene_id = None
-                        current_scene_index = -1
-            elif scene_ids:
-                self.current_scene_id = scene_ids[0]
-                current_scene_index = 0
-                print(
-                    f"[DEBUG] update_scene_combo: set to first: {self.current_scene_id}"
-                )
-            else:
-                self.current_scene_id = None
-                current_scene_index = -1
-
-            if self.current_scene_id is not None and current_scene_index >= 0:
-                print(
-                    f"[DEBUG] update_scene_combo: Setting index to {current_scene_index} (ID: {self.current_scene_id})"
-                )
-                self.scene_combo.setCurrentIndex(current_scene_index)
-                self.scene_combo.setEnabled(True)
-            else:
-                self.scene_combo.setCurrentIndex(-1)
-                self.scene_combo.setEnabled(False)
-
-        self.scene_combo.blockSignals(False)
-        # シーンが変わった可能性があるので役割割り当てUIも更新
-        if current_scene_id_before_update != self.current_scene_id:
-            self.build_role_assignment_ui()
-            self.actor_assignments = {}  # シーンが変わったら割り当てリセット
+    @Slot(str)
+    def _handle_scene_change(self, new_scene_id: str):
+        """PromptPanel からシーン変更の通知を受け取るスロット。"""
+        print(f"[DEBUG] MainWindow received sceneChanged signal: {new_scene_id}")
+        current_scene_id_before = self.current_scene_id
+        self.current_scene_id = new_scene_id if new_scene_id else None
+        # ★ シーンが変わった場合のみプロンプトリセット (actor_assignments のリセットは不要)
+        if current_scene_id_before != self.current_scene_id:
+            # self.actor_assignments = {} # ← 不要になったので削除
             self.generated_prompts = []
             self.update_prompt_display()
-        print("[DEBUG] update_scene_combo complete.")
+            # PromptPanel 側で build_role_assignment_ui が呼ばれる
 
-    def build_role_assignment_ui(self):
-        """役割割り当てUIを動的に構築します。"""
-        print(
-            f"[DEBUG] build_role_assignment_ui called for scene ID: {self.current_scene_id}"
-        )
-
-        layout = self.role_assignment_widget.layout()
-        if layout is None:
-            layout = QVBoxLayout(self.role_assignment_widget)
-        else:
-            # 既存ウィジェット削除
-            item = layout.takeAt(0)
-            while item is not None:
-                widget = item.widget()
-                if widget is not None:
-                    widget.deleteLater()
-                else:
-                    layout_item = item.layout()
-                    if layout_item is not None:
-                        while layout_item.count():
-                            inner_item = layout_item.takeAt(0)
-                            inner_widget = inner_item.widget()
-                            if inner_widget:
-                                inner_widget.deleteLater()
-                        layout_item.deleteLater()
-                item = layout.takeAt(0)
-
-        layout.addWidget(QLabel("2. Assign Actors to Roles:"))
-        current_scene = (
-            self.db_data.get("scenes", {}).get(self.current_scene_id)
-            if self.current_scene_id
-            else None
-        )
-
-        if not current_scene:
-            layout.addWidget(QLabel("No scene selected."))
-            layout.addStretch()
-            return
-
-        actor_list = list(self.db_data.get("actors", {}).values())
-        actor_names = ["-- Select Actor --"] + [a.name for a in actor_list]
-        actor_ids = [""] + [a.id for a in actor_list]
-
-        if not current_scene.roles:
-            layout.addWidget(QLabel("(このシーンには配役が定義されていません)"))
-
-        for role in current_scene.roles:
-            role_layout = QHBoxLayout()
-            label_text = f"{role.name_in_scene} ([{role.id.upper()}])"
-            role_layout.addWidget(QLabel(label_text))
-            combo = QComboBox()
-            combo.addItems(actor_names)
-            assigned_actor_id = self.actor_assignments.get(role.id)
-            current_index = 0
-            if assigned_actor_id and assigned_actor_id in actor_ids:
-                try:
-                    current_index = actor_ids.index(assigned_actor_id)
-                except ValueError:
-                    pass
-            combo.setCurrentIndex(current_index)
-            combo.currentIndexChanged.connect(
-                lambda index, r_id=role.id, ids=list(actor_ids): self.on_actor_assigned(
-                    r_id, ids[index] if 0 <= index < len(ids) else ""
-                )
-            )
-            role_layout.addWidget(combo)
-            layout.addLayout(role_layout)
-
-        layout.addStretch()
-        print("[DEBUG] build_role_assignment_ui complete.")
-
-    @Slot(int)
-    def on_scene_changed(self, index):
-        """シーン選択コンボボックスの選択が変更されたときの処理。"""
-        print(f"[DEBUG] on_scene_changed called with index: {index}")
-        scene_list = sorted(
-            self.db_data.get("scenes", {}).values(), key=lambda s: s.name.lower()
-        )
-        if 0 <= index < len(scene_list):
-            new_scene_id = scene_list[index].id
-            print(f"[DEBUG] Selected scene ID from list: {new_scene_id}")
-            if new_scene_id != self.current_scene_id:
-                print(
-                    f"[DEBUG] Scene ID changed! Old: {self.current_scene_id}, New: {new_scene_id}"
-                )
-                self.current_scene_id = new_scene_id
-                self.actor_assignments = {}  # 割り当てリセット
-                self.generated_prompts = []  # 生成プロンプトリセット
-                self.build_role_assignment_ui()  # 役割割り当てUI更新
-                self.update_prompt_display()  # プロンプト表示クリア
-            else:
-                print("[DEBUG] Scene index changed, but ID is the same.")
-        else:
-            print(f"[DEBUG] Invalid scene index selected: {index}")
-
-    @Slot(str, str)
-    def on_actor_assigned(self, role_id, actor_id):
-        """役割割り当てコンボボックスの選択が変更されたときの処理。"""
-        print(
-            f"[DEBUG] on_actor_assigned called for Role ID: {role_id}, Actor ID: '{actor_id}'"
-        )
-        if actor_id:
-            self.actor_assignments[role_id] = actor_id
-        else:
-            if role_id in self.actor_assignments:
-                del self.actor_assignments[role_id]
-        print(f"[DEBUG] Current assignments: {self.actor_assignments}")
-        self.generated_prompts = []  # 割り当てが変わったらプロンプトはリセット
+    @Slot(dict)
+    def _handle_assignment_change(self, new_assignments: dict):
+        """PromptPanel から割り当て変更の通知を受け取るスロット。"""
+        print(f"[DEBUG] MainWindow received assignmentChanged: {new_assignments}")
+        self.actor_assignments = new_assignments.copy()  # 受け取った辞書のコピーで更新
+        # 割り当てが変わったら生成済みプロンプトはリセット
+        self.generated_prompts = []
         self.update_prompt_display()
 
+    # --- コアロジックメソッド ---
     @Slot()
     def generate_prompts(self):
-        """プロンプト生成ボタンがクリックされたときの処理。"""
+        """プロンプト生成を実行します (PromptPanelから呼ばれる)。"""
         if not self.current_scene_id:
             QMessageBox.warning(self, "Generate", "Please select a scene first.")
             return
@@ -515,6 +330,13 @@ class MainWindow(QMainWindow):
         if not current_scene:
             QMessageBox.warning(self, "Generate", "Selected scene data not found.")
             return
+        print(f"[DEBUG] generate_prompts: Checking scene ID: {self.current_scene_id}")
+        print(
+            f"[DEBUG] generate_prompts: Expected Role IDs: {[r.id for r in current_scene.roles]}"
+        )
+        print(
+            f"[DEBUG] generate_prompts: Current assignments: {self.actor_assignments}"
+        )
         missing_roles = [
             r.name_in_scene
             for r in current_scene.roles
@@ -528,8 +350,29 @@ class MainWindow(QMainWindow):
             )
             return
         try:
+            # --- ★ generate_batch_prompts に渡す FullDatabase オブジェクトを作成 ---
+            full_db = FullDatabase(
+                works=self.db_data.get("works", {}),
+                characters=self.db_data.get("characters", {}),
+                actors=self.db_data.get("actors", {}),
+                costumes=self.db_data.get("costumes", {}),
+                poses=self.db_data.get("poses", {}),
+                expressions=self.db_data.get("expressions", {}),
+                directions=self.db_data.get("directions", {}),
+                backgrounds=self.db_data.get("backgrounds", {}),
+                lighting=self.db_data.get("lighting", {}),
+                compositions=self.db_data.get("compositions", {}),
+                scenes=self.db_data.get("scenes", {}),
+                sdParams=self.sd_params,
+            )
+            # --- ★ 修正ここまで ---
+            # self.generated_prompts = generate_batch_prompts(
+            #     self.current_scene_id, self.actor_assignments, self.db_data # 古い呼び出し方
+            # )
             self.generated_prompts = generate_batch_prompts(
-                self.current_scene_id, self.actor_assignments, self.db_data
+                self.current_scene_id,
+                self.actor_assignments,
+                full_db,  # ★ 修正後
             )
             self.update_prompt_display()
         except Exception as e:
@@ -541,7 +384,7 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def execute_generation(self):
-        """画像生成実行ボタンがクリックされたときの処理。"""
+        """画像生成を実行します (PromptPanelから呼ばれる)。"""
         if not self.generated_prompts:
             QMessageBox.warning(
                 self, "Execute", "Please generate prompt previews first."
@@ -581,108 +424,108 @@ class MainWindow(QMainWindow):
             return
         display_text = ""
         for p in self.generated_prompts:
-            display_text += f"--- {p.name} ---\nPositive:\n{p.positive}\n\nNegative:\n{p.negative}\n------------------------------------\n\n"
+            # firstActorInfo の表示（オプション）
+            actor_info_str = ""
+            if p.firstActorInfo:
+                char = p.firstActorInfo.get("character")
+                work = p.firstActorInfo.get("work")
+                if char and work:
+                    actor_info_str = f" ({getattr(work, 'title_jp', '')} - {getattr(char, 'name', '')})"
+
+            display_text += f"--- {p.name}{actor_info_str} ---\nPositive:\n{p.positive}\n\nNegative:\n{p.negative}\n------------------------------------\n\n"
         self.prompt_display_area.setPlainText(display_text)
         print("[DEBUG] Prompt display area updated.")
 
     def update_ui_after_data_change(self):
         """データ変更（インポート、新規追加、削除など）後にUI全体を更新します。"""
         print("[DEBUG] update_ui_after_data_change called.")
-        # リストの現在の選択状態を保持（試行）
-        current_list_selection_id = (
-            self.library_panel.library_list_widget.currentItem().data(
-                Qt.ItemDataRole.UserRole
+        # リストの現在の選択状態を保持
+        current_list_selection_id = None
+        if self.library_panel.library_list_widget.currentItem():
+            current_list_selection_id = (
+                self.library_panel.library_list_widget.currentItem().data(
+                    Qt.ItemDataRole.UserRole
+                )
             )
-            if self.library_panel.library_list_widget.currentItem()
-            else None
-        )
+        current_type_index = self.library_panel.library_type_combo.currentIndex()
 
-        self.update_scene_combo()  # シーンコンボ更新
-        self.library_panel.update_list()  # ライブラリリスト更新
+        self.prompt_panel.set_data_reference(self.db_data)
+        # update_scene_combo は set_data_reference 内で呼ばれる場合があるので確認
+        # self.prompt_panel.update_scene_combo() # 必要に応じて呼び出し
+        self.library_panel.update_list()
 
-        # リスト選択状態の復元 (update_list で選択がクリアされるため)
+        # リストタイプと選択状態を復元
+        if current_type_index >= 0:
+            self.library_panel.library_type_combo.blockSignals(True)
+            self.library_panel.library_type_combo.setCurrentIndex(current_type_index)
+            self.library_panel.library_type_combo.blockSignals(False)
+            # update_list が呼ばれるので二重更新に注意が必要な場合がある
+
         if current_list_selection_id:
             self.library_panel.select_item_by_id(current_list_selection_id)
-            # select_item_by_id の後、インスペクターを手動更新
-            self.inspector_panel.update_inspector(
-                self.library_panel._current_db_key, current_list_selection_id
-            )
+            # 再選択後にインスペクターを更新
+            if self.library_panel._current_db_key:  # タイプが確定していることを確認
+                self.inspector_panel.update_inspector(
+                    self.library_panel._current_db_key, current_list_selection_id
+                )
         else:
             self.inspector_panel.clear_inspector()
 
-        self.build_role_assignment_ui()  # 役割割り当てUI更新
-        # 必要ならプロンプト表示もクリア
-        # self.generated_prompts = []
-        # self.update_prompt_display()
+        # プロンプト表示はシーンが変わった場合のみリセット
+        # (on_scene_changed / _handle_scene_change で対応)
 
         print("[DEBUG] update_ui_after_data_change complete.")
 
     def open_edit_dialog(self, modal_type: str, item_data: Optional[Any]):
         """新規アイテム追加用の編集ダイアログを開きます。"""
-        # (この関数の中身は変更なし、主に新規追加用)
-        dialog: Optional[QDialog] = None
-        db_key_map = {
-            "WORK": "works",
-            "CHARACTER": "characters",
-            "ACTOR": "actors",
-            "SCENE": "scenes",
-            "DIRECTION": "directions",
-            "COSTUME": "costumes",
-            "POSE": "poses",
-            "EXPRESSION": "expressions",
-            "BACKGROUND": "backgrounds",
-            "LIGHTING": "lighting",
-            "COMPOSITION": "compositions",
-        }
-        db_key = db_key_map.get(modal_type)
-        if not db_key:
+        # マッピングからフォームクラスと db_key を取得
+        form_info = self.form_mapping.get(modal_type)
+        if not form_info:
             QMessageBox.warning(
                 self, "Error", f"Invalid modal type for dialog: {modal_type}"
+            )
+            return
+
+        FormClass, db_key_str = form_info
+        # db_key_str を DatabaseKey に変換 (バリデーション)
+        db_key: Optional[DatabaseKey] = (
+            db_key_str if db_key_str in get_args(DatabaseKey) else None
+        )
+        if not db_key:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Internal error: Invalid db_key '{db_key_str}' mapped for type '{modal_type}'",
             )
             return
 
         print(
             f"[DEBUG] open_edit_dialog called for type: {modal_type}, data: {'Exists' if item_data else 'None'}"
         )
-        try:
-            # フォームクラスのインスタンス化
-            FormClass = None
-            if modal_type == "ACTOR":
-                FormClass = AddActorForm
-            elif modal_type == "SCENE":
-                FormClass = AddSceneForm
-            elif modal_type == "DIRECTION":
-                FormClass = AddDirectionForm
-            elif modal_type in [
-                "WORK",
-                "CHARACTER",
-                "COSTUME",
-                "POSE",
-                "EXPRESSION",
-                "BACKGROUND",
-                "LIGHTING",
-                "COMPOSITION",
-            ]:
-                FormClass = AddSimplePartForm
+        dialog: Optional[QDialog] = None
 
-            if FormClass:
-                # AddSimplePartForm は引数が異なるので分岐
-                if FormClass == AddSimplePartForm:
-                    dialog = FormClass(
-                        item_data, modal_type, self
-                    )  # 第2引数は modal_type 文字列
-                else:
-                    dialog = FormClass(
-                        item_data, self.db_data, self
-                    )  # 他は db_data を渡す
-                print(f"[DEBUG] Dialog instance created: {dialog}")
+        try:
+            # マッピングに基づいてフォームをインスタンス化
+            if FormClass in [
+                AddWorkForm,
+                AddCharacterForm,
+                AddActorForm,
+                AddSceneForm,
+                AddDirectionForm,
+            ]:
+                # これらのフォームは db_dict (全データ) を必要とする
+                dialog = FormClass(item_data, self.db_data, self)
+            elif FormClass == AddSimplePartForm:
+                # AddSimplePartForm は modal_type 文字列を必要とする
+                dialog = FormClass(item_data, modal_type, self)
             else:
                 QMessageBox.warning(
                     self,
                     "Not Implemented",
-                    f"Dialog for '{modal_type}' not implemented.",
+                    f"Dialog logic for '{modal_type}' needs implementation.",
                 )
                 return
+            print(f"[DEBUG] Dialog instance created: {dialog}")
 
         except Exception as e:
             QMessageBox.critical(
@@ -696,84 +539,42 @@ class MainWindow(QMainWindow):
             result = dialog.exec()
             if result == QDialog.DialogCode.Accepted:
                 if hasattr(dialog, "get_data") and callable(dialog.get_data):
-                    saved_data = dialog.get_data()
-                    # --- ★ Work, Character の dataclass 変換を追加 ---
-                    if saved_data:
-                        TargetClass = None
-                        if modal_type == "WORK":
-                            TargetClass = Work
-                        elif modal_type == "CHARACTER":
-                            TargetClass = Character
-                        # AddSimplePartForm は PromptPartBase を返すので、必要なら変換
-                        if TargetClass and not isinstance(saved_data, TargetClass):
-                            try:
-                                # PromptPartBase の属性を使って新しいクラスを生成
-                                # Note: AddSimplePartForm が返すデータ構造に依存
-                                new_data_dict = saved_data.__dict__
-                                # 足りない属性があればデフォルト値で補う (例)
-                                if modal_type == "WORK":
-                                    if "title_jp" not in new_data_dict:
-                                        new_data_dict["title_jp"] = (
-                                            saved_data.name
-                                        )  # name を流用
-                                    if "title_en" not in new_data_dict:
-                                        new_data_dict["title_en"] = ""
-                                    if "sns_tags" not in new_data_dict:
-                                        new_data_dict["sns_tags"] = ""
-                                elif modal_type == "CHARACTER":
-                                    if "work_id" not in new_data_dict:
-                                        # TODO: Character追加時にWork IDを選択させるUIが必要
-                                        QMessageBox.warning(
-                                            self,
-                                            "Warning",
-                                            "Work ID is missing for the new character.",
-                                        )
-                                        new_data_dict["work_id"] = (
-                                            ""  # とりあえず空文字
-                                        )
+                    saved_data = (
+                        dialog.get_data()
+                    )  # 各フォームは正しいデータ型を返すように実装されている想定
 
-                                saved_data = TargetClass(**new_data_dict)
-                                print(
-                                    f"[DEBUG] Converted saved data to {TargetClass.__name__}"
-                                )
-                            except Exception as conv_e:
-                                print(
-                                    f"[DEBUG] Error converting saved data to {TargetClass.__name__}: {conv_e}"
-                                )
-                                saved_data = None  # 変換失敗時は None に
-                    # --- ここまで ---
-
-                    # db_key が DatabaseKey 型であることを確認
-                    valid_db_key: Optional[DatabaseKey] = (
-                        db_key if db_key in get_args(DatabaseKey) else None
-                    )
-
-                    if saved_data and valid_db_key and valid_db_key in self.db_data:
+                    if saved_data and db_key in self.db_data:  # db_key は有効なはず
                         print(
-                            f"[DEBUG] Dialog returned data: {saved_data.id}. Adding to db_data."
+                            f"[DEBUG] Dialog returned data: {saved_data.id} of type {type(saved_data).__name__}. Adding to db_data."
                         )
-                        self.db_data[valid_db_key][saved_data.id] = (
-                            saved_data  # メモリに追加
-                        )
-                        self.update_ui_after_data_change()  # UI更新
-                        # 追加したアイテムを選択
+                        # 1. メモリに追加
+                        self.db_data[db_key][saved_data.id] = saved_data
+                        # 2. DBに即時保存
+                        try:
+                            self.data_handler.save_single_item(db_key, saved_data)
+                        except Exception as db_save_e:
+                            print(
+                                f"[ERROR] Failed to immediately save new item {saved_data.id} to DB: {db_save_e}"
+                            )
+                            QMessageBox.warning(
+                                self,
+                                "DB Save Error",
+                                f"Failed to save the new item {getattr(saved_data, 'name', saved_data.id)} to the database immediately. Please use 'Save to DB' later.",
+                            )
+                        # 3. UI更新
+                        self.update_ui_after_data_change()
                         self.library_panel.select_item_by_id(saved_data.id)
-                        self.inspector_panel.update_inspector(
-                            valid_db_key, saved_data.id
-                        )
-
-                    elif not valid_db_key:
-                        print(
-                            f"[DEBUG] Error: Invalid db_key '{db_key}' from modal_type '{modal_type}'."
-                        )
                     else:
-                        print("[DEBUG] Dialog accepted but returned no valid data.")
+                        print(
+                            "[DEBUG] Dialog accepted but returned no valid data or db_key mismatch."
+                        )
             else:
                 print("[DEBUG] Dialog cancelled or closed.")
 
     def delete_item(self, db_key: DatabaseKey, item_id: str):
         """指定されたアイテムを削除します（確認含む）。"""
         item_to_delete = self.db_data.get(db_key, {}).get(item_id)
+        # Work の場合は title_jp を表示名に使う
         item_name = getattr(item_to_delete, "title_jp", None) or getattr(
             item_to_delete, "name", item_id
         )
@@ -799,11 +600,7 @@ class MainWindow(QMainWindow):
                     self.current_scene_id = next(
                         iter(self.db_data.get("scenes", {})), None
                     )
-                # ★ Work や Character が削除された場合の Actor への影響 (今回は未対応)
-                # if db_key == "characters":
-                #    # このキャラクタを参照している Actor の character_id をリセットするなど
-                # if db_key == "works":
-                #    # この作品を参照している Character の work_id をリセットするなど
+                    # self.prompt_panel.set_current_scene(self.current_scene_id) # update_ui_after_data_change で呼ばれる
 
                 self.update_ui_after_data_change()  # UI全体更新
             else:
@@ -815,72 +612,4 @@ class MainWindow(QMainWindow):
 
 
 # --- Style Definitions (変更なし) ---
-# ... (以前のスタイル定義) ...
-buttonStyle: Dict[str, Any] = {
-    "padding": "10px",
-    "color": "white",
-    "border": "none",
-    "cursor": "pointer",
-    "fontSize": "14px",
-    "borderRadius": "4px",
-    "lineHeight": "1.5",
-}
-
-
-def buttonGridStyle(columns: int) -> Dict[str, Any]:
-    return {
-        "display": "grid",
-        "gridTemplateColumns": f"repeat({columns}, 1fr)",
-        "gap": "10px",
-    }
-
-
-sectionStyle: Dict[str, Any] = {
-    "marginBottom": "15px",
-    "paddingBottom": "15px",
-    "borderBottom": "2px solid #eee",
-}
-tinyButtonStyle: Dict[str, Any] = {
-    "fontSize": "10px",
-    "padding": "2px 4px",
-    "margin": "0 2px",
-}
-libraryListStyle: Dict[str, Any] = {
-    "maxHeight": "150px",
-    "overflowY": "auto",
-    "border": "1px solid #eee",
-    "marginTop": "5px",
-    "padding": "5px",
-}
-libraryItemStyle: Dict[str, Any] = {
-    "display": "flex",
-    "justifyContent": "space-between",
-    "padding": "3px 0",
-    "borderBottom": "1px solid #f9f9f9",
-}
-promptAreaStyle: Dict[str, Any] = {
-    "width": "95%",
-    "fontSize": "0.9em",
-    "padding": "4px",
-    "margin": "2px 0 5px 0",
-    "display": "block",
-    "boxSizing": "border-box",
-}
-sdParamRowStyle: Dict[str, Any] = {
-    "display": "flex",
-    "justifyContent": "space-between",
-    "alignItems": "center",
-    "margin": "3px 0",
-}
-sdInputStyle: Dict[str, Any] = {"width": "60%"}
-directionItemStyle: Dict[str, Any] = {
-    "display": "flex",
-    "justifyContent": "space-between",
-    "padding": "2px 4px",
-    "fontSize": "0.9em",
-    "backgroundColor": "#f9f9f9",
-    "margin": "2px 0",
-    "borderRadius": "3px",
-}
-
-# (メイン実行部分は main.py にある)
+# ... (省略) ...

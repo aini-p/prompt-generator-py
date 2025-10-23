@@ -269,6 +269,59 @@ class DataHandler:
                     print(f"[DEBUG] Error importing data: {e}")
         return None  # インポートがキャンセルされたか失敗した場合
 
+    def save_single_item(self, db_key: DatabaseKey, item_data: Any):
+        """指定されたタイプの単一アイテムをデータベースに保存します。"""
+        print(
+            f"[DEBUG] DataHandler.save_single_item called for {db_key} - {getattr(item_data, 'id', 'N/A')}"
+        )
+        try:
+            if db_key == "works" and isinstance(item_data, Work):
+                db.save_work(item_data)
+            elif db_key == "characters" and isinstance(item_data, Character):
+                db.save_character(item_data)
+            elif db_key == "actors" and isinstance(item_data, Actor):
+                db.save_actor(item_data)
+            elif db_key == "scenes" and isinstance(item_data, Scene):
+                db.save_scene(item_data)
+            elif db_key == "directions" and isinstance(item_data, Direction):
+                db.save_direction(item_data)
+            elif db_key == "costumes" and isinstance(item_data, Costume):
+                db.save_costume(item_data)
+            elif db_key == "poses" and isinstance(item_data, Pose):
+                db.save_pose(item_data)
+            elif db_key == "expressions" and isinstance(item_data, Expression):
+                db.save_expression(item_data)
+            elif db_key == "backgrounds" and isinstance(item_data, Background):
+                db.save_background(item_data)
+            elif db_key == "lighting" and isinstance(item_data, Lighting):
+                db.save_lighting(item_data)
+            elif db_key == "compositions" and isinstance(item_data, Composition):
+                db.save_composition(item_data)
+            elif db_key == "sdParams" and isinstance(item_data, StableDiffusionParams):
+                # SD Params は通常 save_all_data で処理されるが、念のため
+                db.save_sd_params(item_data)
+            else:
+                print(
+                    f"[DEBUG] Warning: save_single_item - Unsupported db_key '{db_key}' or incorrect data type '{type(item_data).__name__}'."
+                )
+                return  # 保存処理を行わない
+
+            print(
+                f"[DEBUG] Successfully saved item {getattr(item_data, 'id', 'N/A')} to DB table '{db_key}'."
+            )
+
+        except Exception as e:
+            # 保存失敗しても致命的エラーにはしない（メモリ上には残る）
+            QMessageBox.warning(
+                self.main_window,
+                "DB Save Warning",
+                f"Failed to save new item {getattr(item_data, 'id', 'N/A')} to database immediately: {e}",
+            )
+            print(f"[DEBUG] Error in save_single_item for {db_key}: {e}")
+            import traceback
+
+            traceback.print_exc()
+
     def handle_delete_part(
         self, db_key: DatabaseKey, partId: str, db_data: Dict[str, Dict[str, Any]]
     ) -> bool:

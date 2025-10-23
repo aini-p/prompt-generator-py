@@ -57,9 +57,9 @@ def initialize_db():
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, work_id TEXT, tags TEXT
             )""")
         # --- ★ Actor テーブル修正 ---
-        cursor.execute(
-            """ DROP TABLE IF EXISTS actors """
-        )  # 古い構造を削除（開発中のみ）
+        # cursor.execute(
+        #    """ DROP TABLE IF EXISTS actors """
+        # )  # 古い構造を削除（開発中のみ）
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS actors (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
