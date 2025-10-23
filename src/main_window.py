@@ -235,29 +235,46 @@ class MainWindow(QMainWindow):
             # UI全体更新
             self.update_ui_after_data_change()
 
-    @Slot(str, str)  # DatabaseKey -> str に変更
-    def _handle_add_new_item(
-        self, db_key_str: str, modal_title: str
-    ):  # db_key -> db_key_str に変更
-        """LibraryPanel の Add New ボタンに対応するスロット。"""
-        # 受け取った文字列が有効な DatabaseKey か確認
+    @Slot(str, str)  # LibraryPanel から str で受け取る
+    def _handle_add_new_item(self, db_key_str: str, modal_title: str):
+        # db_key_str を DatabaseKey に変換 (バリデーション)
         db_key: Optional[DatabaseKey] = (
             db_key_str if db_key_str in get_args(DatabaseKey) else None
-        )  # get_args を使用
+        )
         if not db_key:
-            print(
-                f"[DEBUG] Error: _handle_add_new_item received invalid db_key: {db_key_str}"
-            )
             return
 
-        # modal_title から最後の 's' を取り除き、大文字に変換して modal_type を作成
-        modal_type = (
-            modal_title[:-1].upper()
-            if modal_title.endswith("s")
-            else modal_title.upper()
-        )
-        # 新規追加ダイアログを開く
-        self.open_edit_dialog(modal_type, None)
+        # --- ★ modal_type の決定ロジック修正 ---
+        modal_type = ""
+        # 複数形から単数形の名前に変換し、大文字にする (より汎用的に)
+        if db_key == "scenes":
+            modal_type = "SCENE"
+        elif db_key == "actors":
+            modal_type = "ACTOR"
+        elif db_key == "works":
+            modal_type = "WORK"  # ★ 追加
+        elif db_key == "characters":
+            modal_type = "CHARACTER"  # ★ 追加
+        elif db_key == "directions":
+            modal_type = "DIRECTION"
+        elif db_key == "costumes":
+            modal_type = "COSTUME"
+        elif db_key == "poses":
+            modal_type = "POSE"
+        elif db_key == "expressions":
+            modal_type = "EXPRESSION"
+        elif db_key == "backgrounds":
+            modal_type = "BACKGROUND"
+        elif db_key == "lighting":
+            modal_type = "LIGHTING"
+        elif db_key == "compositions":
+            modal_type = "COMPOSITION"
+
+        if modal_type:
+            print(f"[DEBUG] Add New button clicked for type: {db_key} -> {modal_type}")
+            self.open_edit_dialog(modal_type, None)  # 新規追加ダイアログを開く
+        else:
+            print(f"[DEBUG] Error: Cannot determine modal_type for db_key '{db_key}'")
 
     @Slot(str, str)  # DatabaseKey -> str に変更
     def _handle_delete_item(
@@ -277,41 +294,35 @@ class MainWindow(QMainWindow):
         self.delete_item(db_key, item_id)
 
     # --- ★★★ 修正箇所 (Slot と 型ヒント) ★★★ ---
-    @Slot(str, str, object)  # DatabaseKey -> str に変更
+    @Slot(str, str, object)  # InspectorPanel から str で受け取る
     def _handle_inspector_save(
         self, db_key_str: str, item_id: str, updated_object: Any
-    ):  # db_key -> db_key_str
-        """InspectorPanel で変更が保存されたときの処理。"""
-        # 受け取った文字列が有効な DatabaseKey か確認
+    ):
         db_key: Optional[DatabaseKey] = (
             db_key_str if db_key_str in get_args(DatabaseKey) else None
         )
         if not db_key:
-            print(
-                f"[DEBUG] Error: _handle_inspector_save received invalid db_key: {db_key_str}"
-            )
             return
 
-        print(
-            f"[DEBUG] Received changesSaved signal for {db_key} - {item_id}"
-        )  # db_key を使用
-        # --- ★★★ 修正ここまで ★★★ ---
-
-        # メモリ上のデータを更新 (InspectorPanel内でも更新されているが念のため)
+        print(f"[DEBUG] Received changesSaved signal for {db_key} - {item_id}")
         if db_key == "sdParams":
-            self.sd_params = updated_object  # 更新されたオブジェクトで置き換え
-            # SD Params は直接DBに保存する (DataHandlerを使っても良い)
-            db.save_sd_params(self.sd_params)
+            self.sd_params = updated_object
+            # db.save_sd_params(self.sd_params) # Inspector側で保存済み
         elif db_key in self.db_data:
             self.db_data[db_key][item_id] = updated_object
 
-        # UI更新 (リストの表示名が変わった場合など)
-        self.library_panel.update_list()  # リストを再描画
-        # 必要ならシーンコンボボックスも更新
-        if db_key == "scenes":
+        # UI更新
+        # ★ LibraryPanel の update_list を呼び出す
+        self.library_panel.update_list()
+        if (
+            db_key == "scenes" or db_key == "works"
+        ):  # Work名変更も Scene コンボに影響する可能性
             self.update_scene_combo()
-        # 保存後にリストの選択状態を維持（update_listで選択が解除されるため再選択）
+        # ★ LibraryPanel の select_item_by_id を呼び出す
         self.library_panel.select_item_by_id(item_id)
+        # 役割割り当ても更新（ActorやSceneが変更された場合）
+        if db_key in ["actors", "scenes"]:
+            self.build_role_assignment_ui()
 
     # --- UI更新メソッド ---
     def update_scene_combo(self):
@@ -611,6 +622,8 @@ class MainWindow(QMainWindow):
         # (この関数の中身は変更なし、主に新規追加用)
         dialog: Optional[QDialog] = None
         db_key_map = {
+            "WORK": "works",
+            "CHARACTER": "characters",
             "ACTOR": "actors",
             "SCENE": "scenes",
             "DIRECTION": "directions",
@@ -641,6 +654,8 @@ class MainWindow(QMainWindow):
             elif modal_type == "DIRECTION":
                 FormClass = AddDirectionForm
             elif modal_type in [
+                "WORK",
+                "CHARACTER",
                 "COSTUME",
                 "POSE",
                 "EXPRESSION",
@@ -682,26 +697,85 @@ class MainWindow(QMainWindow):
             if result == QDialog.DialogCode.Accepted:
                 if hasattr(dialog, "get_data") and callable(dialog.get_data):
                     saved_data = dialog.get_data()
-                    if saved_data and db_key in self.db_data:
+                    # --- ★ Work, Character の dataclass 変換を追加 ---
+                    if saved_data:
+                        TargetClass = None
+                        if modal_type == "WORK":
+                            TargetClass = Work
+                        elif modal_type == "CHARACTER":
+                            TargetClass = Character
+                        # AddSimplePartForm は PromptPartBase を返すので、必要なら変換
+                        if TargetClass and not isinstance(saved_data, TargetClass):
+                            try:
+                                # PromptPartBase の属性を使って新しいクラスを生成
+                                # Note: AddSimplePartForm が返すデータ構造に依存
+                                new_data_dict = saved_data.__dict__
+                                # 足りない属性があればデフォルト値で補う (例)
+                                if modal_type == "WORK":
+                                    if "title_jp" not in new_data_dict:
+                                        new_data_dict["title_jp"] = (
+                                            saved_data.name
+                                        )  # name を流用
+                                    if "title_en" not in new_data_dict:
+                                        new_data_dict["title_en"] = ""
+                                    if "sns_tags" not in new_data_dict:
+                                        new_data_dict["sns_tags"] = ""
+                                elif modal_type == "CHARACTER":
+                                    if "work_id" not in new_data_dict:
+                                        # TODO: Character追加時にWork IDを選択させるUIが必要
+                                        QMessageBox.warning(
+                                            self,
+                                            "Warning",
+                                            "Work ID is missing for the new character.",
+                                        )
+                                        new_data_dict["work_id"] = (
+                                            ""  # とりあえず空文字
+                                        )
+
+                                saved_data = TargetClass(**new_data_dict)
+                                print(
+                                    f"[DEBUG] Converted saved data to {TargetClass.__name__}"
+                                )
+                            except Exception as conv_e:
+                                print(
+                                    f"[DEBUG] Error converting saved data to {TargetClass.__name__}: {conv_e}"
+                                )
+                                saved_data = None  # 変換失敗時は None に
+                    # --- ここまで ---
+
+                    # db_key が DatabaseKey 型であることを確認
+                    valid_db_key: Optional[DatabaseKey] = (
+                        db_key if db_key in get_args(DatabaseKey) else None
+                    )
+
+                    if saved_data and valid_db_key and valid_db_key in self.db_data:
                         print(
                             f"[DEBUG] Dialog returned data: {saved_data.id}. Adding to db_data."
                         )
-                        # 新規追加データをメモリに追加
-                        self.db_data[db_key][saved_data.id] = saved_data
-                        # UI全体を更新してリストに反映
-                        self.update_ui_after_data_change()
-                        # 追加したアイテムを選択状態にする
+                        self.db_data[valid_db_key][saved_data.id] = (
+                            saved_data  # メモリに追加
+                        )
+                        self.update_ui_after_data_change()  # UI更新
+                        # 追加したアイテムを選択
                         self.library_panel.select_item_by_id(saved_data.id)
-                        self.inspector_panel.update_inspector(db_key, saved_data.id)
-                    # (エラー処理などは省略)
+                        self.inspector_panel.update_inspector(
+                            valid_db_key, saved_data.id
+                        )
+
+                    elif not valid_db_key:
+                        print(
+                            f"[DEBUG] Error: Invalid db_key '{db_key}' from modal_type '{modal_type}'."
+                        )
+                    else:
+                        print("[DEBUG] Dialog accepted but returned no valid data.")
             else:
                 print("[DEBUG] Dialog cancelled or closed.")
 
     def delete_item(self, db_key: DatabaseKey, item_id: str):
         """指定されたアイテムを削除します（確認含む）。"""
         item_to_delete = self.db_data.get(db_key, {}).get(item_id)
-        item_name = (
-            getattr(item_to_delete, "name", item_id) if item_to_delete else item_id
+        item_name = getattr(item_to_delete, "title_jp", None) or getattr(
+            item_to_delete, "name", item_id
         )
         confirm = QMessageBox.question(
             self,
@@ -710,9 +784,7 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
-
         if confirm == QMessageBox.StandardButton.Yes:
-            # DataHandler を使って削除
             deleted = self.data_handler.handle_delete_part(
                 db_key, item_id, self.db_data
             )
@@ -720,17 +792,20 @@ class MainWindow(QMainWindow):
                 print(f"[DEBUG] Item {item_id} deleted successfully.")
                 # MainWindow 側の関連データ更新
                 if db_key == "actors":
-                    # 割り当てから削除
                     self.actor_assignments = {
                         k: v for k, v in self.actor_assignments.items() if v != item_id
                     }
                 if db_key == "scenes" and item_id == self.current_scene_id:
-                    # 現在のシーンが削除されたらリセット
                     self.current_scene_id = next(
                         iter(self.db_data.get("scenes", {})), None
                     )
-                # UI全体更新
-                self.update_ui_after_data_change()
+                # ★ Work や Character が削除された場合の Actor への影響 (今回は未対応)
+                # if db_key == "characters":
+                #    # このキャラクタを参照している Actor の character_id をリセットするなど
+                # if db_key == "works":
+                #    # この作品を参照している Character の work_id をリセットするなど
+
+                self.update_ui_after_data_change()  # UI全体更新
             else:
                 QMessageBox.warning(
                     self, "Delete Error", f"Failed to delete item '{item_id}'."

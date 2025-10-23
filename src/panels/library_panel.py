@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, Slot
 from typing import Dict, List, Tuple, Optional, Any
-from ..models import DatabaseKey
+from ..models import DatabaseKey, Work
 
 
 class LibraryPanel(QWidget):
@@ -54,6 +54,8 @@ class LibraryPanel(QWidget):
         type_layout.addWidget(QLabel("Type:"))
         self.library_type_combo = QComboBox()
         self.library_types: List[Tuple[str, DatabaseKey]] = [
+            ("Works", "works"),
+            ("Characters", "characters"),
             ("Scenes", "scenes"),
             ("Actors", "actors"),
             ("Directions", "directions"),
@@ -172,11 +174,19 @@ class LibraryPanel(QWidget):
             is_delete_enabled = False
             is_search_enabled = False
         elif isinstance(items_dict, dict):
+
+            def get_display_name(item: Any) -> str:
+                """Workならtitle_jp、それ以外ならnameを取得するローカル関数"""
+                if isinstance(item, Work):
+                    return getattr(item, "title_jp", "")
+                else:
+                    return getattr(item, "name", "")
+
             sorted_items = sorted(
                 items_dict.values(), key=lambda item: getattr(item, "name", "").lower()
             )
             for item_obj in sorted_items:
-                item_name = getattr(item_obj, "name", "Unnamed")
+                item_name = get_display_name(item_obj) or "Unnamed"
                 item_id = getattr(item_obj, "id", None)
                 if item_id:
                     list_item = QListWidgetItem(f"{item_name} ({item_id})")

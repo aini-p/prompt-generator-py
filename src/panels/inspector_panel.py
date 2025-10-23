@@ -12,10 +12,13 @@ from PySide6.QtWidgets import (
     QComboBox,
     QPushButton,
     QGroupBox,
+    QMessageBox,
 )
 from PySide6.QtCore import Qt, Signal, Slot
 from typing import Dict, Optional, Any, List
 from ..models import (  # 必要なモデルとDatabaseKeyをインポート
+    Work,
+    Character,
     Actor,
     Scene,
     Direction,
@@ -190,6 +193,10 @@ class InspectorPanel(QWidget):
                     self._add_direction_fields(form_layout, item_data)
                 elif isinstance(item_data, Scene):
                     self._add_scene_fields(form_layout, item_data)
+                elif isinstance(item_data, Work):
+                    self._add_work_fields(form_layout, item_data)
+                elif isinstance(item_data, Character):
+                    self._add_character_fields(form_layout, item_data)
             else:
                 item_data = None  # データがない場合は None に
 
@@ -208,8 +215,120 @@ class InspectorPanel(QWidget):
         self._widgets["_save_button"] = save_button
         self.form_layout_container.addStretch()
 
+    def _add_sd_param_fields(
+        self, layout: QFormLayout, item_data: StableDiffusionParams
+    ):
+        """SD Params 固有のフィールドをインスペクターに追加します。"""
+        fields_info = {
+            "steps": (QSpinBox, {"minimum": 1, "maximum": 200}),
+            "sampler_name": (QLineEdit, {}),
+            "cfg_scale": (
+                QDoubleSpinBox,
+                {"minimum": 1.0, "maximum": 30.0, "singleStep": 0.5},
+            ),
+            "seed": (QSpinBox, {"minimum": -1, "maximum": 2**31 - 1}),
+            "width": (QSpinBox, {"minimum": 64, "maximum": 4096, "singleStep": 64}),
+            "height": (QSpinBox, {"minimum": 64, "maximum": 4096, "singleStep": 64}),
+            "denoising_strength": (
+                QDoubleSpinBox,
+                {"minimum": 0.0, "maximum": 1.0, "singleStep": 0.05},
+            ),
+        }
+        for field_name, (widget_class, kwargs) in fields_info.items():
+            widget = widget_class(**kwargs)
+            current_value = getattr(item_data, field_name, None)
+            if isinstance(widget, QLineEdit):
+                widget.setText(str(current_value) if current_value is not None else "")
+            elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+                if isinstance(current_value, (int, float)):
+                    widget.setValue(current_value)
+            layout.addRow(f"{field_name.replace('_', ' ').capitalize()}:", widget)
+            self._widgets[field_name] = widget
+
+    def _add_common_fields(self, layout: QFormLayout, item_data: Any):
+        """PromptPartBase を継承するクラスの共通フィールドを追加します。"""
+        # ★ WorkとCharacterはnameを持たないので除外 or 個別処理
+        common_fields = ["name", "tags", "prompt", "negative_prompt"]
+        for field_name in common_fields:
+            if hasattr(item_data, field_name):
+                current_value = getattr(item_data, field_name)
+                if field_name == "tags":
+                    widget = QLineEdit(
+                        ", ".join(current_value)
+                        if isinstance(current_value, list)
+                        else ""
+                    )
+                elif field_name in ["prompt", "negative_prompt"]:
+                    widget = QTextEdit(
+                        current_value if current_value is not None else ""
+                    )
+                    widget.setFixedHeight(60)
+                else:
+                    widget = QLineEdit(
+                        current_value if current_value is not None else ""
+                    )
+                layout.addRow(f"{field_name.capitalize()}:", widget)
+                self._widgets[field_name] = widget
+
+    def _add_work_fields(self, layout: QFormLayout, item_data: Work):
+        """Work 固有のフィールドを追加します。"""
+        fields = ["title_jp", "title_en", "tags", "sns_tags"]
+        for field_name in fields:
+            current_value = getattr(item_data, field_name)
+            if field_name == "tags":
+                widget = QLineEdit(
+                    ", ".join(current_value) if isinstance(current_value, list) else ""
+                )
+            else:
+                widget = QLineEdit(current_value if current_value is not None else "")
+            layout.addRow(f"{field_name.replace('_', ' ').capitalize()}:", widget)
+            self._widgets[field_name] = widget
+
+    def _add_character_fields(self, layout: QFormLayout, item_data: Character):
+        """Character 固有のフィールドを追加します。"""
+        fields = ["name", "work_id", "tags"]
+        for field_name in fields:
+            current_value = getattr(item_data, field_name)
+            if field_name == "work_id":
+                widget = self._create_combo_box(
+                    current_value,
+                    self._db_data_ref.get("works", {}),
+                    allow_none=False,
+                    none_text="- Select Work -",
+                    display_attr="title_jp",
+                )
+            elif field_name == "tags":
+                widget = QLineEdit(
+                    ", ".join(current_value) if isinstance(current_value, list) else ""
+                )
+            else:  # name
+                widget = QLineEdit(current_value if current_value is not None else "")
+            layout.addRow(f"{field_name.replace('_', ' ').capitalize()}:", widget)
+            self._widgets[field_name] = widget
+
     def _add_actor_fields(self, layout: QFormLayout, item_data: Actor):
         """Actor固有のフィールドをインスペクターに追加します。"""
+        # --- ★ Work と Character 選択を追加 ---
+        # Work選択
+        work_combo = self._create_combo_box(
+            self._get_work_id_for_actor(item_data),  # 現在の Actor の Work ID を取得
+            self._db_data_ref.get("works", {}),
+            allow_none=True,
+            none_text="(Unassigned)",
+            display_attr="title_jp",
+        )
+        work_combo.currentIndexChanged.connect(
+            self._on_work_selection_changed
+        )  # 選択変更時の処理接続
+        layout.addRow("Work:", work_combo)
+        self._widgets["_work_selection"] = work_combo  # コンボボックス自体を保存
+
+        # Character選択 (Work に基づいてフィルタリング)
+        self.character_combo = QComboBox()  # Character コンボはインスタンス変数に保持
+        layout.addRow("Character:", self.character_combo)
+        self._widgets["character_id"] = self.character_combo  # Character ID 保存用
+        # 初期状態の Character リストを設定
+        self._update_character_combo(work_combo.currentData(), item_data.character_id)
         actor_fields = [
             "base_costume_id",
             "base_pose_id",
@@ -235,6 +354,63 @@ class InspectorPanel(QWidget):
                 widget = QLineEdit(current_value)
             layout.addRow(f"{field_name.replace('_', ' ').capitalize()}:", widget)
             self._widgets[field_name] = widget
+
+    def _get_work_id_for_actor(self, actor_data: Actor) -> Optional[str]:
+        """Actorデータから対応するWork IDを取得します。"""
+        if actor_data.character_id:
+            character = self._db_data_ref.get("characters", {}).get(
+                actor_data.character_id
+            )
+            if character:
+                return character.work_id
+        return None
+
+    @Slot(int)
+    def _on_work_selection_changed(self):
+        """Work選択コンボボックスの選択が変更されたときの処理。"""
+        work_combo = self._widgets.get("_work_selection")
+        if isinstance(work_combo, QComboBox):
+            selected_work_id = work_combo.currentData()
+            # Character コンボボックスの内容を更新 (選択はリセット)
+            self._update_character_combo(selected_work_id, None)
+
+    def _update_character_combo(
+        self, selected_work_id: Optional[str], current_character_id: Optional[str]
+    ):
+        """Character選択コンボボックスの内容を更新・選択します。"""
+        self.character_combo.blockSignals(True)
+        self.character_combo.clear()
+        self.character_combo.addItem("(None)", None)  # itemData に None
+        ids = [None]
+
+        filtered_characters = {}
+        if selected_work_id:
+            all_characters = self._db_data_ref.get("characters", {})
+            filtered_characters = {
+                char_id: char
+                for char_id, char in all_characters.items()
+                if char.work_id == selected_work_id
+            }
+
+        sorted_chars = sorted(
+            filtered_characters.values(), key=lambda c: c.name.lower()
+        )
+        for char in sorted_chars:
+            self.character_combo.addItem(
+                f"{char.name} ({char.id})", char.id
+            )  # itemData に ID
+            ids.append(char.id)
+
+        # 現在の Character ID を選択
+        try:
+            index = (
+                ids.index(current_character_id) if current_character_id in ids else 0
+            )
+            self.character_combo.setCurrentIndex(index)
+        except ValueError:
+            self.character_combo.setCurrentIndex(0)
+
+        self.character_combo.blockSignals(False)
 
     def _add_direction_fields(self, layout: QFormLayout, item_data: Direction):
         """Direction固有のフィールドをインスペクターに追加します。"""
@@ -315,36 +491,45 @@ class InspectorPanel(QWidget):
         items_dict: Dict[str, Any],
         allow_none: bool = True,
         none_text: str = "(None)",
+        display_attr: str = "name",
     ) -> QComboBox:
-        """参照ID選択用のコンボボックスを作成します。"""
+        """参照ID選択用のコンボボックスを作成（表示属性指定可能に）。"""
         widget = QComboBox()
         ids = []
-        display_names = []
         if allow_none:
-            widget.addItem(none_text, None)  # itemData に None を設定
+            widget.addItem(none_text, None)
             ids.append(None)
-            display_names.append(none_text)
 
-        # 項目を名前でソートして追加
+        def get_display_name(item: Any) -> str:
+            """Workならtitle_jp、それ以外ならnameを取得するローカル関数"""
+            if isinstance(item, Work):
+                return getattr(item, "title_jp", "")
+            else:
+                return getattr(item, "name", "")
+
         sorted_items = sorted(
-            items_dict.values(), key=lambda item: getattr(item, "name", "").lower()
+            items_dict.values(), key=lambda item: get_display_name(item).lower()
         )
+
         for item_obj in sorted_items:
             item_obj_id = getattr(item_obj, "id", None)
-            item_obj_name = getattr(item_obj, "name", item_obj_id)
+            item_obj_name = get_display_name(item_obj)
             if item_obj_id:
-                widget.addItem(
-                    f"{item_obj_name} ({item_obj_id})", item_obj_id
-                )  # itemData に ID を設定
+                widget.addItem(f"{item_obj_name} ({item_obj_id})", item_obj_id)
                 ids.append(item_obj_id)
-                display_names.append(item_obj_name)
 
-        # 現在の値を選択
         try:
-            index = ids.index(current_id) if current_id in ids else 0
-            widget.setCurrentIndex(index)
+            # current_id が None の場合も正しく処理
+            index = (
+                ids.index(current_id)
+                if current_id in ids
+                else (0 if allow_none or not ids else -1)
+            )
+            if index >= 0:
+                widget.setCurrentIndex(index)
         except ValueError:
-            widget.setCurrentIndex(0)  # 見つからなければ最初の項目 (None)
+            if allow_none:
+                widget.setCurrentIndex(0)
 
         return widget
 
@@ -360,8 +545,9 @@ class InspectorPanel(QWidget):
         db_key = self._current_db_key
         item_id = self._current_item_id
         updated_data = {}
-        original_item = None
+        original_item: Optional[Any] = None
         is_sd_params = db_key == "sdParams"
+        item_name = item_id  # エラー表示用
 
         print(f"[DEBUG] Inspector saving changes for {db_key} - {item_id}")
 
@@ -371,67 +557,72 @@ class InspectorPanel(QWidget):
             elif db_key in self._db_data_ref:
                 original_item = self._db_data_ref.get(db_key, {}).get(item_id)
             else:
-                QMessageBox.warning(
-                    self.parentWidget(), "Save Error", f"Invalid data type: {db_key}"
-                )
-                return
+                raise ValueError(f"Invalid data type: {db_key}")
 
             if not original_item:
-                QMessageBox.warning(
-                    self.parentWidget(), "Save Error", "Original item not found."
-                )
-                return
+                raise ValueError("Original item not found.")
+            item_name = getattr(original_item, "title_jp", None) or getattr(
+                original_item, "name", item_id
+            )
 
             # ウィジェットから値を取得し、型変換
             for field_name, widget in self._widgets.items():
-                if field_name == "_save_button":
-                    continue
-                target_type = type(getattr(original_item, field_name, ""))
-                value = None
-                if isinstance(widget, QLineEdit):
-                    value = widget.text().strip()
-                elif isinstance(widget, QTextEdit):
-                    value = widget.toPlainText().strip()
-                elif isinstance(widget, QSpinBox):
-                    value = widget.value()
-                elif isinstance(widget, QDoubleSpinBox):
-                    value = widget.value()
-                elif isinstance(widget, QComboBox):
-                    value = widget.currentData()  # itemData (ID または None) を取得
-                    # Note: "" vs None の扱い。ここでは ComboBox の itemData に従う
+                if field_name.startswith("_"):
+                    continue  # 内部用ウィジェットはスキップ (_save_button, _work_selection)
+
+                # Character コンボは character_id を直接取得
+                if widget is self.character_combo:
+                    value = widget.currentData()  # ID (str) or None
+                    field_name = "character_id"  # 保存するフィールド名
+                    target_type = str  # または Optional[str]
+                else:
+                    target_type = type(getattr(original_item, field_name, ""))
+                    value = None
+                    if isinstance(widget, QLineEdit):
+                        value = widget.text().strip()
+                    elif isinstance(widget, QTextEdit):
+                        value = widget.toPlainText().strip()
+                    elif isinstance(widget, QSpinBox):
+                        value = widget.value()
+                    elif isinstance(widget, QDoubleSpinBox):
+                        value = widget.value()
+                    elif isinstance(widget, QComboBox):
+                        value = widget.currentData()
 
                 # 型変換と値の格納
                 try:
                     processed_value = value
+                    original_value = getattr(original_item, field_name, None)
+                    original_type = type(original_value)
+
                     if value is not None:
                         if field_name == "tags" and isinstance(value, str):
                             processed_value = [
                                 tag.strip() for tag in value.split(",") if tag.strip()
                             ]
+                        # 元の型が Optional[str] で value が空文字列の場合、None にする (Directionなど)
+                        elif original_type is Optional[str] and value == "":
+                            processed_value = None
+                        # それ以外の型変換
                         elif target_type == int and not isinstance(value, int):
                             processed_value = int(value)
                         elif target_type == float and not isinstance(value, float):
                             processed_value = float(value)
+
+                    # 値が実際に変更されたか確認してから updated_data に追加 (必須ではない)
+                    # if processed_value != original_value:
                     updated_data[field_name] = processed_value
                 except (ValueError, TypeError) as e:
-                    print(
-                        f"[DEBUG] Type conversion error for field '{field_name}': {e}. Value: '{value}'"
-                    )
-                    QMessageBox.warning(
-                        self.parentWidget(),
-                        "Save Error",
-                        f"Invalid value for {field_name}: '{value}'",
-                    )
-                    return
+                    raise ValueError(f"Invalid value for {field_name}: '{value}' ({e})")
 
             # オブジェクトの属性を更新
             name_changed = False
             for field_name, value in updated_data.items():
                 if hasattr(original_item, field_name):
-                    if (
-                        field_name == "name"
-                        and getattr(original_item, field_name) != value
-                    ):
+                    # name または title_jp の変更を検出
+                    if (field_name == "name" or field_name == "title_jp") and getattr(
+                        original_item, field_name
+                    ) != value:
                         name_changed = True
                     setattr(original_item, field_name, value)
                 else:
@@ -440,18 +631,16 @@ class InspectorPanel(QWidget):
                     )
 
             print(f"[DEBUG] Updated item data for {item_id}: {original_item}")
-
-            # 変更保存シグナルを発行
-            self.changesSaved.emit(db_key, item_id, original_item)
-
+            self.changesSaved.emit(db_key, item_id, original_item)  # シグナル発行
             QMessageBox.information(
                 self.parentWidget(),
                 "Saved",
                 f"Changes for '{item_name}' saved in memory.\nPress 'Save to DB' to make changes persistent.",
             )
 
-            # 名前が変わった場合、リストの表示も更新する必要がある (MainWindow側で対応)
-
+        except ValueError as ve:  # 型変換エラーなどをキャッチ
+            QMessageBox.warning(self.parentWidget(), "Save Error", str(ve))
+            print(f"[DEBUG] Error saving inspector changes: {ve}")
         except Exception as e:
             QMessageBox.critical(
                 self.parentWidget(),

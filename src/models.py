@@ -4,6 +4,27 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Literal, TypeAlias
 
 
+# --- ★ Work と Character を追加 ---
+@dataclass
+class Work:
+    id: str
+    title_jp: str = ""
+    title_en: str = ""
+    tags: List[str] = field(default_factory=list)
+    sns_tags: str = ""  # カンマ区切り想定
+
+
+@dataclass
+class Character:
+    id: str
+    name: str = ""
+    work_id: str = ""  # 対応する Work の ID
+    tags: List[str] = field(
+        default_factory=list
+    )  # キャラクター固有のタグ（オプション）
+    # 必要ならキャラ固有プロンプトなども追加可能
+
+
 # --- ベースオブジェクト ---
 @dataclass
 class PromptPartBase:
@@ -45,13 +66,17 @@ class Composition(PromptPartBase):
     pass
 
 
+# --- Level 2: Actor, Direction ---
 @dataclass
 class Actor(PromptPartBase):
+    # --- ★ work_title, character_name を削除し、character_id を追加 ---
+    character_id: str = ""  # 対応する Character の ID
+    # --- ★ 削除ここまで ---
     base_costume_id: str = ""
     base_pose_id: str = ""
     base_expression_id: str = ""
-    work_title: str = ""
-    character_name: str = ""
+    # work_title: str = "" # 削除
+    # character_name: str = "" # 削除
 
 
 @dataclass
@@ -64,16 +89,14 @@ class Direction(PromptPartBase):
 # --- Level 3: Scene (シーン・テンプレート) ---
 @dataclass
 class SceneRole:
-    id: str  # プレイスホルダーID (例: "r1", "r2")
-    name_in_scene: str  # 編集可能な表示名 (例: "主人公")
+    id: str
+    name_in_scene: str
 
 
 @dataclass
 class RoleDirection:
-    role_id: str  # "r1"
-    direction_ids: List[str] = field(
-        default_factory=list
-    )  # ["dir_Smiling", "dir_Waving"]
+    role_id: str
+    direction_ids: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -89,7 +112,7 @@ class Scene:
     roles: List[SceneRole] = field(default_factory=list)
     role_directions: List[RoleDirection] = field(default_factory=list)
     reference_image_path: str = ""
-    image_mode: str = "txt2img"  # "txt2img" | "img2img" | "img2img_polish"
+    image_mode: str = "txt2img"
 
 
 # --- Stable Diffusion パラメータ ---
@@ -118,7 +141,7 @@ class ImageGenerationTask:
     mode: str
     filename_prefix: str
     source_image_path: str
-    denoising_strength: Optional[float]  # None or float
+    denoising_strength: Optional[float]
 
 
 # --- プロンプト生成結果の型 ---
@@ -128,14 +151,16 @@ class GeneratedPrompt:
     name: str
     positive: str
     negative: str
-    firstActorInfo: Optional[Dict[str, str]] = (
-        None  # {"work_title": "...", "character_name": "..."}
-    )
+    # ★ firstActorInfo の型を変更 (Character と Work を含める)
+    firstActorInfo: Optional[Dict[str, Any]] = None
+    # 例: {"character": Character(...), "work": Work(...)}
 
 
-# --- DB全体の構造 (Type Hinting用) ---
+# --- ★ DB全体の構造に Work と Character を追加 ---
 @dataclass
 class FullDatabase:
+    works: Dict[str, Work] = field(default_factory=dict)  # 追加
+    characters: Dict[str, Character] = field(default_factory=dict)  # 追加
     actors: Dict[str, Actor] = field(default_factory=dict)
     costumes: Dict[str, Costume] = field(default_factory=dict)
     poses: Dict[str, Pose] = field(default_factory=dict)
@@ -150,7 +175,6 @@ class FullDatabase:
 
 # --- Helper functions ---
 def list_to_json_str(data_list: List[Any]) -> str:
-    # Check if items are dataclasses before accessing __dict__
     return json.dumps(
         [item.__dict__ if hasattr(item, "__dict__") else item for item in data_list]
     )
@@ -162,24 +186,42 @@ def json_str_to_list(json_str: Optional[str], class_type: type) -> List[Any]:
     try:
         data = json.loads(json_str)
         if callable(class_type):
+            # リスト内の各辞書に対してクラスをインスタンス化
+            # ここで **item が失敗する場合、item が辞書でない可能性がある
             return [class_type(**item) for item in data if isinstance(item, dict)]
         else:
             print(f"Warning: class_type {class_type} is not callable for JSON list.")
-            return data
+            return data  # 変換せずにそのまま返す
     except json.JSONDecodeError:
         print(
             f"Error decoding JSON for {getattr(class_type, '__name__', class_type)}: {json_str}"
         )
         return []
     except TypeError as e:
+        # **item でインスタンス化しようとした際に、予期せぬキーや型があると発生
         print(
-            f"Error creating instance of {getattr(class_type, '__name__', class_type)}: {e}. JSON: {json_str}"
-        )
-        return []
+            f"Error creating instance of {getattr(class_type, '__name__', class_type)}: {e}. JSON part: {json_str[:100]}..."
+        )  # エラー箇所特定のため一部表示
+        # エラーが発生した要素を除外してリストを作成する試み（オプション）
+        valid_items = []
+        try:
+            data = json.loads(json_str)
+            for item in data:
+                if isinstance(item, dict):
+                    try:
+                        valid_items.append(class_type(**item))
+                    except TypeError:
+                        print(f"  Skipping item due to TypeError: {item}")
+        except:
+            pass  # 二次的なエラーは無視
+        return valid_items
+        # return [] # または、エラー時は空リストを返す
 
 
-# --- ★★★ STORAGE_KEYS 定義 (ここにあるか確認) ★★★ ---
+# --- ★ STORAGE_KEYS に Work と Character を追加 ---
 STORAGE_KEYS: Dict[str, str] = {
+    "works": "promptBuilder_works",  # 追加
+    "characters": "promptBuilder_characters",  # 追加
     "actors": "promptBuilder_actors",
     "costumes": "promptBuilder_costumes",
     "poses": "promptBuilder_poses",
@@ -192,7 +234,10 @@ STORAGE_KEYS: Dict[str, str] = {
     "sdParams": "promptBuilder_sdParams",
 }
 
+# --- ★ DatabaseKey に Work と Character を追加 ---
 DatabaseKey = Literal[
+    "works",  # 追加
+    "characters",  # 追加
     "actors",
     "costumes",
     "poses",

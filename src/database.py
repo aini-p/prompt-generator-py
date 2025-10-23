@@ -6,6 +6,8 @@ from typing import Dict, List, Type, TypeVar, Any
 
 # ★ 修正: FullDatabase は import しない, Helper関数を import
 from .models import (
+    Work,
+    Character,
     Actor,
     Scene,
     Direction,
@@ -43,13 +45,28 @@ def initialize_db():
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        # --- テーブル作成 (★★★ 正しい構文に修正 ★★★) ---
+        # --- ★ Work テーブル作成 ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS works (
+                id TEXT PRIMARY KEY, title_jp TEXT, title_en TEXT,
+                tags TEXT, sns_tags TEXT
+            )""")
+        # --- ★ Character テーブル作成 ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS characters (
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, work_id TEXT, tags TEXT
+            )""")
+        # --- ★ Actor テーブル修正 ---
+        cursor.execute(
+            """ DROP TABLE IF EXISTS actors """
+        )  # 古い構造を削除（開発中のみ）
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS actors (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
                 prompt TEXT, negative_prompt TEXT,
-                base_costume_id TEXT, base_pose_id TEXT, base_expression_id TEXT,
-                work_title TEXT, character_name TEXT
+                character_id TEXT, -- 変更
+                base_costume_id TEXT, base_pose_id TEXT, base_expression_id TEXT
+                -- work_title, character_name 削除
             )""")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS scenes (
@@ -83,12 +100,15 @@ def initialize_db():
             CREATE TABLE IF NOT EXISTS sd_params ( key TEXT PRIMARY KEY, value TEXT )""")
 
         # --- 初期データの挿入 ---
-        cursor.execute("SELECT COUNT(*) FROM scenes")
+        cursor.execute("SELECT COUNT(*) FROM works")  # Work テーブルで確認
         scene_count = cursor.fetchone()[0]
 
         if scene_count == 0:
             print("データベースが空のようです。初期データを挿入します...")
-            # (初期データ挿入ロジックは変更なし)
+            for work in initialMockDatabase.works.values():
+                save_work(work)
+            for character in initialMockDatabase.characters.values():
+                save_character(character)
             for actor in initialMockDatabase.actors.values():
                 save_actor(actor)
             for scene in initialMockDatabase.scenes.values():
@@ -149,50 +169,47 @@ def _save_item(table_name: str, item_data: Dict[str, Any]):
 def _load_items(table_name: str, class_type: Type[T]) -> Dict[str, T]:
     """汎用: 指定された型の全アイテムをロードします。"""
     conn = get_connection()
-    conn.row_factory = sqlite3.Row  # 列名でアクセスできるようにする
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     items: Dict[str, T] = {}
     try:
         cursor.execute(f"SELECT * FROM {table_name}")
         rows = cursor.fetchall()
-    except sqlite3.OperationalError:  # テーブルが存在しない場合
+    except sqlite3.OperationalError:
         print(f"テーブル '{table_name}' が見つかりません。空の辞書を返します。")
         rows = []
     finally:
         conn.close()
 
     for row in rows:
-        row_dict = dict(row)  # sqlite3.Row を辞書に変換
+        row_dict = dict(row)
         item_id = row_dict.get("id")
         if not item_id:
             continue
 
-        # --- 型に応じたJSONフィールドの処理 ---
+        # --- ★ JSON 文字列 -> リスト 変換処理 ---
+        # tags フィールドを持つすべてのクラスで共通処理
+        if "tags" in row_dict and isinstance(row_dict["tags"], str):
+            try:
+                row_dict["tags"] = json.loads(row_dict["tags"])
+            except json.JSONDecodeError:
+                row_dict["tags"] = []
+
+        # Scene 固有の処理
         if class_type == Scene:
-            # Scene の roles と role_directions を JSON 文字列からリスト<dataclass>に変換
-            row_dict["tags"] = json.loads(row_dict.get("tags") or "[]")
-            row_dict["roles"] = json_str_to_list(
-                row_dict.get("roles"), SceneRole
-            )  # models.pyのヘルパー使用
+            # json_str_to_list ヘルパーを使う
+            row_dict["roles"] = json_str_to_list(row_dict.get("roles"), SceneRole)
             row_dict["role_directions"] = json_str_to_list(
                 row_dict.get("role_directions"), RoleDirection
-            )  # models.pyのヘルパー使用
-        elif "tags" in row_dict:  # tags フィールドを持つ他のクラスの処理
-            # 文字列として保存されている tags をリストに変換
-            row_dict["tags"] = json.loads(row_dict.get("tags") or "[]")
-        # --- ここまで ---
+            )
+        # --- ★ 変換処理ここまで ---
 
         try:
-            # **row_dict で辞書のキーと値をクラスの引数として展開
             items[item_id] = class_type(**row_dict)
-        except TypeError as e:
-            # dataclassのフィールドとDBのカラムが一致しない場合にエラーが発生しやすい
+        except Exception as e:  # より広範なエラーをキャッチ
+            # dataclassのフィールドとDBのカラムが一致しない場合や型変換エラーなど
             print(
                 f"Error creating instance of {class_type.__name__} for id '{item_id}'. Row data: {row_dict}. Error: {e}"
-            )
-        except Exception as e:
-            print(
-                f"Unexpected error creating {class_type.__name__} for id '{item_id}': {e}"
             )
 
     return items
@@ -216,14 +233,48 @@ def _delete_item(table_name: str, item_id: str):
 # (各関数は汎用関数を呼び出すだけ)
 
 
+# --- ★ Work 用関数 ---
+def save_work(work: Work):
+    data = work.__dict__.copy()
+    data["tags"] = json.dumps(data.get("tags", []))
+    _save_item("works", data)
+
+
+def load_works() -> Dict[str, Work]:
+    return _load_items("works", Work)
+
+
+def delete_work(work_id: str):
+    # TODO: 関連する Character や Actor の扱いをどうするか？ (今回は単純削除)
+    _delete_item("works", work_id)
+
+
+# --- ★ Character 用関数 ---
+def save_character(character: Character):
+    data = character.__dict__.copy()
+    data["tags"] = json.dumps(data.get("tags", []))
+    _save_item("characters", data)
+
+
+def load_characters() -> Dict[str, Character]:
+    return _load_items("characters", Character)
+
+
+def delete_character(character_id: str):
+    # TODO: 関連する Actor の扱いをどうするか？ (今回は単純削除)
+    _delete_item("characters", character_id)
+
+
+# --- ★ Actor 用関数 (修正) ---
 def save_actor(actor: Actor):
     data = actor.__dict__.copy()
-    data["tags"] = json.dumps(data.get("tags", []))  # tags を JSON 文字列に
+    data["tags"] = json.dumps(data.get("tags", []))
+    # work_title, character_name はもうない
     _save_item("actors", data)
 
 
 def load_actors() -> Dict[str, Actor]:
-    return _load_items("actors", Actor)
+    return _load_items("actors", Actor)  # _load_items 側で tags は処理されるはず
 
 
 def delete_actor(actor_id: str):

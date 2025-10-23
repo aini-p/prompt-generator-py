@@ -16,7 +16,7 @@ from PySide6.QtCore import Slot  # Import Slot if needed for explicit slot decor
 from typing import Optional, Dict, Any  # Import Dict and Any
 
 # srcフォルダを基準にインポート (..はsrcフォルダを指す)
-from ..models import Actor, FullDatabase
+from ..models import Actor, FullDatabase, Work, Character
 
 
 class AddActorForm(QDialog):
@@ -34,35 +34,18 @@ class AddActorForm(QDialog):
         # --- UI要素の作成 ---
         self.name_edit = QLineEdit()
         self.tags_edit = QLineEdit()
-        self.work_title_edit = QLineEdit()
-        self.character_name_edit = QLineEdit()
+        self.work_combo = QComboBox()
+        self.character_combo = QComboBox()
         self.prompt_edit = QTextEdit()
         self.negative_prompt_edit = QTextEdit()
         self.costume_combo = QComboBox()
         self.pose_combo = QComboBox()
         self.expression_combo = QComboBox()
 
-        # --- コンボボックスに選択肢を追加 ---
-        # データベース辞書からIDと名前を取得
-        self.costume_items = list(
-            self.db_dict.get("costumes", {}).items()
-        )  # [(id, obj), ...]
-        self.pose_items = list(self.db_dict.get("poses", {}).items())
-        self.expression_items = list(self.db_dict.get("expressions", {}).items())
+        # --- コンボボックス初期化 ---
+        self._populate_combos()
 
-        self.costume_combo.addItems(
-            [c.name for _, c in self.costume_items]
-            if self.costume_items
-            else ["(なし)"]
-        )
-        self.pose_combo.addItems(
-            [p.name for _, p in self.pose_items] if self.pose_items else ["(なし)"]
-        )
-        self.expression_combo.addItems(
-            [e.name for _, e in self.expression_items]
-            if self.expression_items
-            else ["(なし)"]
-        )
+        self.work_combo.currentIndexChanged.connect(self._on_work_changed)
 
         # 初期データをフォームに設定
         if initial_data:
@@ -95,6 +78,19 @@ class AddActorForm(QDialog):
                 self.expression_combo.setCurrentIndex(expr_idx)
             except (ValueError, IndexError):
                 pass
+            try:
+                current_character_id = initial_data.character_id
+                character = self.db_dict.get("characters", {}).get(current_character_id)
+                if character:
+                    current_work_id = character.work_id
+                    # Work コンボを選択
+                    work_index = self.work_combo.findData(current_work_id)
+                    if work_index >= 0:
+                        self.work_combo.setCurrentIndex(work_index)
+                    # Character コンボを更新して選択
+                    self._update_character_combo(current_work_id, current_character_id)
+            except (ValueError, IndexError):
+                pass
         else:
             # 新規の場合のデフォルト値
             self.negative_prompt_edit.setPlainText("ugly, watermark")
@@ -106,10 +102,10 @@ class AddActorForm(QDialog):
         form_layout.addWidget(self.name_edit)
         form_layout.addWidget(QLabel("タグ (カンマ区切り):"))
         form_layout.addWidget(self.tags_edit)
-        form_layout.addWidget(QLabel("作品タイトル:"))
-        form_layout.addWidget(self.work_title_edit)
-        form_layout.addWidget(QLabel("キャラクター名:"))
-        form_layout.addWidget(self.character_name_edit)
+        form_layout.addWidget(QLabel("登場作品 (Work):"))
+        form_layout.addWidget(self.work_combo)
+        form_layout.addWidget(QLabel("キャラクター (Character):"))
+        form_layout.addWidget(self.character_combo)
         form_layout.addWidget(QLabel("基本プロンプト (Positive):"))
         form_layout.addWidget(self.prompt_edit)
         form_layout.addWidget(QLabel("基本ネガティブプロンプト (Negative):"))
@@ -136,22 +132,87 @@ class AddActorForm(QDialog):
         )  # Cancel ボタンが押されたら reject() を呼ぶ
         layout.addWidget(button_box)
 
+    def _populate_combos(self):
+        """関連コンボボックスの内容を作成します。"""
+        self.work_combo.addItem("(未割り当て)", None)
+        works = self.db_dict.get("works", {})
+        sorted_works = sorted(works.values(), key=lambda w: w.title_jp.lower())
+        for work in sorted_works:
+            self.work_combo.addItem(f"{work.title_jp} ({work.id})", work.id)
+        self.costume_items = list(
+            self.db_dict.get("costumes", {}).items()
+        )  # [(id, obj), ...]
+        self.pose_items = list(self.db_dict.get("poses", {}).items())
+        self.expression_items = list(self.db_dict.get("expressions", {}).items())
+        self.costume_combo.addItems(
+            [c.name for _, c in self.costume_items]
+            if self.costume_items
+            else ["(なし)"]
+        )
+        self.pose_combo.addItems(
+            [p.name for _, p in self.pose_items] if self.pose_items else ["(なし)"]
+        )
+        self.expression_combo.addItems(
+            [e.name for _, e in self.expression_items]
+            if self.expression_items
+            else ["(なし)"]
+        )
+
+    @Slot(int)
+    def _on_work_changed(self, index: int):
+        """Work コンボボックスの選択が変更されたときの処理。"""
+        selected_work_id = self.work_combo.itemData(index)
+        # Character コンボを更新 (選択はリセット)
+        self._update_character_combo(selected_work_id, None)
+
+    def _update_character_combo(
+        self, work_id: Optional[str], select_char_id: Optional[str]
+    ):
+        """Character コンボボックスの内容を更新し、指定IDを選択します。"""
+        self.character_combo.blockSignals(True)
+        self.character_combo.clear()
+        self.character_combo.addItem("(未選択)", None)
+        ids = [None]
+
+        filtered_chars = {}
+        if work_id:
+            all_chars = self.db_dict.get("characters", {})
+            filtered_chars = {
+                cid: c for cid, c in all_chars.items() if c.work_id == work_id
+            }
+
+        sorted_chars = sorted(filtered_chars.values(), key=lambda c: c.name.lower())
+        for char in sorted_chars:
+            self.character_combo.addItem(f"{char.name} ({char.id})", char.id)
+            ids.append(char.id)
+
+        # 指定された Character ID を選択
+        try:
+            index = ids.index(select_char_id) if select_char_id in ids else 0
+            self.character_combo.setCurrentIndex(index)
+        except ValueError:
+            self.character_combo.setCurrentIndex(0)
+
+        self.character_combo.blockSignals(False)
+
     # --- accept() をオーバーライドしてデータを検証・保存 ---
     @Slot()  # Mark as a slot
     def accept(self):
         # フォームの入力値を取得
         name = self.name_edit.text().strip()
         prompt = self.prompt_edit.toPlainText().strip()
-        work_title = self.work_title_edit.text().strip()
-        character_name = self.character_name_edit.text().strip()
+        character_id = self.character_combo.currentData() or ""  # 未選択なら空文字
 
-        if not all([name, prompt, work_title, character_name]):
+        # --- ★ バリデーション修正: Character が必須か？ (今回は name と prompt のみに) ---
+        if not name or not prompt:
             QMessageBox.warning(
-                self,
-                "入力エラー",
-                "名前, プロンプト, 作品タイトル, キャラクター名は必須です。",
+                self, "入力エラー", "名前 (Actor Name) と 基本プロンプト は必須です。"
             )
-            return  # accept を中断
+            return
+        if not character_id:
+            # キャラクター未選択は許可する (警告は出しても良い)
+            # QMessageBox.warning(self, "確認", "キャラクターが選択されていません。")
+            pass
 
         # コンボボックスから選択されたIDを取得
         costume_id = (
@@ -178,11 +239,10 @@ class AddActorForm(QDialog):
             tags=[t.strip() for t in self.tags_edit.text().split(",") if t.strip()],
             prompt=prompt,
             negative_prompt=self.negative_prompt_edit.toPlainText().strip(),
+            character_id=character_id,
             base_costume_id=costume_id,
             base_pose_id=pose_id,
             base_expression_id=expression_id,
-            work_title=work_title,
-            character_name=character_name,
         )
         # データを保存したら、標準の accept 処理を呼ぶ
         super().accept()

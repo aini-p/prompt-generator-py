@@ -4,7 +4,9 @@ import os
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 from typing import Dict, Optional, Any, Tuple, TYPE_CHECKING
 from .. import database as db
-from ..models import (  # 必要なモデルをインポート
+from ..models import (
+    Work,
+    Character,
     Actor,
     Scene,
     Direction,
@@ -38,6 +40,8 @@ class DataHandler:
         sd_params = StableDiffusionParams()
         initial_scene_id: Optional[str] = None
         try:
+            db_data["works"] = db.load_works()
+            db_data["characters"] = db.load_characters()
             db_data["actors"] = db.load_actors()
             db_data["scenes"] = db.load_scenes()
             db_data["directions"] = db.load_directions()
@@ -73,6 +77,10 @@ class DataHandler:
         print("[DEBUG] DataHandler.save_all_data called.")
         try:
             # 各カテゴリのデータを保存
+            for work in db_data.get("works", {}).values():
+                db.save_work(work)
+            for character in db_data.get("characters", {}).values():
+                db.save_character(character)
             for actor in db_data.get("actors", {}).values():
                 db.save_actor(actor)
             for scene in db_data.get("scenes", {}).values():
@@ -182,6 +190,8 @@ class DataHandler:
                     new_db_data: Dict[str, Dict[str, Any]] = {}
                     new_sd_params = StableDiffusionParams()
                     type_map = {
+                        "works": Work,
+                        "characters": Character,
                         "actors": Actor,
                         "scenes": Scene,
                         "directions": Direction,

@@ -1,5 +1,7 @@
 # src/data/mocks.py
 from src.models import (
+    Work,
+    Character,
     FullDatabase,
     StableDiffusionParams,
     Actor,
@@ -15,6 +17,38 @@ from src.models import (
     RoleDirection,
 )
 
+# --- ★ Work モックデータ ---
+work_default = Work(
+    id="work_default",
+    title_jp="デフォルト作品",
+    title_en="Default Work",
+    tags=["sample"],
+    sns_tags="#DefaultWork",
+)
+work_another = Work(
+    id="work_another",
+    title_jp="別作品",
+    title_en="Another Work",
+    tags=["test"],
+    sns_tags="#AnotherWork",
+)
+
+# --- ★ Character モックデータ ---
+char_default_male = Character(
+    id="char_default_male",
+    name="デフォルト男性キャラ",
+    work_id="work_default",
+    tags=["protagonist"],
+)
+char_default_female = Character(
+    id="char_default_female",
+    name="デフォルト女性キャラ",
+    work_id="work_default",
+    tags=["heroine"],
+)
+char_another_a = Character(
+    id="char_another_a", name="キャラA", work_id="work_another", tags=[]
+)
 # --- デフォルトの Stable Diffusion パラメータ ---
 default_sd_params: StableDiffusionParams = StableDiffusionParams(
     steps=20,
@@ -28,31 +62,49 @@ default_sd_params: StableDiffusionParams = StableDiffusionParams(
 
 # --- アプリケーション全体の初期データベース ---
 initialMockDatabase: FullDatabase = FullDatabase(
-    # --- 役者 (Actors) ---
+    works={
+        work_default.id: work_default,
+        work_another.id: work_another,
+    },
+    characters={
+        char_default_male.id: char_default_male,
+        char_default_female.id: char_default_female,
+        char_another_a.id: char_another_a,
+    },
     actors={
         "actor_default_male": Actor(
             id="actor_default_male",
-            name="デフォルト男性",
+            name="デフォルト男性Actor",  # Actor 名と Character 名は別
             tags=["male"],
             prompt="1boy, handsome",
             negative_prompt="ugly, deformed",
+            character_id="char_default_male",  # character_id を指定
             base_costume_id="costume_default_shirt",
             base_pose_id="pose_default_standing",
             base_expression_id="expr_default_neutral",
-            work_title="Default",
-            character_name="Male",
+            # work_title, character_name は削除
         ),
         "actor_default_female": Actor(
             id="actor_default_female",
-            name="デフォルト女性",
+            name="デフォルト女性Actor",
             tags=["female"],
             prompt="1girl, beautiful",
             negative_prompt="ugly, deformed",
+            character_id="char_default_female",  # character_id を指定
             base_costume_id="costume_default_shirt",
             base_pose_id="pose_default_standing",
             base_expression_id="expr_default_neutral",
-            work_title="Default",
-            character_name="Female",
+        ),
+        "actor_another_a": Actor(
+            id="actor_another_a",
+            name="キャラA Actor",
+            tags=["male"],
+            prompt="1boy",
+            negative_prompt="",
+            character_id="char_another_a",  # character_id を指定
+            base_costume_id="costume_default_shirt",
+            base_pose_id="pose_default_standing",
+            base_expression_id="expr_default_neutral",
         ),
     },
     # --- 衣装 (Costumes) ---
