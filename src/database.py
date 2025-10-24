@@ -261,6 +261,17 @@ def _load_items(table_name: str, class_type: Type[T]) -> Dict[str, T]:
             if "color_placeholders" in row_dict:
                 del row_dict["color_placeholders"]
 
+        if class_type == Actor:
+            # 古い属性が存在すれば削除
+            if "work_title" in row_dict:
+                print(f"[DEBUG] Removing deprecated 'work_title' from Actor {item_id}")
+                del row_dict["work_title"]
+            if "character_name" in row_dict:
+                print(
+                    f"[DEBUG] Removing deprecated 'character_name' from Actor {item_id}"
+                )
+                del row_dict["character_name"]
+
         try:
             items[item_id] = class_type(**row_dict)
         except Exception as e:  # より広範なエラーをキャッチ
