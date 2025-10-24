@@ -137,6 +137,13 @@ def initialize_db():
             # (CREATE TABLE で既に追加されているはずだが、念のため)
             cursor.execute("ALTER TABLE costumes ADD COLUMN color_palette TEXT")
 
+        # --- ▼▼▼ actors テーブルに character_id カラムを追加 (ALTER TABLE) ▼▼▼ ---
+        cursor.execute("PRAGMA table_info(actors)")
+        columns = [col[1] for col in cursor.fetchall()]
+        if "character_id" not in columns:
+            print("[INFO] Adding missing 'character_id' column to 'actors' table.")
+            cursor.execute("ALTER TABLE actors ADD COLUMN character_id TEXT")
+
         # --- 初期データの挿入 ---
         cursor.execute("SELECT COUNT(*) FROM works")  # Work テーブルで確認
         scene_count = cursor.fetchone()[0]
