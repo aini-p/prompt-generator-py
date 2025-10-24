@@ -59,7 +59,6 @@ class LibraryPanel(QWidget):
             ("Lighting", "lighting"),
             ("Compositions", "compositions"),
             ("Styles", "styles"),
-            ("SD Params", "sdParams"),
         ]
         self.library_type_combo.addItems([name for name, key in self.library_types])
         self.library_type_combo.currentIndexChanged.connect(self._on_type_changed)

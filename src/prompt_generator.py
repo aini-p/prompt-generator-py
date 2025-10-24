@@ -1,5 +1,6 @@
 # src/prompt_generator.py
 import itertools
+import re
 from typing import Dict, List, Optional, Tuple, Mapping, TypeVar, Iterable
 from .models import (
     FullDatabase,
@@ -12,6 +13,7 @@ from .models import (
     SceneRole,
     Work,
     Character,
+    Scene,
     Costume,
     Style,
 )
@@ -308,6 +310,22 @@ def generate_batch_prompts(
     return generated_prompts
 
 
+def _sanitize_filename(name: Optional[str]) -> str:
+    """ファイル名として安全な文字列に変換する"""
+    if not name:
+        return "unknown"
+    # Windows/macOS/Linux で一般的に使えない文字を除去または置換
+    name = re.sub(r'[\\/*?:"<>|]', "_", name)
+    # スペースもアンダースコアに置換 (オプション)
+    name = name.replace(" ", "_")
+    # 長すぎるファイル名を制限 (オプション)
+    max_len = 100  # 例: 100文字
+    if len(name) > max_len:
+        name = name[:max_len]
+    # 空文字になった場合のフォールバック
+    return name if name else "unknown"
+
+
 def create_image_generation_tasks(
     generated_prompts: List[GeneratedPrompt],
     sd_params: StableDiffusionParams,
@@ -315,29 +333,33 @@ def create_image_generation_tasks(
 ) -> List[ImageGenerationTask]:
     if not scene:
         return []
+
+    safe_scene_name = _sanitize_filename(getattr(scene, "name", "unknown_scene"))
+
     tasks: List[ImageGenerationTask] = []
     for prompt_data in generated_prompts:
-        filename_prefix = f"output_{prompt_data.cut}"
+        # --- ▼▼▼ filename_prefix の生成ロジックを変更 ▼▼▼ ---
+        work_title = "unknown_work"
+        char_name = "unknown_character"
         actor_info = prompt_data.firstActorInfo
-        # --- ★ firstActorInfo から Character, Work を取得 ---
         if actor_info:
             char: Optional[Character] = actor_info.get("character")
             work: Optional[Work] = actor_info.get("work")
-            if char and work:
-                # ファイル名に日本語タイトルとキャラ名を使う (ファイルシステムによっては注意)
-                work_title = getattr(work, "title_jp", "unknown_work")
-                char_name = getattr(char, "name", "unknown_char")
-                # ファイル名に使えない文字を置換 (オプション)
-                safe_work_title = "".join(
-                    c if c.isalnum() or c in "-_" else "_" for c in work_title
-                )
-                safe_char_name = "".join(
-                    c if c.isalnum() or c in "-_" else "_" for c in char_name
-                )
-                filename_prefix = (
-                    f"{safe_work_title}_{safe_char_name}_cut{prompt_data.cut}"
-                )
-        # --- ★ 修正ここまで ---
+            if char:
+                char_name = getattr(char, "name", "unknown_character")
+            if work:
+                work_title = getattr(
+                    work, "title_jp", "unknown_work"
+                )  # 日本語タイトルを使用
+
+        # 安全なファイル名部分を生成
+        safe_work = _sanitize_filename(work_title)
+        safe_char = _sanitize_filename(char_name)
+
+        # filename_prefix を組み立て
+        filename_prefix = (
+            f"{safe_work}_{safe_char}_{safe_scene_name}_cut{prompt_data.cut}"
+        )
 
         mode = scene.image_mode
         source_image_path = scene.reference_image_path

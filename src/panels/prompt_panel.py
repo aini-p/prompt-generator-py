@@ -21,6 +21,7 @@ class PromptPanel(QWidget):
     sceneChanged = Signal(str)  # 新しい Scene ID
     assignmentChanged = Signal(dict)
     styleChanged = Signal(str)
+    editSdParamsClicked = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -97,43 +98,63 @@ class PromptPanel(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
 
         group = QGroupBox("Prompt Generation")
-        self.prompt_gen_layout = QVBoxLayout(group)
+        self.prompt_gen_layout = QVBoxLayout(group)  # ★ メインの縦レイアウト
 
-        # シーン選択
+        # シーン選択 (変更なし)
         scene_layout = QHBoxLayout()
         scene_layout.addWidget(QLabel("1. Select Scene:"))
         self.scene_combo = QComboBox()
         self.scene_combo.currentIndexChanged.connect(self._on_scene_changed)
         scene_layout.addWidget(self.scene_combo)
-        self.prompt_gen_layout.addLayout(scene_layout)
+        self.prompt_gen_layout.addLayout(scene_layout)  # ★ prompt_gen_layout に追加
 
-        # --- ★ Style 選択を追加 ---
+        # --- ▼▼▼ Style 選択と SD Params 編集ボタン ▼▼▼ ---
+        style_sd_layout = QHBoxLayout()  # 横並び用レイアウトを作成
+
+        # Style 選択部分
         style_layout = QHBoxLayout()
         style_layout.addWidget(QLabel("Style:"))
         self.style_combo = QComboBox()
         self.style_combo.currentIndexChanged.connect(self._on_style_changed)
-        style_layout.addWidget(self.style_combo)
-        self.prompt_gen_layout.addLayout(style_layout)
+        style_layout.addWidget(self.style_combo, 1)  # Styleコンボを伸縮させる
 
-        # 役割割り当て (動的UI用ウィジェット)
+        style_sd_layout.addLayout(style_layout)  # 横並びレイアウトに Style 部分を追加
+
+        # SD Params 編集ボタン
+        self.edit_sd_params_btn = QPushButton("⚙️ Edit SD Params")
+        self.edit_sd_params_btn.setToolTip("Edit Stable Diffusion parameters")
+        self.edit_sd_params_btn.clicked.connect(
+            self.editSdParamsClicked
+        )  # シグナル発行
+
+        style_sd_layout.addWidget(
+            self.edit_sd_params_btn
+        )  # 横並びレイアウトにボタンを追加
+
+        # ★ 作成した横並びレイアウトをメインの縦レイアウトに追加
+        self.prompt_gen_layout.addLayout(style_sd_layout)
+        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+
+        # 役割割り当て (変更なし)
         self.role_assignment_widget = QWidget()
         self.role_assignment_widget.setObjectName("RoleAssignmentWidgetContainer")
-        self.prompt_gen_layout.addWidget(self.role_assignment_widget)
-        # build_role_assignment_ui はデータ参照設定後/シーン変更後に呼ばれる
+        self.prompt_gen_layout.addWidget(
+            self.role_assignment_widget
+        )  # ★ prompt_gen_layout に追加
 
-        # ボタン
+        # ボタン (変更なし)
         generate_preview_btn = QPushButton("🔄 Generate Prompt Preview")
         generate_preview_btn.setStyleSheet("background-color: #ffc107;")
-        generate_preview_btn.clicked.connect(
-            self.generatePromptsClicked
-        )  # シグナル発行
+        generate_preview_btn.clicked.connect(self.generatePromptsClicked)
 
         execute_btn = QPushButton("🚀 Execute Image Generation (Run Batch)")
         execute_btn.setStyleSheet("background-color: #28a745; color: white;")
-        execute_btn.clicked.connect(self.executeGenerationClicked)  # シグナル発行
+        execute_btn.clicked.connect(self.executeGenerationClicked)
 
-        self.prompt_gen_layout.addWidget(generate_preview_btn)
-        self.prompt_gen_layout.addWidget(execute_btn)
+        self.prompt_gen_layout.addWidget(
+            generate_preview_btn
+        )  # ★ prompt_gen_layout に追加
+        self.prompt_gen_layout.addWidget(execute_btn)  # ★ prompt_gen_layout に追加
 
         main_layout.addWidget(group)
 

@@ -84,7 +84,7 @@ from .widgets.character_editor_dialog import (
     CharacterEditorDialog,
 )  # (add_character_form.py をリネーム・修正したもの)
 from .widgets.costume_editor_dialog import CostumeEditorDialog  # (新規作成したもの)
-# --- ▲▲▲ 変更ここまで ▲▲▲ ---
+from .widgets.sd_params_editor_dialog import SDParamsEditorDialog
 
 # ------------------------------------
 from .prompt_generator import generate_batch_prompts, create_image_generation_tasks
@@ -227,6 +227,7 @@ class MainWindow(QMainWindow):
         self.prompt_panel.styleChanged.connect(
             self._handle_style_change_and_save_config
         )
+        self.prompt_panel.editSdParamsClicked.connect(self._handle_edit_sd_params)
         # Library Panel
         # --- ▼▼▼ itemSelected を削除し、itemDoubleClicked を追加 ▼▼▼ ---
         # self.library_panel.itemSelected.connect(self.inspector_panel.update_inspector)
@@ -241,6 +242,46 @@ class MainWindow(QMainWindow):
         # --- ▼▼▼ Inspector Panel 関連の接続を削除 ▼▼▼ ---
         # self.inspector_panel.changesSaved.connect(self._handle_inspector_save)
         # --- ▲▲▲ 削除ここまで ▲▲▲ ---
+
+    @Slot()
+    def _handle_edit_sd_params(self):
+        """PromptPanel の Edit SD Params ボタンに対応するスロット。"""
+        print("[DEBUG] Edit SD Params button clicked.")
+        # self.sd_params は MainWindow が保持している StableDiffusionParams オブジェクト
+        # initial_data として現在の self.sd_params を渡す
+        dialog = SDParamsEditorDialog(
+            self.sd_params, self.db_data, self
+        )  # db_dict は形式的に渡す
+
+        # ダイアログ間の連携シグナルを接続 (もしSDParamsEditorDialog内で他の編集が必要なら)
+        # 現状 SDParamsEditorDialog は他の編集ダイアログを開かないので不要
+        # dialog.request_open_editor.connect(self._handle_open_nested_editor)
+        result = dialog.exec()
+        if result == QDialog.DialogCode.Accepted:
+            updated_params = (
+                dialog.saved_data
+            )  # get_data() で返された更新済みオブジェクト
+            if updated_params and isinstance(updated_params, StableDiffusionParams):
+                # ★ MainWindow の sd_params インスタンスを更新
+                self.sd_params = updated_params
+                print("[DEBUG] SD Params updated in MainWindow.")
+
+                # ★ 変更をデータベースに即時保存
+                try:
+                    # DataHandler 経由ではなく、直接 db の関数を呼ぶ方がシンプル
+                    db.save_sd_params(self.sd_params)
+                    print("[DEBUG] Updated SD Params saved to database.")
+                except Exception as e:
+                    QMessageBox.warning(
+                        self,
+                        "DB Save Error",
+                        f"SD Params のデータベース保存に失敗しました: {e}",
+                    )
+                    print(f"[ERROR] Failed to save updated SD Params to DB: {e}")
+            else:
+                print("[DEBUG] SD Params dialog returned invalid data.")
+        else:
+            print("[DEBUG] SD Params dialog cancelled.")
 
     @Slot(str)
     def _handle_scene_change_and_save_config(self, new_scene_id: str):
@@ -343,25 +384,19 @@ class MainWindow(QMainWindow):
         """LibraryPanel のリスト項目がダブルクリックされたときの処理。"""
         if not item:
             return
-
-        db_key = self.library_panel._current_db_key  # 現在選択中のタイプ
+        db_key = self.library_panel._current_db_key
         item_id = item.data(Qt.ItemDataRole.UserRole)
 
-        if db_key == "sdParams":
-            QMessageBox.information(
-                self,
-                "SD Params",
-                "SD Params は Data Management パネルから Export/Import してください。",
-            )
-            return
-        elif db_key and item_id:
+        # if db_key == "sdParams": # ← 削除
+        #     # QMessageBox.information(...) # ← 削除
+        #     return # ← 削除
+        # elif db_key and item_id: # ← elif を if に変更
+        if db_key and item_id:  # sdParams はここに来ないはず
             item_data = self.db_data.get(db_key, {}).get(item_id)
             if item_data:
                 modal_type = self._get_modal_type_from_db_key(db_key)
                 if modal_type:
-                    self.open_edit_dialog(
-                        modal_type, item_data
-                    )  # item_data を渡して編集モードで開く
+                    self.open_edit_dialog(modal_type, item_data)
                 else:
                     QMessageBox.warning(
                         self, "Error", f"Cannot determine editor type for '{db_key}'"
@@ -370,8 +405,6 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(
                     self, "Error", f"Could not find data for {db_key} - {item_id}"
                 )
-
-    # --- ▲▲▲ 追加ここまで ▲▲▲ ---
 
     @Slot(str, str)
     def _handle_delete_item(self, db_key_str: str, item_id: str):

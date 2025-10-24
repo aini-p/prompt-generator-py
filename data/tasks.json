@@ -1,15 +1,15 @@
 [
   {
-    "prompt": "anime style, vibrant colors,, (a, white, red, standing, neutral expression), standing, simple white background",
+    "prompt": "anime style, vibrant colors,, (a, haroween, standing, neutral expression), standing, simple white background",
     "negative_prompt": "photorealistic, real life,, worst quality, low quality, detailed background, scenery",
     "steps": 20,
     "sampler_name": "Euler a",
     "cfg_scale": 7.0,
     "seed": -1,
-    "width": 512,
+    "width": 1024,
     "height": 512,
     "mode": "txt2img",
-    "filename_prefix": "五頭文_いつき_cut1",
+    "filename_prefix": "五頭文_いつき_立ち絵_cut1",
     "source_image_path": "",
     "denoising_strength": null
   }
