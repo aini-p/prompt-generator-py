@@ -40,24 +40,24 @@ class PromptPanel(QWidget):
         """MainWindow から現在のシーンIDが変更されたときに呼ばれます。"""
         if self._current_scene_id != scene_id:
             self._current_scene_id = scene_id
-            self._current_assignments = {}
+            print(
+                f"[DEBUG] PromptPanel.set_current_scene: Scene set to {scene_id}. Assignments kept temporarily."
+            )
             # コンボボックスの選択状態を更新
-            scene_ids = [
-                s.id
-                for s in sorted(
-                    self._db_data_ref.get("scenes", {}).values(),
-                    key=lambda s: s.name.lower(),
-                )
-            ]
+            scene_list = sorted(
+                self._db_data_ref.get("scenes", {}).values(),
+                key=lambda s: s.name.lower(),
+            )
+            scene_ids = [s.id for s in scene_list]
             try:
                 index = scene_ids.index(scene_id) if scene_id in scene_ids else -1
                 self.scene_combo.blockSignals(True)
                 self.scene_combo.setCurrentIndex(index)
                 self.scene_combo.blockSignals(False)
-                # 役割割り当てUIも更新
-                self.build_role_assignment_ui()
             except ValueError:
-                pass  # IDが見つからない場合
+                print(f"[DEBUG] Scene ID {scene_id} not found in combo after update.")
+                self.scene_combo.setCurrentIndex(-1)  # 見つからない場合は未選択に
+            self.build_role_assignment_ui()
 
     # --- ★ 追加: 現在の Style を設定するメソッド ---
     def set_current_style(self, style_id: Optional[str]):
@@ -81,6 +81,15 @@ class PromptPanel(QWidget):
                 self.style_combo.blockSignals(False)
             except ValueError:
                 pass  # IDが見つからない場合
+
+    def set_assignments(self, assignments: Dict[str, str]):
+        """MainWindow から初期の配役を設定します。"""
+        self._current_assignments = assignments.copy()
+        print(
+            f"[DEBUG] PromptPanel.set_assignments: Initial assignments loaded: {self._current_assignments}"
+        )
+        # UI が構築された後に呼ぶ必要があるため、ここでは build_role_assignment_ui は呼ばない
+        # set_current_scene -> build_role_assignment_ui の流れで反映される想定
 
     def _init_ui(self):
         """UI要素を初期化します。"""
@@ -240,6 +249,10 @@ class PromptPanel(QWidget):
         if not current_scene:
             layout.addWidget(QLabel("No scene selected."))
             layout.addStretch()
+            # シーンがない場合は内部割り当てもクリアすべきか？ -> クリアする
+            if self._current_assignments:  # クリアする場合のみ通知
+                self._current_assignments = {}
+                self.assignmentChanged.emit({})  # MainWindow に通知
             return
 
         actor_list = list(self._db_data_ref.get("actors", {}).values())
@@ -249,19 +262,43 @@ class PromptPanel(QWidget):
         if not current_scene.roles:
             layout.addWidget(QLabel("(このシーンには配役が定義されていません)"))
 
+        # 不要になった配役を削除
+        valid_role_ids = {role.id for role in current_scene.roles}
+        current_assignments_updated = False
+        keys_to_delete = [
+            role_id
+            for role_id in self._current_assignments
+            if role_id not in valid_role_ids
+        ]
+        if keys_to_delete:
+            for key in keys_to_delete:
+                del self._current_assignments[key]
+            current_assignments_updated = True
+            print(
+                f"[DEBUG] Removed assignments for non-existent roles: {keys_to_delete}"
+            )
+
         for role in current_scene.roles:
             role_layout = QHBoxLayout()
             label_text = f"{role.name_in_scene} ([{role.id.upper()}])"
             role_layout.addWidget(QLabel(label_text))
             combo = QComboBox()
             combo.addItems(actor_names)
-            assigned_actor_id = self._current_assignments.get(role.id)
+
+            assigned_actor_id = self._current_assignments.get(role.id)  # 内部状態を参照
             current_index = 0
             if assigned_actor_id and assigned_actor_id in actor_ids:
                 try:
                     current_index = actor_ids.index(assigned_actor_id)
                 except ValueError:
-                    pass
+                    # 割り当てられていた Actor が削除された場合など
+                    print(
+                        f"[DEBUG] Assigned actor ID '{assigned_actor_id}' for role '{role.id}' not found. Resetting."
+                    )
+                    if role.id in self._current_assignments:
+                        del self._current_assignments[role.id]  # 内部状態からも削除
+                        current_assignments_updated = True
+
             combo.setCurrentIndex(current_index)
             # 選択変更時に MainWindow のメソッドを直接呼ぶ代わりに、辞書を直接更新
             combo.currentIndexChanged.connect(
@@ -276,6 +313,9 @@ class PromptPanel(QWidget):
 
         layout.addStretch()
         print("[DEBUG] PromptPanel.build_role_assignment_ui complete.")
+        # 不要な配役を削除した場合、変更を通知
+        if current_assignments_updated:
+            self.assignmentChanged.emit(self._current_assignments.copy())
 
     @Slot(int)
     def _on_scene_changed(self, index: int):
@@ -283,20 +323,14 @@ class PromptPanel(QWidget):
         scene_list = sorted(
             self._db_data_ref.get("scenes", {}).values(), key=lambda s: s.name.lower()
         )
-        if 0 <= index < len(scene_list):
-            new_scene_id = scene_list[index].id
-            if new_scene_id != self._current_scene_id:
-                print(f"[DEBUG] PromptPanel: Scene changed to {new_scene_id}")
-                self._current_scene_id = new_scene_id
-                # ★ シーンが変わったら内部割り当てをクリア
-                self._current_assignments = {}
-                self.sceneChanged.emit(new_scene_id)  # MainWindow に通知
-                self.build_role_assignment_ui()  # UI 更新
-        else:
-            self._current_scene_id = None
-            self._current_assignments = {}  # クリア
-            self.sceneChanged.emit("")  # シーンなしを通知
-            self.build_role_assignment_ui()
+        new_scene_id = scene_list[index].id if 0 <= index < len(scene_list) else None
+
+        if new_scene_id != self._current_scene_id:
+            print(f"[DEBUG] PromptPanel: Scene selection changed to {new_scene_id}")
+            self._current_scene_id = new_scene_id
+            # self._current_assignments = {} # ← この行を削除またはコメントアウト
+            self.sceneChanged.emit(new_scene_id or "")  # MainWindow に通知
+            self.build_role_assignment_ui()  # UI 更新 (配役維持を試みる)
 
     # --- ★ 追加: Style 変更ハンドラ ---
     @Slot(int)

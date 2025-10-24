@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QFrame,
 )
 from PySide6.QtCore import Qt, Slot
+from PySide6.QtGui import QCloseEvent
 from .widgets.base_editor_dialog import BaseEditorDialog
 from . import database as db
 from .models import (
@@ -117,12 +118,33 @@ class MainWindow(QMainWindow):
         self.db_data: Dict[str, Dict[str, Any]] = {}
         self.sd_params: StableDiffusionParams = StableDiffusionParams()
         self.data_handler = DataHandler(self)
+
+        # --- ▼▼▼ 設定とデータの読み込み順を変更 ▼▼▼ ---
+        # 1. DBから基本データをロード
         self.db_data, self.sd_params, initial_scene_id = (
             self.data_handler.load_all_data()
         )
-        self.current_scene_id: Optional[str] = initial_scene_id
-        self.current_style_id: Optional[str] = None  # Style も初期化
-        self.actor_assignments: Dict[str, str] = {}
+        # 2. 設定ファイルから最後の状態をロード
+        last_scene_id, last_style_id, last_assignments = self.data_handler.load_config()
+
+        # 3. 状態を初期化 (設定ファイルの値があれば優先、なければDBの最初のシーン)
+        #    ロードした ID が現在のDBデータに存在するか確認
+        self.current_scene_id = (
+            last_scene_id
+            if last_scene_id in self.db_data.get("scenes", {})
+            else initial_scene_id
+        )
+        self.current_style_id = (
+            last_style_id if last_style_id in self.db_data.get("styles", {}) else None
+        )
+        # assignments は、キー(role_id)と値(actor_id)の両方が存在するかチェック
+        self.actor_assignments = {
+            role_id: actor_id
+            for role_id, actor_id in last_assignments.items()
+            if actor_id in self.db_data.get("actors", {})
+            # role_id の存在チェックは build_role_assignment_ui で行う
+        }
+
         self.generated_prompts: List[GeneratedPrompt] = []
 
         # --- UI要素 ---
@@ -178,6 +200,8 @@ class MainWindow(QMainWindow):
         self.prompt_panel.set_current_scene(self.current_scene_id)
         # Style も初期設定 (None の場合、コンボボックスで "(None)" が選択される)
         self.prompt_panel.set_current_style(self.current_style_id)
+        # --- ▼▼▼ 配役を PromptPanel に設定 ▼▼▼ ---
+        self.prompt_panel.set_assignments(self.actor_assignments)
         self.update_prompt_display()  # 初期プロンプト表示
 
     def _connect_signals(self):
@@ -194,10 +218,15 @@ class MainWindow(QMainWindow):
         # Prompt Panel (変更なし)
         self.prompt_panel.generatePromptsClicked.connect(self.generate_prompts)
         self.prompt_panel.executeGenerationClicked.connect(self.execute_generation)
-        self.prompt_panel.sceneChanged.connect(self._handle_scene_change)
-        self.prompt_panel.assignmentChanged.connect(self._handle_assignment_change)
-        self.prompt_panel.styleChanged.connect(self._handle_style_change)
-
+        self.prompt_panel.sceneChanged.connect(
+            self._handle_scene_change_and_save_config
+        )
+        self.prompt_panel.assignmentChanged.connect(
+            self._handle_assignment_change_and_save_config
+        )
+        self.prompt_panel.styleChanged.connect(
+            self._handle_style_change_and_save_config
+        )
         # Library Panel
         # --- ▼▼▼ itemSelected を削除し、itemDoubleClicked を追加 ▼▼▼ ---
         # self.library_panel.itemSelected.connect(self.inspector_panel.update_inspector)
@@ -212,6 +241,60 @@ class MainWindow(QMainWindow):
         # --- ▼▼▼ Inspector Panel 関連の接続を削除 ▼▼▼ ---
         # self.inspector_panel.changesSaved.connect(self._handle_inspector_save)
         # --- ▲▲▲ 削除ここまで ▲▲▲ ---
+
+    @Slot(str)
+    def _handle_scene_change_and_save_config(self, new_scene_id: str):
+        """PromptPanel からシーン変更の通知を受け取り、設定を保存するスロット。"""
+        print(f"[DEBUG] MainWindow received sceneChanged signal: {new_scene_id}")
+        current_scene_id_before = self.current_scene_id
+        self.current_scene_id = new_scene_id if new_scene_id else None
+        if current_scene_id_before != self.current_scene_id:
+            # シーンが変わったら配役もリセットされる可能性があるため、
+            # prompt_panel 内部の _current_assignments を取得し直す
+            # ただし、build_role_assignment_ui が呼ばれた後でないと最新でない可能性
+            # -> assignmentChanged シグナルで最新の配役を受け取る方が確実
+            self.generated_prompts = []
+            self.update_prompt_display()
+            # build_role_assignment_ui が完了してから保存した方が良いが、
+            # ここで一旦保存しておく（配役リセット前の状態が保存される可能性あり）
+            self.data_handler.save_config(
+                self.current_scene_id, self.current_style_id, self.actor_assignments
+            )
+
+    @Slot(dict)
+    def _handle_assignment_change_and_save_config(self, new_assignments: dict):
+        """PromptPanel から割り当て変更の通知を受け取り、設定を保存するスロット。"""
+        print(f"[DEBUG] MainWindow received assignmentChanged: {new_assignments}")
+        self.actor_assignments = new_assignments.copy()
+        self.generated_prompts = []  # 配役が変わったらプレビューはリセット
+        self.update_prompt_display()
+        self.data_handler.save_config(
+            self.current_scene_id, self.current_style_id, self.actor_assignments
+        )
+
+    @Slot(str)
+    def _handle_style_change_and_save_config(self, new_style_id: str):
+        """PromptPanel から Style 変更の通知を受け取り、設定を保存するスロット。"""
+        print(f"[DEBUG] MainWindow received styleChanged signal: {new_style_id}")
+        new_id_or_none = new_style_id if new_style_id else None
+        if self.current_style_id != new_id_or_none:
+            self.current_style_id = new_id_or_none
+            self.generated_prompts = []  # スタイルが変わったらプレビューはリセット
+            self.update_prompt_display()
+            self.data_handler.save_config(
+                self.current_scene_id, self.current_style_id, self.actor_assignments
+            )
+
+    # --- ▼▼▼ closeEvent をオーバーライドして設定を保存 ▼▼▼ ---
+    def closeEvent(self, event: QCloseEvent):
+        """アプリケーション終了時に設定を保存します。"""
+        print("[DEBUG] MainWindow closing. Saving config...")
+        # 念のため最新の配役を取得 (必須ではないかもしれない)
+        # self.actor_assignments = self.prompt_panel._current_assignments.copy()
+        self.data_handler.save_config(
+            self.current_scene_id, self.current_style_id, self.actor_assignments
+        )
+        event.accept()  # アプリケーションを閉じる
 
     # --- スロット (シグナルハンドラ) ---
     @Slot()
