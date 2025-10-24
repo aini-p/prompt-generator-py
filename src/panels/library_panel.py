@@ -13,32 +13,25 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, Slot
 from typing import Dict, List, Tuple, Optional, Any
-from ..models import DatabaseKey, Work
+from ..models import DatabaseKey, Work, StableDiffusionParams
 
 
 class LibraryPanel(QWidget):
     # --- シグナル定義 ---
     # タイプが変更された (新しい DatabaseKey)
     libraryTypeChanged = Signal(str)
-    # アイテムが選択された (DatabaseKey(str), item_id(str))
-    itemSelected = Signal(str, str)  # ← 型 (str, str) を指定
-    # アイテム選択が解除された
-    itemSelectionCleared = Signal()
     addNewItemClicked = Signal(str, str)  # DatabaseKey -> str
     deleteItemClicked = Signal(str, str)  # DatabaseKey -> str
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._db_data_ref: Dict[str, Dict[str, Any]] = {}  # MainWindow.db_data への参照
-        self._sd_params_ref: Optional[Any] = None  # MainWindow.sd_params への参照
         self._current_db_key: Optional[DatabaseKey] = None
         self._init_ui()
 
-    def set_data_reference(self, db_data: Dict[str, Dict[str, Any]], sd_params: Any):
+    def set_data_reference(self, db_data: Dict[str, Dict[str, Any]]):
         """MainWindow からデータ辞書とSDパラメータへの参照を設定します。"""
         self._db_data_ref = db_data
-        self._sd_params_ref = sd_params
-        # 参照が設定されたらリストを初期表示
         self._update_library_list()
 
     def _init_ui(self):
@@ -84,9 +77,6 @@ class LibraryPanel(QWidget):
 
         # オブジェクトリスト
         self.library_list_widget = QListWidget()
-        self.library_list_widget.currentItemChanged.connect(
-            self._on_item_selection_changed
-        )
         library_layout.addWidget(self.library_list_widget)
 
         # 操作ボタン
@@ -110,18 +100,6 @@ class LibraryPanel(QWidget):
             self.library_search_edit.clear()
             self._update_library_list()
             self.libraryTypeChanged.emit(db_key)  # シグナル発行
-
-    @Slot(QListWidgetItem, QListWidgetItem)
-    def _on_item_selection_changed(
-        self, current: QListWidgetItem, previous: QListWidgetItem
-    ):
-        """リストの選択が変更されたときの処理。"""
-        if current and self._current_db_key:
-            item_id = current.data(Qt.ItemDataRole.UserRole)
-            if item_id:
-                self.itemSelected.emit(self._current_db_key, item_id)  # シグナル発行
-        else:
-            self.itemSelectionCleared.emit()  # シグナル発行
 
     @Slot()
     def _on_add_new_clicked(self):
@@ -167,10 +145,17 @@ class LibraryPanel(QWidget):
         items_dict = self._db_data_ref.get(db_key)
 
         if db_key == "sdParams":
-            if self._sd_params_ref:
-                list_item = QListWidgetItem("Stable Diffusion Parameters")
-                list_item.setData(Qt.ItemDataRole.UserRole, "sdParams_instance")
-                self.library_list_widget.addItem(list_item)
+            # SD Params は MainWindow が持っているので、ここでは表示しないか、
+            # MainWindow から値を受け取って表示する必要がある。
+            # 今回はリストには表示せず、選択不可とする。
+            list_item = QListWidgetItem("SD Params (Edit not available here)")
+            list_item.setData(
+                Qt.ItemDataRole.UserRole, "sdParams_placeholder"
+            )  # ダミーID
+            list_item.setFlags(
+                list_item.flags() & ~Qt.ItemFlag.ItemIsSelectable
+            )  # 選択不可に
+            self.library_list_widget.addItem(list_item)
             is_add_enabled = False
             is_delete_enabled = False
             is_search_enabled = False
