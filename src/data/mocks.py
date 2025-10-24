@@ -15,6 +15,8 @@ from src.models import (
     Scene,
     SceneRole,
     RoleDirection,
+    ColorPaletteItem,  # ★ ColorPaletteItem をインポート
+    CharacterColorRef,  # ★ CharacterColorRef をインポート
 )
 
 # --- ★ Work モックデータ ---
@@ -39,15 +41,16 @@ char_default_male = Character(
     name="デフォルト男性キャラ",
     work_id="work_default",
     tags=["protagonist"],
+    personal_color="blue",
+    underwear_color="white",
 )
 char_default_female = Character(
     id="char_default_female",
     name="デフォルト女性キャラ",
     work_id="work_default",
     tags=["heroine"],
-)
-char_another_a = Character(
-    id="char_another_a", name="キャラA", work_id="work_another", tags=[]
+    personal_color="pink",
+    underwear_color="lace",
 )
 # --- デフォルトの Stable Diffusion パラメータ ---
 default_sd_params: StableDiffusionParams = StableDiffusionParams(
@@ -69,7 +72,6 @@ initialMockDatabase: FullDatabase = FullDatabase(
     characters={
         char_default_male.id: char_default_male,
         char_default_female.id: char_default_female,
-        char_another_a.id: char_another_a,
     },
     actors={
         "actor_default_male": Actor(
@@ -115,7 +117,25 @@ initialMockDatabase: FullDatabase = FullDatabase(
             tags=[],
             prompt="wearing a simple white shirt",
             negative_prompt="",
-        )
+            # color_placeholders={} を color_palette=[] に変更
+            color_palette=[],
+        ),
+        "costume_colored_dress": Costume(
+            id="costume_colored_dress",
+            name="カラードレス",
+            tags=["dress"],
+            prompt="wearing a beautiful [C1] dress, [C2] underwear",
+            negative_prompt="",
+            # color_placeholders={...} を color_palette=[...] に変更
+            color_palette=[
+                ColorPaletteItem(
+                    placeholder="[C1]", color_ref=CharacterColorRef.PERSONAL_COLOR
+                ),
+                ColorPaletteItem(
+                    placeholder="[C2]", color_ref=CharacterColorRef.UNDERWEAR_COLOR
+                ),
+            ],
+        ),
     },
     # --- ポーズ (Poses) ---
     poses={

@@ -25,6 +25,9 @@ class CharacterInspector(BaseInspector):
         )
         tags_edit = QLineEdit(", ".join(getattr(item_data, "tags", [])))
 
+        personal_color_edit = QLineEdit(getattr(item_data, "personal_color", ""))
+        underwear_color_edit = QLineEdit(getattr(item_data, "underwear_color", ""))
+
         self.layout.addRow("Name:", name_edit)
         self.layout.addRow("Work:", work_combo)
         self.layout.addRow("Tags:", tags_edit)

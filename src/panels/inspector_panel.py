@@ -27,6 +27,8 @@ from ..inspectors.scene_inspector import SceneInspector
 from ..inspectors.direction_inspector import DirectionInspector
 from ..inspectors.simple_part_inspector import SimplePartInspector
 from ..inspectors.sd_params_inspector import SDParamsInspector
+from ..inspectors.costume_inspector import CostumeInspector
+
 
 # --- ここまで ---
 from ..models import StableDiffusionParams, DatabaseKey
@@ -107,8 +109,9 @@ class InspectorPanel(QWidget):
             InspectorClass = SceneInspector
         elif db_key == "directions":
             InspectorClass = DirectionInspector
+        elif db_key == "costumes":
+            InspectorClass = CostumeInspector
         elif db_key in [
-            "costumes",
             "poses",
             "expressions",
             "backgrounds",

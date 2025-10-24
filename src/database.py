@@ -20,8 +20,16 @@ from .models import (
     StableDiffusionParams,
     SceneRole,
     RoleDirection,
+    ColorPaletteItem,
+    CharacterColorRef,
+)
+from .utils.json_helpers import (
     list_to_json_str,
-    json_str_to_list,  # Import helpers from models.py
+    json_str_to_list,
+    dict_to_json_str,
+    json_str_to_dict,
+    dataclass_list_to_json_str,
+    json_str_to_dataclass_list,
 )
 from .data.mocks import initialMockDatabase
 
@@ -45,6 +53,33 @@ def initialize_db():
     conn = get_connection()
     cursor = conn.cursor()
     try:
+        # カラムが存在しない場合のみ追加 (より安全な方法)
+        cursor.execute("PRAGMA table_info(characters)")
+        columns = [col[1] for col in cursor.fetchall()]
+        if "personal_color" not in columns:
+            cursor.execute("ALTER TABLE characters ADD COLUMN personal_color TEXT")
+        if "underwear_color" not in columns:
+            cursor.execute("ALTER TABLE characters ADD COLUMN underwear_color TEXT")
+        # --- ★ Costume テーブル修正 ---
+        # カラムが存在しない場合のみ追加
+        cursor.execute("PRAGMA table_info(costumes)")
+        columns = [col[1] for col in cursor.fetchall()]
+        if "color_placeholders" in columns:
+            # 古いカラム名をリネーム (SQLiteの制限により複雑になるため、ここでは削除して再作成を推奨)
+            # または、データを保持したい場合は手動での移行が必要
+            print(
+                "INFO: Renaming 'color_placeholders' column to 'color_palette' in 'costumes' table is recommended."
+            )
+            # 簡単な移行 (カラム追加 -> データコピー -> 古いカラム削除)
+            if "color_palette" not in columns:
+                cursor.execute("ALTER TABLE costumes ADD COLUMN color_palette TEXT")
+                # ここで古いデータを新しい形式に変換してコピーするロジックが必要
+                # cursor.execute("UPDATE costumes SET color_palette = ... WHERE color_placeholders IS NOT NULL")
+                # cursor.execute("ALTER TABLE costumes DROP COLUMN color_placeholders") # SQLiteはDROP COLUMNをサポートしない場合が多い
+        elif "color_palette" not in columns:
+            cursor.execute(
+                "ALTER TABLE costumes ADD COLUMN color_palette TEXT"
+            )  # 新しいカラム名で追加
         # --- ★ Work テーブル作成 ---
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS works (
@@ -202,9 +237,38 @@ def _load_items(table_name: str, class_type: Type[T]) -> Dict[str, T]:
             row_dict["role_directions"] = json_str_to_list(
                 row_dict.get("role_directions"), RoleDirection
             )
-        # --- ★ 変換処理ここまで ---
+
+        color_palette_json = row_dict.get("color_palette") or row_dict.get(
+            "color_placeholders"
+        )
+        if class_type == Costume and color_palette_json:
+            # ★ データクラスリスト用ヘルパーを使用
+            row_dict["color_palette"] = json_str_to_dataclass_list(
+                color_palette_json, ColorPaletteItem
+            )
+            # 古いカラムが存在すれば削除
+            if "color_placeholders" in row_dict:
+                del row_dict["color_placeholders"]
+        elif class_type == Costume and "color_palette" not in row_dict:
+            row_dict["color_palette"] = []  # カラム自体がない場合も空リストで初期化
 
         try:
+            # --- ★ CharacterColorRef の Enum 変換 ---
+            # Costume.color_palette 内の color_ref が文字列で読み込まれるため Enum に変換
+            if class_type == Costume and "color_palette" in row_dict:
+                for item in row_dict["color_palette"]:
+                    if isinstance(item, ColorPaletteItem) and isinstance(
+                        item.color_ref, str
+                    ):
+                        try:
+                            item.color_ref = CharacterColorRef(item.color_ref)
+                        except ValueError:
+                            print(
+                                f"Warning: Invalid CharacterColorRef value '{item.color_ref}' found in Costume {item_id}. Setting to default."
+                            )
+                            item.color_ref = list(CharacterColorRef)[
+                                0
+                            ]  # デフォルト値 (例: PERSONAL_COLOR)
             items[item_id] = class_type(**row_dict)
         except Exception as e:  # より広範なエラーをキャッチ
             # dataclassのフィールドとDBのカラムが一致しない場合や型変換エラーなど
@@ -316,6 +380,7 @@ def delete_direction(direction_id: str):
 def save_costume(costume: Costume):
     data = costume.__dict__.copy()
     data["tags"] = json.dumps(data.get("tags", []))
+    data["color_palette"] = dataclass_list_to_json_str(data.get("color_palette", []))
     _save_item("costumes", data)
 
 

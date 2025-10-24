@@ -12,7 +12,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Slot
 from typing import Optional, Dict, Any
-from ..models import PromptPartBase  # Work, Character は不要
+from ..models import PromptPartBase
+import json
 
 
 class AddSimplePartForm(QDialog):

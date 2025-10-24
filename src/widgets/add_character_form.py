@@ -33,6 +33,8 @@ class AddCharacterForm(QDialog):
         self.name_edit = QLineEdit()
         self.work_combo = QComboBox()
         self.tags_edit = QLineEdit()
+        self.personal_color_edit = QLineEdit()
+        self.underwear_color_edit = QLineEdit()
 
         # Populate Work Combo
         self._populate_work_combo()
@@ -41,6 +43,12 @@ class AddCharacterForm(QDialog):
         if initial_data:
             self.name_edit.setText(getattr(initial_data, "name", ""))
             self.tags_edit.setText(", ".join(getattr(initial_data, "tags", [])))
+            self.personal_color_edit.setText(
+                getattr(initial_data, "personal_color", "")
+            )
+            self.underwear_color_edit.setText(
+                getattr(initial_data, "underwear_color", "")
+            )
             # Work コンボを選択
             work_id = getattr(initial_data, "work_id", None)
             index = self.work_combo.findData(work_id)
@@ -60,6 +68,10 @@ class AddCharacterForm(QDialog):
         form_layout.addWidget(self.work_combo)
         form_layout.addWidget(QLabel("タグ (カンマ区切り):"))
         form_layout.addWidget(self.tags_edit)
+        form_layout.addWidget(QLabel("パーソナルカラー:"))
+        form_layout.addWidget(self.personal_color_edit)
+        form_layout.addWidget(QLabel("下着カラー:"))
+        form_layout.addWidget(self.underwear_color_edit)
         layout.addLayout(form_layout)
 
         button_box = QDialogButtonBox(
@@ -90,6 +102,8 @@ class AddCharacterForm(QDialog):
     def accept(self):
         name = self.name_edit.text().strip()
         work_id = self.work_combo.currentData()  # itemData (ID または None) を取得
+        personal_color = self.personal_color_edit.text().strip()
+        underwear_color = self.underwear_color_edit.text().strip()
 
         if not name:
             QMessageBox.warning(self, "入力エラー", "名前は必須です。")
@@ -103,6 +117,8 @@ class AddCharacterForm(QDialog):
             name=name,
             work_id=work_id,
             tags=[t.strip() for t in self.tags_edit.text().split(",") if t.strip()],
+            personal_color=personal_color,
+            underwear_color=underwear_color,
         )
         super().accept()
 

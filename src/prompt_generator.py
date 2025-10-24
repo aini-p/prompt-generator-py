@@ -10,6 +10,9 @@ from .models import (
     StableDiffusionParams,
     ImageGenerationTask,
     SceneRole,
+    Work,
+    Character,
+    Costume,
 )
 
 # UIから渡される「配役」
@@ -38,51 +41,111 @@ def getCartesianProduct(arrays: Iterable[Iterable[T]]) -> List[List[T]]:
 def generate_actor_prompt(
     actor: Actor, directionId: str, db: FullDatabase
 ) -> Dict[str, str]:
-    """
-    役者(Actor)と単一の演出(Direction)から、
-    その役者の最終的なプロンプトを生成する
-    """
+    """役者と演出から最終プロンプトを生成 (カラー置換含む)"""
     direction = db.directions.get(directionId)
-    if not direction:
-        # 演出が見つからない(ID="")場合は、役者の基本状態のみ
-        baseParts: List[Optional[PromptPartBase]] = [
-            actor,
-            db.costumes.get(actor.base_costume_id),
-            db.poses.get(actor.base_pose_id),
-            db.expressions.get(actor.base_expression_id),
-        ]
-        valid_base_parts = [p for p in baseParts if p is not None]  # Noneを除外
+    character: Optional[Character] = (
+        db.characters.get(actor.character_id) if actor.character_id else None
+    )
 
-        return {
-            "name": f"{actor.name} (基本)",
-            "positive": ", ".join(filter(None, [p.prompt for p in valid_base_parts])),
-            "negative": ", ".join(
-                filter(None, [p.negative_prompt for p in valid_base_parts])
-            ),
-        }
+    # --- 使用するパーツを決定 ---
+    costume: Optional[Costume] = None
+    pose: Optional[PromptPartBase] = None
+    expression: Optional[PromptPartBase] = None
+    direction_part: Optional[Direction] = direction  # direction 自体もパーツとして扱う
 
-    # 演出(Direction) に基づき、使用するパーツを「決定」
+    if not direction:  # 演出なし
+        costume = db.costumes.get(actor.base_costume_id)
+        pose = db.poses.get(actor.base_pose_id)
+        expression = db.expressions.get(actor.base_expression_id)
+    else:  # 演出あり
+        costume_id = direction.costume_id or actor.base_costume_id
+        costume = db.costumes.get(costume_id) if costume_id else None
+        pose_id = direction.pose_id or actor.base_pose_id
+        pose = db.poses.get(pose_id) if pose_id else None
+        expression_id = direction.expression_id or actor.base_expression_id
+        expression = db.expressions.get(expression_id) if expression_id else None
+
+    # --- 有効なパーツリストを作成 ---
     finalParts: List[Optional[PromptPartBase]] = [
         actor,
-        db.costumes.get(direction.costume_id)
-        if direction.costume_id
-        else db.costumes.get(actor.base_costume_id),
-        db.poses.get(direction.pose_id)
-        if direction.pose_id
-        else db.poses.get(actor.base_pose_id),
-        db.expressions.get(direction.expression_id)
-        if direction.expression_id
-        else db.expressions.get(actor.base_expression_id),
-        direction,
+        costume,
+        pose,
+        expression,
+        direction_part,
     ]
-    valid_final_parts = [p for p in finalParts if p is not None]  # Noneを除外
+    valid_final_parts = [p for p in finalParts if p is not None]
 
+    # --- プロンプト文字列を結合 (置換前) ---
+    positive_prompts_list: List[str] = []
+    negative_prompts_list: List[str] = []
+    for part in valid_final_parts:
+        if part.prompt:
+            positive_prompts_list.append(part.prompt)
+        if part.negative_prompt:
+            negative_prompts_list.append(part.negative_prompt)
+
+    # --- ★ カラープレイスホルダー置換 ★ ---
+    final_positive_str = ", ".join(positive_prompts_list)
+    final_negative_str = ", ".join(negative_prompts_list)
+
+    if costume and character and costume.color_palette:
+        print(
+            f"[DEBUG] Processing color palette for Costume: {costume.id} on Character: {character.id}"
+        )
+        replacements = {}  # 置換ペアを一時格納
+        for item in costume.color_palette:
+            placeholder = item.placeholder
+            color_ref_enum = item.color_ref
+            attr_name = color_ref_enum.value  # Enum の値 (属性名文字列) を取得
+
+            if hasattr(character, attr_name):
+                color_value = getattr(character, attr_name, "")
+                if color_value:  # カラー値が存在すれば置換リストに追加
+                    print(
+                        f"[DEBUG]   Found replacement: {placeholder} -> '{color_value}' (from {attr_name})"
+                    )
+                    replacements[placeholder] = color_value
+                else:
+                    print(
+                        f"[DEBUG]   Skipping {placeholder}: Character attribute '{attr_name}' is empty."
+                    )
+            else:
+                print(
+                    f"[DEBUG]   Skipping {placeholder}: Character attribute '{attr_name}' not found."
+                )
+
+        # 実際に置換を実行 (プロンプト全体に対して)
+        # Placeholderが他のPlaceholderの一部になっている場合を考慮し、長いものから置換 (例: [C10] と [C1])
+        sorted_placeholders = sorted(replacements.keys(), key=len, reverse=True)
+        for ph in sorted_placeholders:
+            final_positive_str = final_positive_str.replace(ph, replacements[ph])
+            final_negative_str = final_negative_str.replace(
+                ph, replacements[ph]
+            )  # ネガティブも置換
+
+    # --- ★ 未解決のプレイスホルダーを削除 (オプション) ---
+    # Costume で定義されたプレイスホルダー ([C1]など) が残っていたら削除
+    if costume and costume.color_palette:
+        remaining_placeholders = [item.placeholder for item in costume.color_palette]
+        for ph in remaining_placeholders:
+            # 正規表現のエスケープが必要な文字が含まれる可能性があるため re.escape を使う
+            final_positive_str = final_positive_str.replace(ph, "")
+            final_negative_str = final_negative_str.replace(ph, "")
+    # カンマや空白の整理
+    final_positive_str = ", ".join(
+        filter(None, [s.strip() for s in final_positive_str.split(",")])
+    )
+    final_negative_str = ", ".join(
+        filter(None, [s.strip() for s in final_negative_str.split(",")])
+    )
+
+    # --- 戻り値 ---
+    actor_name_part = actor.name
+    dir_name_part = f"({direction.name})" if direction else "(基本)"
     return {
-        "name": f"{actor.name} ({direction.name})",
-        "positive": ", ".join(filter(None, [p.prompt for p in valid_final_parts])),
-        "negative": ", ".join(
-            filter(None, [p.negative_prompt for p in valid_final_parts])
-        ),
+        "name": f"{actor_name_part} {dir_name_part}",
+        "positive": final_positive_str,
+        "negative": final_negative_str,
     }
 
 

@@ -2,6 +2,7 @@
 import json
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Literal, TypeAlias
+from enum import Enum
 
 
 # --- ★ Work と Character を追加 ---
@@ -14,6 +15,39 @@ class Work:
     sns_tags: str = ""  # カンマ区切り想定
 
 
+# --- ★ カラー参照 Enum ---
+class CharacterColorRef(Enum):
+    PERSONAL_COLOR = "personal_color"
+    UNDERWEAR_COLOR = "underwear_color"
+    # 必要に応じて他のカラー参照を追加 (例: HAIR_COLOR = "hair_color")
+
+    # 表示名を取得するメソッド (UI用)
+    @classmethod
+    def get_display_name(cls, value):
+        if value == cls.PERSONAL_COLOR:
+            return "パーソナルカラー"
+        if value == cls.UNDERWEAR_COLOR:
+            return "下着カラー"
+        return value.name  # デフォルトは Enum の名前
+
+    # 表示名から値を取得するメソッド (UI用)
+    @classmethod
+    def from_display_name(cls, name):
+        for item in cls:
+            if cls.get_display_name(item) == name:
+                return item
+        return None  # 見つからない場合
+
+
+# --- ★ カラーパレット項目 データクラス ---
+@dataclass
+class ColorPaletteItem:
+    placeholder: str = "[C1]"  # プロンプト内のプレイスホルダー (例: [C1], [COLOR_A])
+    color_ref: CharacterColorRef = (
+        CharacterColorRef.PERSONAL_COLOR
+    )  # 参照する Character の属性
+
+
 @dataclass
 class Character:
     id: str
@@ -22,7 +56,8 @@ class Character:
     tags: List[str] = field(
         default_factory=list
     )  # キャラクター固有のタグ（オプション）
-    # 必要ならキャラ固有プロンプトなども追加可能
+    personal_color: str = ""  # 例: "blue"
+    underwear_color: str = ""  # 例: "white"
 
 
 # --- ベースオブジェクト ---
@@ -38,7 +73,7 @@ class PromptPartBase:
 # --- Level 1: ライブラリ (基本パーツ) ---
 @dataclass
 class Costume(PromptPartBase):
-    pass
+    color_palette: List[ColorPaletteItem] = field(default_factory=list)
 
 
 @dataclass

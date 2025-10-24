@@ -65,6 +65,7 @@ from .widgets.add_direction_form import AddDirectionForm
 from .widgets.add_simple_part_form import AddSimplePartForm
 from .widgets.add_work_form import AddWorkForm
 from .widgets.add_character_form import AddCharacterForm
+from .widgets.add_costume_form import AddCostumeForm
 
 # ------------------------------------
 from .prompt_generator import generate_batch_prompts, create_image_generation_tasks
@@ -86,7 +87,7 @@ class MainWindow(QMainWindow):
             "ACTOR": (AddActorForm, "actors"),
             "SCENE": (AddSceneForm, "scenes"),
             "DIRECTION": (AddDirectionForm, "directions"),
-            "COSTUME": (AddSimplePartForm, "costumes"),
+            "COSTUME": (AddCostumeForm, "costumes"),
             "POSE": (AddSimplePartForm, "poses"),
             "EXPRESSION": (AddSimplePartForm, "expressions"),
             "BACKGROUND": (AddSimplePartForm, "backgrounds"),
@@ -512,6 +513,7 @@ class MainWindow(QMainWindow):
                 AddActorForm,
                 AddSceneForm,
                 AddDirectionForm,
+                AddCostumeForm,
             ]:
                 # これらのフォームは db_dict (全データ) を必要とする
                 dialog = FormClass(item_data, self.db_data, self)
