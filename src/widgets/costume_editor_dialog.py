@@ -45,6 +45,9 @@ class CostumeEditorDialog(BaseEditorDialog):
         # _populate_fields は基底クラスの __init__ から呼ばれる
 
     def _populate_fields(self):
+        self.form_layout = self.setup_form_layout()  # 基底クラスのヘルパーを呼び出す
+        if not self.form_layout:
+            return  # エラー処理 (念のため)
         """UI要素を作成し、配置します。"""
         # --- Common fields (BaseInspector のロジックを流用) ---
         name_edit = QLineEdit(getattr(self.initial_data, "name", ""))

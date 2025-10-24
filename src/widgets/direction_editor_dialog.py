@@ -1,4 +1,4 @@
-# src/widgets/direction_editor_dialog.py (旧 add_direction_form.py)
+# src/widgets/direction_editor_dialog.py
 import time
 from PySide6.QtWidgets import (
     QLabel,
@@ -6,13 +6,14 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QComboBox,
     QMessageBox,
-    QFormLayout,  # QFormLayout を追加
+    QFormLayout,
+    QWidget,  # QWidget を追加
 )
 from PySide6.QtCore import Slot
 from typing import Optional, Dict, Any
 
 from .base_editor_dialog import BaseEditorDialog
-from ..models import Direction  # 必要なモデルをインポート
+from ..models import Direction
 
 
 class DirectionEditorDialog(BaseEditorDialog):
@@ -23,37 +24,47 @@ class DirectionEditorDialog(BaseEditorDialog):
         # UI構築 (_populate_fields が呼ばれる)
 
     def _populate_fields(self):
-        # UI Elements
+        self.form_layout = self.setup_form_layout()  # 基底クラスのヘルパーを呼び出す
+        if not self.form_layout:
+            return  # エラー処理 (念のため)
+        # UI Elements (変更なし)
         self.name_edit = QLineEdit(getattr(self.initial_data, "name", ""))
         self.tags_edit = QLineEdit(", ".join(getattr(self.initial_data, "tags", [])))
         self.prompt_edit = QTextEdit(getattr(self.initial_data, "prompt", ""))
-        self.prompt_edit.setFixedHeight(60)  # 高さを設定
+        self.prompt_edit.setFixedHeight(60)
         self.negative_prompt_edit = QTextEdit(
             getattr(self.initial_data, "negative_prompt", "")
         )
-        self.negative_prompt_edit.setFixedHeight(60)  # 高さを設定
+        self.negative_prompt_edit.setFixedHeight(60)
 
-        # Combo Boxes (using helper)
-        self.costume_combo = self._create_combo_box(
-            getattr(self.initial_data, "costume_id", None),
-            self.db_dict.get("costumes", {}),
+        # --- ▼▼▼ Combo Boxes を _create_reference_editor_widget に変更 ▼▼▼ ---
+        costume_ref_widget = self._create_reference_editor_widget(
+            field_name="costume_id",
+            current_id=getattr(self.initial_data, "costume_id", None),
+            reference_db_key="costumes",
+            reference_modal_type="COSTUME",
             allow_none=True,
             none_text="(上書きしない)",
         )
-        self.pose_combo = self._create_combo_box(
-            getattr(self.initial_data, "pose_id", None),
-            self.db_dict.get("poses", {}),
+        pose_ref_widget = self._create_reference_editor_widget(
+            field_name="pose_id",
+            current_id=getattr(self.initial_data, "pose_id", None),
+            reference_db_key="poses",
+            reference_modal_type="POSE",
             allow_none=True,
             none_text="(上書きしない)",
         )
-        self.expression_combo = self._create_combo_box(
-            getattr(self.initial_data, "expression_id", None),
-            self.db_dict.get("expressions", {}),
+        expression_ref_widget = self._create_reference_editor_widget(
+            field_name="expression_id",
+            current_id=getattr(self.initial_data, "expression_id", None),
+            reference_db_key="expressions",
+            reference_modal_type="EXPRESSION",
             allow_none=True,
             none_text="(上書きしない)",
         )
+        # --- ▲▲▲ 変更ここまで ▲▲▲ ---
 
-        # Layout (using base class's form_layout)
+        # Layout
         self.form_layout.addRow("名前:", self.name_edit)
         self.form_layout.addRow("タグ:", self.tags_edit)
         self.form_layout.addRow("追加プロンプト (Positive):", self.prompt_edit)
@@ -66,44 +77,41 @@ class DirectionEditorDialog(BaseEditorDialog):
                 styleSheet="color: #555; margin-top: 10px;",
             )
         )
-        self.form_layout.addRow("衣装 (上書き):", self.costume_combo)
-        self.form_layout.addRow("ポーズ (上書き):", self.pose_combo)
-        self.form_layout.addRow("表情 (上書き):", self.expression_combo)
+        # --- ▼▼▼ ウィジェットをレイアウトに追加 ▼▼▼ ---
+        self.form_layout.addRow("衣装 (上書き):", costume_ref_widget)
+        self.form_layout.addRow("ポーズ (上書き):", pose_ref_widget)
+        self.form_layout.addRow("表情 (上書き):", expression_ref_widget)
+        # --- ▲▲▲ 変更ここまで ▲▲▲ ---
 
-        # _widgets への登録
+        # _widgets への登録 (参照ウィジェットは _reference_widgets に自動登録)
         self._widgets["name"] = self.name_edit
         self._widgets["tags"] = self.tags_edit
         self._widgets["prompt"] = self.prompt_edit
         self._widgets["negative_prompt"] = self.negative_prompt_edit
-        self._widgets["costume_id"] = self.costume_combo
-        self._widgets["pose_id"] = self.pose_combo
-        self._widgets["expression_id"] = self.expression_combo
+        # self._widgets["costume_id"] = self.costume_combo # 削除
+        # self._widgets["pose_id"] = self.pose_combo       # 削除
+        # self._widgets["expression_id"] = self.expression_combo # 削除
 
-        # --- 不要なコード削除 ---
-        # Populate Combos は _create_combo_box で実施
-        # 初期値設定はウィジェット作成時に実施済み
-        # button_box の作成と接続は基底クラス
-
-    # --- accept を get_data に変更 ---
     def get_data(self) -> Optional[Direction]:
         name = self.name_edit.text().strip()
         if not name:
             QMessageBox.warning(self, "入力エラー", "名前は必須です。")
             return None
 
-        # コンボボックスの値は _update_object_from_widgets で取得・設定される
+        # costume_id などは _update_object_from_widgets で取得・設定される
 
         if self.initial_data:  # 更新
             updated_direction = self.initial_data
-            self._update_object_from_widgets(updated_direction)
+            if not self._update_object_from_widgets(updated_direction):
+                return None  # 更新失敗
             return updated_direction
         else:  # 新規作成
             tags_text = self.tags_edit.text()
             prompt_text = self.prompt_edit.toPlainText().strip()
             neg_prompt_text = self.negative_prompt_edit.toPlainText().strip()
-            costume_id = self.costume_combo.currentData()  # None or str
-            pose_id = self.pose_combo.currentData()  # None or str
-            expression_id = self.expression_combo.currentData()  # None or str
+            costume_id = self._get_widget_value("costume_id")  # ヘルパー使用
+            pose_id = self._get_widget_value("pose_id")  # ヘルパー使用
+            expression_id = self._get_widget_value("expression_id")  # ヘルパー使用
 
             new_direction = Direction(
                 id=f"dir_{int(time.time())}",
@@ -111,13 +119,8 @@ class DirectionEditorDialog(BaseEditorDialog):
                 tags=[t.strip() for t in tags_text.split(",") if t.strip()],
                 prompt=prompt_text,
                 negative_prompt=neg_prompt_text,
-                costume_id=costume_id,  # None も許容される
+                costume_id=costume_id,
                 pose_id=pose_id,
                 expression_id=expression_id,
             )
             return new_direction
-
-    # --- 元の get_data は削除 ---
-
-
-# --- スタイル定義は削除 ---

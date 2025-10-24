@@ -21,6 +21,9 @@ class WorkEditorDialog(BaseEditorDialog):
         # UI構築 (_populate_fields が呼ばれる)
 
     def _populate_fields(self):
+        self.form_layout = self.setup_form_layout()  # 基底クラスのヘルパーを呼び出す
+        if not self.form_layout:
+            return  # エラー処理 (念のため)
         # UI Elements
         self.title_jp_edit = QLineEdit(getattr(self.initial_data, "title_jp", ""))
         self.title_en_edit = QLineEdit(getattr(self.initial_data, "title_en", ""))

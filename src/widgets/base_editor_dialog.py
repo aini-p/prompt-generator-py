@@ -55,9 +55,6 @@ class BaseEditorDialog(QDialog):
         self.main_layout = QVBoxLayout(self)
         # フォーム部分を入れるコンテナウィジェット (サブクラスでレイアウトを設定)
         self.form_widget = QWidget()
-        # QFormLayout を標準とするが、サブクラスで変更可能
-        self.form_layout = QFormLayout(self.form_widget)
-        self.form_layout.setContentsMargins(5, 5, 5, 5)
         self.main_layout.addWidget(self.form_widget)
 
         # UIフィールドの構築 (サブクラスで実装)
@@ -83,6 +80,30 @@ class BaseEditorDialog(QDialog):
         サブクラスで必ず実装してください。
         """
         raise NotImplementedError("Subclasses must implement _populate_fields")
+
+    # --- ▼▼▼ QFormLayout を使うサブクラス用に form_layout をプロパティとして提供 (オプション) ▼▼▼ ---
+    # QFormLayout を使いたいサブクラスは、_populate_fields の最初にこれを呼び出す
+    def setup_form_layout(self) -> QFormLayout:
+        """self.form_widget に QFormLayout を設定し、それを返します。"""
+        if not self.form_widget.layout():  # レイアウトが未設定の場合のみ
+            layout = QFormLayout(self.form_widget)
+            layout.setContentsMargins(5, 5, 5, 5)
+            return layout
+        elif isinstance(self.form_widget.layout(), QFormLayout):
+            return self.form_widget.layout()  # 既存のものを返す
+        else:
+            # 既に別のレイアウトが設定されている場合はエラーにするか、上書きするか
+            print(
+                "Warning: setup_form_layout called but another layout already exists."
+            )
+            # 新しい QFormLayout を作って設定し直す場合:
+            # for i in reversed(range(self.form_widget.layout().count())):
+            #     widget = self.form_widget.layout().itemAt(i).widget()
+            #     if widget is not None: widget.setParent(None)
+            layout = QFormLayout(self.form_widget)
+            layout.setContentsMargins(5, 5, 5, 5)
+            return layout
+            # return None # または None を返す
 
     @Slot()
     def _save_and_accept(self):
