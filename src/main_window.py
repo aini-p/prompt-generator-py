@@ -668,25 +668,42 @@ class MainWindow(QMainWindow):
                         f"[DEBUG] Dialog returned data: {item_id_to_select} of type {type(saved_data).__name__}."
                     )
 
-                    # 1. メモリに追加/更新
-                    if db_key in self.db_data:
-                        self.db_data[db_key][item_id_to_select] = saved_data
-                    else:
-                        print(
-                            f"[ERROR] Invalid db_key '{db_key}' when trying to save data."
-                        )
-                        return  # エラー処理
+                    # --- ▼▼▼ Style の場合の型変換を追加 ▼▼▼ ---
+                    if db_key == "styles" and isinstance(saved_data, PromptPartBase):
+                        print("[DEBUG] Converting PromptPartBase to Style object.")
+                        # PromptPartBase の属性を使って Style オブジェクトを作成
+                        # (id, name, tags, prompt, negative_prompt は共通)
+                        try:
+                            saved_data = Style(**saved_data.__dict__)
+                            print(
+                                f"[DEBUG] Conversion successful: {type(saved_data).__name__}"
+                            )
+                        except TypeError as e:
+                            print(
+                                f"[ERROR] Failed to convert PromptPartBase to Style: {e}. Cannot save."
+                            )
+                            saved_data = None  # 保存しないように None にする
+                    # --- ▲▲▲ 変更ここまで ▲▲▲ ---
 
-                    # 2. DBに即時保存
-                    try:
-                        self.data_handler.save_single_item(db_key, saved_data)
-                    except Exception as db_save_e:
-                        # エラー処理は data_handler 側で行われるはずだが、念のため
-                        print(
-                            f"[ERROR] Failed to save item {item_id_to_select} to DB: {db_save_e}"
-                        )
-                        # QMessageBox は data_handler 側で表示される想定
+                    # saved_data が None でなければ処理続行
+                    if saved_data and item_id_to_select:
+                        # 1. メモリに追加/更新 (変更なし)
+                        if db_key in self.db_data:
+                            self.db_data[db_key][item_id_to_select] = saved_data
+                        else:
+                            print(
+                                f"[ERROR] Invalid db_key '{db_key}' when trying to save data."
+                            )
+                            return
 
+                        # 2. DBに即時保存 (変更なし)
+                        try:
+                            # ★★★ ここで Style オブジェクトが渡されるようになる ★★★
+                            self.data_handler.save_single_item(db_key, saved_data)
+                        except Exception as db_save_e:
+                            print(
+                                f"[ERROR] Failed to save item {item_id_to_select} to DB: {db_save_e}"
+                            )
                     # 3. UI更新
                     if target_combo_box_to_update:
                         parent_dialog = target_combo_box_to_update.parent()
