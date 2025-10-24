@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QFrame,
 )
 from PySide6.QtCore import Qt, Slot
+from .widgets.base_editor_dialog import BaseEditorDialog
 from . import database as db
 from .models import (
     Scene,
@@ -338,6 +339,19 @@ class MainWindow(QMainWindow):
             self.generated_prompts = []
             self.update_prompt_display()
 
+    @Slot(str, object, QComboBox)
+    def _handle_open_nested_editor(
+        self, modal_type: str, initial_data: Optional[Any], target_combo_box: QComboBox
+    ):
+        """BaseEditorDialog からの要求を受けて、ネストした編集ダイアログを開く"""
+        print(
+            f"[DEBUG] MainWindow received request to open nested editor: {modal_type}"
+        )
+        # open_edit_dialog を呼び出し、更新対象の ComboBox を渡す
+        self.open_edit_dialog(
+            modal_type, initial_data, target_combo_box_to_update=target_combo_box
+        )
+
     # --- コアロジックメソッド (generate_prompts, execute_generation, update_prompt_display は変更なし) ---
     @Slot()
     def generate_prompts(self):
@@ -475,7 +489,12 @@ class MainWindow(QMainWindow):
         print("[DEBUG] update_ui_after_data_change complete.")
 
     # --- ▼▼▼ open_edit_dialog を修正 ▼▼▼ ---
-    def open_edit_dialog(self, modal_type: str, item_data: Optional[Any]):
+    def open_edit_dialog(
+        self,
+        modal_type: str,
+        item_data: Optional[Any],
+        target_combo_box_to_update: Optional[QComboBox] = None,
+    ):
         """編集ダイアログを開きます (新規作成・編集兼用)。"""
         dialog_info = self.editor_dialog_mapping.get(modal_type)
         if not dialog_info:
@@ -506,6 +525,11 @@ class MainWindow(QMainWindow):
             else:
                 dialog = DialogClass(item_data, self.db_data, self)
             print(f"[DEBUG] Dialog instance created: {dialog}")
+
+            # --- ▼▼▼ シグナル接続を追加 ▼▼▼ ---
+            if dialog:
+                # ネストしたダイアログを開くリクエストを MainWindow で処理
+                dialog.request_open_editor.connect(self._handle_open_nested_editor)
 
         except Exception as e:
             QMessageBox.critical(
@@ -548,11 +572,25 @@ class MainWindow(QMainWindow):
                         # QMessageBox は data_handler 側で表示される想定
 
                     # 3. UI更新
-                    self.update_ui_after_data_change()
-                    if item_id_to_select:
-                        self.library_panel.select_item_by_id(
-                            item_id_to_select
-                        )  # 保存したアイテムを選択
+                    if target_combo_box_to_update:
+                        parent_dialog = target_combo_box_to_update.parent()
+                        while parent_dialog and not isinstance(parent_dialog, QDialog):
+                            parent_dialog = parent_dialog.parent()
+
+                        if isinstance(parent_dialog, BaseEditorDialog):
+                            parent_dialog.update_combo_box_after_edit(
+                                target_combo_box_to_update, db_key, item_id_to_select
+                            )
+                        else:
+                            print(
+                                "[ERROR] Could not find parent BaseEditorDialog to update ComboBox."
+                            )
+                    # --- ▲▲▲ 変更ここまで ▲▲▲ ---
+                    else:
+                        # トップレベルの呼び出しの場合、MainWindow の UI を更新 (変更なし)
+                        self.update_ui_after_data_change()
+                        if item_id_to_select:
+                            self.library_panel.select_item_by_id(item_id_to_select)
                 else:
                     print("[DEBUG] Dialog accepted but returned no valid data.")
             else:

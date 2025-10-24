@@ -49,19 +49,25 @@ class ActorEditorDialog(BaseEditorDialog):
         self.character_combo = QComboBox()  # Characterコンボをインスタンス変数に
 
         # --- Base selections ---
-        self.costume_combo = self._create_combo_box(
-            getattr(self.initial_data, "base_costume_id", None),
-            self.db_dict.get("costumes", {}),
+        costume_ref_widget = self._create_reference_editor_widget(
+            field_name="base_costume_id",
+            current_id=getattr(self.initial_data, "base_costume_id", None),
+            reference_db_key="costumes",
+            reference_modal_type="COSTUME",  # MainWindow のマッピングキー
             allow_none=True,
         )
-        self.pose_combo = self._create_combo_box(
-            getattr(self.initial_data, "base_pose_id", None),
-            self.db_dict.get("poses", {}),
+        pose_ref_widget = self._create_reference_editor_widget(
+            field_name="base_pose_id",
+            current_id=getattr(self.initial_data, "base_pose_id", None),
+            reference_db_key="poses",
+            reference_modal_type="POSE",
             allow_none=True,
         )
-        self.expression_combo = self._create_combo_box(
-            getattr(self.initial_data, "base_expression_id", None),
-            self.db_dict.get("expressions", {}),
+        expression_ref_widget = self._create_reference_editor_widget(
+            field_name="base_expression_id",
+            current_id=getattr(self.initial_data, "base_expression_id", None),
+            reference_db_key="expressions",
+            reference_modal_type="EXPRESSION",
             allow_none=True,
         )
 
@@ -74,10 +80,9 @@ class ActorEditorDialog(BaseEditorDialog):
         self.form_layout.addRow(
             "基本ネガティブプロンプト (Negative):", self.negative_prompt_edit
         )
-        self.form_layout.addRow("基本衣装:", self.costume_combo)
-        self.form_layout.addRow("基本ポーズ:", self.pose_combo)
-        self.form_layout.addRow("基本表情:", self.expression_combo)
-
+        self.form_layout.addRow("基本衣装:", costume_ref_widget)
+        self.form_layout.addRow("基本ポーズ:", pose_ref_widget)
+        self.form_layout.addRow("基本表情:", expression_ref_widget)
         # _widgets への登録
         self._widgets["name"] = self.name_edit
         self._widgets["tags"] = self.tags_edit
@@ -86,10 +91,6 @@ class ActorEditorDialog(BaseEditorDialog):
         self._widgets["character_id"] = (
             self.character_combo
         )  # character_id は character_combo の currentData
-        self._widgets["base_costume_id"] = self.costume_combo
-        self._widgets["base_pose_id"] = self.pose_combo
-        self._widgets["base_expression_id"] = self.expression_combo
-        # work_combo は character_id の選択に使うため _widgets には含めない (直接アクセス)
 
         # Connect signals
         self.work_combo.currentIndexChanged.connect(self._on_work_changed)
@@ -180,10 +181,9 @@ class ActorEditorDialog(BaseEditorDialog):
         else:  # 新規作成
             tags_text = self.tags_edit.text()
             neg_prompt_text = self.negative_prompt_edit.toPlainText().strip()
-            costume_id = self.costume_combo.currentData()
-            pose_id = self.pose_combo.currentData()
-            expression_id = self.expression_combo.currentData()
-
+            costume_id = self._get_widget_value("base_costume_id")  # ヘルパー使用
+            pose_id = self._get_widget_value("base_pose_id")  # ヘルパー使用
+            expression_id = self._get_widget_value("base_expression_id")  # ヘルパー使用
             new_actor = Actor(
                 id=f"actor_{int(time.time())}",
                 name=name,
