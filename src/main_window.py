@@ -93,6 +93,7 @@ class MainWindow(QMainWindow):
             "BACKGROUND": (AddSimplePartForm, "backgrounds"),
             "LIGHTING": (AddSimplePartForm, "lighting"),
             "COMPOSITION": (AddSimplePartForm, "compositions"),
+            "STYLE": (AddSimplePartForm, "styles"),
         }
 
         # --- データ関連 ---
@@ -103,6 +104,7 @@ class MainWindow(QMainWindow):
             self.data_handler.load_all_data()
         )
         self.current_scene_id: Optional[str] = initial_scene_id
+        self.current_style_id: Optional[str] = None
         self.actor_assignments: Dict[str, str] = {}
         self.generated_prompts: List[GeneratedPrompt] = []
 
@@ -163,8 +165,7 @@ class MainWindow(QMainWindow):
         # --- 初期UI状態設定 ---
         # PromptPanel の初期シーンを設定 (これにより関連UIも更新される)
         self.prompt_panel.set_current_scene(self.current_scene_id)
-        # LibraryPanel は内部で初期リスト表示を行う
-        # InspectorPanel は内部で初期クリア状態
+        self.prompt_panel.set_current_style(self.current_style_id)
 
     def _connect_signals(self):
         """パネル間のシグナルを接続します。"""
@@ -182,6 +183,7 @@ class MainWindow(QMainWindow):
         self.prompt_panel.executeGenerationClicked.connect(self.execute_generation)
         self.prompt_panel.sceneChanged.connect(self._handle_scene_change)
         self.prompt_panel.assignmentChanged.connect(self._handle_assignment_change)
+        self.prompt_panel.styleChanged.connect(self._handle_style_change)
 
         # Library Panel
         self.library_panel.itemSelected.connect(self.inspector_panel.update_inspector)
@@ -276,15 +278,55 @@ class MainWindow(QMainWindow):
             db_key_str if db_key_str in get_args(DatabaseKey) else None
         )
         if not db_key:
+            print(
+                f"[ERROR] _handle_inspector_save: Invalid db_key '{db_key_str}' received."
+            )
+            # 必要であれば QMessageBox でユーザーにエラー通知
             return
 
         print(f"[DEBUG] Received changesSaved signal for {db_key} - {item_id}")
-        # メモリ上のデータを更新
+
+        # 1. メモリ上のデータを更新
+        save_successful_in_memory = False  # メモリ更新成功フラグ
         if db_key == "sdParams":
-            self.sd_params = updated_object
-            # self.data_handler.save_sd_params(self.sd_params) # DataHandler経由に変更も可
+            if isinstance(updated_object, StableDiffusionParams):  # 型チェックを追加
+                self.sd_params = updated_object
+                save_successful_in_memory = True
+            else:
+                print(
+                    f"[ERROR] _handle_inspector_save: Invalid object type for sdParams: {type(updated_object)}"
+                )
         elif db_key in self.db_data:
+            # updated_object の型が期待通りか確認 (オプションだが推奨)
+            # expected_type = ... # db_key に応じた型を取得するロジック (例: self.form_mapping から逆引き)
+            # if isinstance(updated_object, expected_type):
             self.db_data[db_key][item_id] = updated_object
+            save_successful_in_memory = True
+            # else:
+            #     print(f"[ERROR] _handle_inspector_save: Invalid object type for {db_key}: {type(updated_object)}")
+        else:
+            print(f"[ERROR] _handle_inspector_save: Unknown db_key: {db_key}")
+
+        # --- ▼▼▼ データベースへの保存処理を追加 ▼▼▼ ---
+        if save_successful_in_memory:
+            try:
+                # 2. DataHandler を使ってデータベースファイルに即時保存
+                self.data_handler.save_single_item(db_key, updated_object)
+                print(
+                    f"[DEBUG] Successfully saved {item_id} of type {db_key} to database."
+                )
+            except Exception as e:
+                # DB保存に失敗しても致命的エラーにはせず、警告を表示
+                print(
+                    f"[ERROR] Failed to save item {item_id} ({db_key}) to database immediately: {e}"
+                )
+                QMessageBox.warning(
+                    self,
+                    "DB Save Warning",
+                    f"変更はメモリに適用されましたが、データベースへの即時保存中にエラーが発生しました。\n"
+                    f"'{getattr(updated_object, 'name', item_id)}' の変更を永続化するには、後で 'Save to DB' を押してください。\n\nError: {e}",
+                )
+                traceback.print_exc()  # 詳細なエラーをコンソールに出力
 
         # UI更新
         self.library_panel.update_list()
@@ -319,6 +361,18 @@ class MainWindow(QMainWindow):
         # 割り当てが変わったら生成済みプロンプトはリセット
         self.generated_prompts = []
         self.update_prompt_display()
+
+    # --- ★ Style 変更ハンドラを追加 ---
+    @Slot(str)
+    def _handle_style_change(self, new_style_id: str):
+        """PromptPanel から Style 変更の通知を受け取るスロット。"""
+        print(f"[DEBUG] MainWindow received styleChanged signal: {new_style_id}")
+        new_id_or_none = new_style_id if new_style_id else None  # 空文字列は None に
+        if self.current_style_id != new_id_or_none:
+            self.current_style_id = new_id_or_none
+            # Style が変わったらプロンプトはリセット
+            self.generated_prompts = []
+            self.update_prompt_display()
 
     # --- コアロジックメソッド ---
     @Slot()
@@ -364,6 +418,7 @@ class MainWindow(QMainWindow):
                 lighting=self.db_data.get("lighting", {}),
                 compositions=self.db_data.get("compositions", {}),
                 scenes=self.db_data.get("scenes", {}),
+                styles=self.db_data.get("styles", {}),
                 sdParams=self.sd_params,
             )
             # --- ★ 修正ここまで ---
@@ -371,9 +426,10 @@ class MainWindow(QMainWindow):
             #     self.current_scene_id, self.actor_assignments, self.db_data # 古い呼び出し方
             # )
             self.generated_prompts = generate_batch_prompts(
-                self.current_scene_id,
-                self.actor_assignments,
-                full_db,  # ★ 修正後
+                scene_id=self.current_scene_id,
+                actor_assignments=self.actor_assignments,
+                db=full_db,
+                style_id=self.current_style_id,
             )
             self.update_prompt_display()
         except Exception as e:

@@ -13,7 +13,13 @@ from PySide6.QtWidgets import (
 from typing import Optional, Any, Dict
 import json
 from .base_inspector import BaseInspector
-from ..models import Costume, ColorPaletteItem, CharacterColorRef
+from ..models import Costume, ColorPaletteItem
+
+CHARACTER_COLOR_REFS = {
+    "personal_color": "パーソナルカラー",
+    "underwear_color": "下着カラー",
+    # 必要に応じて他の属性を追加
+}
 
 
 class CostumeInspector(BaseInspector):
@@ -71,21 +77,26 @@ class CostumeInspector(BaseInspector):
         placeholder_edit = QLineEdit(item.placeholder)
         placeholder_edit.setPlaceholderText("[C1]")
         color_ref_combo = QComboBox()
-        # Enum の表示名を取得してコンボボックスに追加
-        ref_names = [
-            CharacterColorRef.get_display_name(ref) for ref in CharacterColorRef
-        ]
-        color_ref_combo.addItems(ref_names)
+
+        # --- ▼▼▼ コンボボックスの項目設定を修正 ▼▼▼ ---
+        ref_display_names = list(CHARACTER_COLOR_REFS.values())  # 表示名リスト
+        ref_internal_names = list(
+            CHARACTER_COLOR_REFS.keys()
+        )  # 内部値 (属性文字列) リスト
+        color_ref_combo.addItems(ref_display_names)
         try:
-            # 現在の Enum 値に対応する表示名を探して選択
-            current_ref_name = CharacterColorRef.get_display_name(item.color_ref)
-            combo_index = ref_names.index(current_ref_name)
+            # 現在の文字列値に対応する表示名を探して選択
+            current_ref_value = item.color_ref  # 文字列のはず
+            display_name = CHARACTER_COLOR_REFS.get(
+                current_ref_value, ref_display_names[0]
+            )  # 見つからなければ先頭
+            combo_index = ref_display_names.index(display_name)
             color_ref_combo.setCurrentIndex(combo_index)
-        except ValueError:
-            color_ref_combo.setCurrentIndex(0)  # 見つからなければ先頭
+        except (ValueError, IndexError):
+            color_ref_combo.setCurrentIndex(0)
+        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
         remove_button = QPushButton("🗑️")
-        # remove_button.clicked.connect(lambda checked=False, idx=index: self._remove_palette_item_ui(idx)) # インデックスで削除
 
         row_layout.addWidget(QLabel(f"{index + 1}:"))
         row_layout.addWidget(placeholder_edit)
@@ -94,15 +105,14 @@ class CostumeInspector(BaseInspector):
         row_layout.addWidget(remove_button)
 
         self.palette_layout.addLayout(row_layout)
-        # ウィジェットをリストに保存 (インデックスも保持)
+
         row_widgets = {
-            "index": index,  # この行の現在のインデックス
+            "index": index,
             "placeholder": placeholder_edit,
             "color_ref": color_ref_combo,
             "remove_button": remove_button,
-            "layout": row_layout,  # レイアウト自体も保持
+            "layout": row_layout,
         }
-        # 削除ボタンのクリックシグナルに、この行のウィジェット辞書を渡すラムダを接続
         remove_button.clicked.connect(
             lambda checked=False, widgets=row_widgets: self._remove_palette_item_ui(
                 widgets
@@ -116,7 +126,7 @@ class CostumeInspector(BaseInspector):
         # デフォルト値で新しい ColorPaletteItem を作成 (UI表示用)
         default_item = ColorPaletteItem(
             placeholder=f"[C{new_index + 1}]",
-            color_ref=list(CharacterColorRef)[0],  # 最初の Enum 値
+            color_ref=list(CHARACTER_COLOR_REFS.keys())[0],  # 最初の属性文字列
         )
         self._add_palette_row_ui(default_item, new_index)
 
@@ -174,9 +184,15 @@ class CostumeInspector(BaseInspector):
                     color_ref_widget, QComboBox
                 ):
                     placeholder = placeholder_widget.text().strip()
-                    ref_name = color_ref_widget.currentText()
-                    # 表示名から Enum 値を取得
-                    color_ref_enum = CharacterColorRef.from_display_name(ref_name)
+                    # --- ▼▼▼ コンボボックスから文字列値を取得 ▼▼▼ ---
+                    combo_index = color_ref_widget.currentIndex()
+                    ref_internal_names = list(CHARACTER_COLOR_REFS.keys())
+                    color_ref_value = (
+                        ref_internal_names[combo_index]
+                        if 0 <= combo_index < len(ref_internal_names)
+                        else None
+                    )
+                    # --- ▲▲▲ 変更ここまで ▲▲▲ ---
 
                     if not placeholder:
                         raise ValueError(
@@ -186,17 +202,23 @@ class CostumeInspector(BaseInspector):
                         raise ValueError(
                             f"Placeholder must start with '[' and end with ']' (Row {row_widgets.get('index', '?') + 1})."
                         )
-                    if color_ref_enum is None:
+                    # --- ▼▼▼ Enum 関連のチェックを削除 ▼▼▼ ---
+                    # if color_ref_enum is None:
+                    #     raise ValueError(f"Invalid color reference selected (Row {row_widgets.get('index', '?') + 1}).")
+                    if color_ref_value is None:  # 文字列値が取得できたかチェック
                         raise ValueError(
                             f"Invalid color reference selected (Row {row_widgets.get('index', '?') + 1})."
                         )
+                    # --- ▲▲▲ 変更ここまで ▲▲▲ ---
 
                     new_palette_list.append(
                         ColorPaletteItem(
-                            placeholder=placeholder, color_ref=color_ref_enum
+                            placeholder=placeholder,
+                            # --- ▼▼▼ 文字列値を直接設定 ▼▼▼ ---
+                            color_ref=color_ref_value,
+                            # --- ▲▲▲ 変更ここまで ▲▲▲ ---
                         )
                     )
-            # 更新されたリストをセット
             setattr(updated_item, "color_palette", new_palette_list)
         except ValueError as ve:
             QMessageBox.warning(

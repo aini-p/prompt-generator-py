@@ -15,8 +15,8 @@ from src.models import (
     Scene,
     SceneRole,
     RoleDirection,
-    ColorPaletteItem,  # ★ ColorPaletteItem をインポート
-    CharacterColorRef,  # ★ CharacterColorRef をインポート
+    Style,
+    ColorPaletteItem,
 )
 
 # --- ★ Work モックデータ ---
@@ -61,6 +61,21 @@ default_sd_params: StableDiffusionParams = StableDiffusionParams(
     width=512,
     height=512,
     denoising_strength=0.6,
+)
+# --- ★ Style モックデータ ---
+style_default = Style(
+    id="style_default",
+    name="Default Style",
+    tags=[],
+    prompt="masterpiece, best quality,",
+    negative_prompt="worst quality, low quality,",
+)
+style_anime = Style(
+    id="style_anime",
+    name="Anime Style",
+    tags=["anime"],
+    prompt="anime style, vibrant colors,",
+    negative_prompt="photorealistic, real life,",
 )
 
 # --- アプリケーション全体の初期データベース ---
@@ -128,12 +143,8 @@ initialMockDatabase: FullDatabase = FullDatabase(
             negative_prompt="",
             # color_placeholders={...} を color_palette=[...] に変更
             color_palette=[
-                ColorPaletteItem(
-                    placeholder="[C1]", color_ref=CharacterColorRef.PERSONAL_COLOR
-                ),
-                ColorPaletteItem(
-                    placeholder="[C2]", color_ref=CharacterColorRef.UNDERWEAR_COLOR
-                ),
+                ColorPaletteItem(placeholder="[C1]", color_ref="personal_color"),
+                ColorPaletteItem(placeholder="[C2]", color_ref="underwear_color"),
             ],
         ),
     },
@@ -245,6 +256,10 @@ initialMockDatabase: FullDatabase = FullDatabase(
             reference_image_path="",
             image_mode="txt2img",
         ),
+    },
+    styles={
+        style_default.id: style_default,
+        style_anime.id: style_anime,
     },
     # --- SDパラメータ ---
     sdParams=default_sd_params,

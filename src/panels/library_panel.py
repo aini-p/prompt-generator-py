@@ -65,6 +65,7 @@ class LibraryPanel(QWidget):
             ("Backgrounds", "backgrounds"),
             ("Lighting", "lighting"),
             ("Compositions", "compositions"),
+            ("Styles", "styles"),
             ("SD Params", "sdParams"),
         ]
         self.library_type_combo.addItems([name for name, key in self.library_types])

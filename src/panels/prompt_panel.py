@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, Slot
 from typing import Dict, List, Optional, Any
-from ..models import Scene, Actor  # 必要なモデル
+from ..models import Scene, Actor, Style  # 必要なモデル
 
 
 class PromptPanel(QWidget):
@@ -20,18 +20,21 @@ class PromptPanel(QWidget):
     executeGenerationClicked = Signal()
     sceneChanged = Signal(str)  # 新しい Scene ID
     assignmentChanged = Signal(dict)
+    styleChanged = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._db_data_ref: Dict[str, Dict[str, Any]] = {}
         self._current_assignments: Dict[str, str] = {}
         self._current_scene_id: Optional[str] = None
+        self._current_style_id: Optional[str] = None
         self._init_ui()
 
     def set_data_reference(self, db_data: Dict[str, Dict[str, Any]]):
         """MainWindow からデータへの参照を設定します。"""
         self._db_data_ref = db_data
         self.update_scene_combo()
+        self._update_style_combo()
 
     def set_current_scene(self, scene_id: Optional[str]):
         """MainWindow から現在のシーンIDが変更されたときに呼ばれます。"""
@@ -56,6 +59,29 @@ class PromptPanel(QWidget):
             except ValueError:
                 pass  # IDが見つからない場合
 
+    # --- ★ 追加: 現在の Style を設定するメソッド ---
+    def set_current_style(self, style_id: Optional[str]):
+        """MainWindow から現在の Style ID が設定されたときに呼ばれます。"""
+        if self._current_style_id != style_id:
+            self._current_style_id = style_id
+            # コンボボックスの選択状態を更新
+            style_ids = [""] + [
+                s.id
+                for s in sorted(
+                    self._db_data_ref.get("styles", {}).values(),
+                    key=lambda s: s.name.lower(),
+                )
+            ]
+            try:
+                index = (
+                    style_ids.index(style_id) if style_id in style_ids else 0
+                )  # 未選択は 0 ("(None)")
+                self.style_combo.blockSignals(True)
+                self.style_combo.setCurrentIndex(index)
+                self.style_combo.blockSignals(False)
+            except ValueError:
+                pass  # IDが見つからない場合
+
     def _init_ui(self):
         """UI要素を初期化します。"""
         main_layout = QVBoxLayout(self)
@@ -71,6 +97,14 @@ class PromptPanel(QWidget):
         self.scene_combo.currentIndexChanged.connect(self._on_scene_changed)
         scene_layout.addWidget(self.scene_combo)
         self.prompt_gen_layout.addLayout(scene_layout)
+
+        # --- ★ Style 選択を追加 ---
+        style_layout = QHBoxLayout()
+        style_layout.addWidget(QLabel("Style:"))
+        self.style_combo = QComboBox()
+        self.style_combo.currentIndexChanged.connect(self._on_style_changed)
+        style_layout.addWidget(self.style_combo)
+        self.prompt_gen_layout.addLayout(style_layout)
 
         # 役割割り当て (動的UI用ウィジェット)
         self.role_assignment_widget = QWidget()
@@ -136,6 +170,41 @@ class PromptPanel(QWidget):
         )
         # コンボ更新後に役割割り当ても更新
         self.build_role_assignment_ui()
+
+    # --- ★ 追加: Style コンボボックス更新メソッド ---
+    def _update_style_combo(self):
+        """Style 選択コンボボックスの内容を更新します。"""
+        print("[DEBUG] PromptPanel._update_style_combo called.")
+        self.style_combo.blockSignals(True)
+        self.style_combo.clear()
+        self.style_combo.addItem("(None)", "")  # itemData に空文字
+        style_list = sorted(
+            self._db_data_ref.get("styles", {}).values(), key=lambda s: s.name.lower()
+        )
+
+        if not style_list:
+            self.style_combo.setEnabled(False)
+        else:
+            style_ids = [""]  # 先頭は "(None)"
+            for style in style_list:
+                self.style_combo.addItem(style.name, style.id)  # itemData に ID
+                style_ids.append(style.id)
+
+            current_style_index = 0
+            if self._current_style_id and self._current_style_id in style_ids:
+                try:
+                    current_style_index = style_ids.index(self._current_style_id)
+                except ValueError:
+                    self._current_style_id = None  # 見つからなければリセット
+            # else: self._current_style_id = None # "(None)" が選択されている状態
+
+            self.style_combo.setCurrentIndex(current_style_index)
+            self.style_combo.setEnabled(True)
+
+        self.style_combo.blockSignals(False)
+        print(
+            f"[DEBUG] PromptPanel._update_style_combo complete. Current style: {self._current_style_id}"
+        )
 
     def build_role_assignment_ui(self):
         """役割割り当てUIを動的に構築します。"""
@@ -228,6 +297,22 @@ class PromptPanel(QWidget):
             self._current_assignments = {}  # クリア
             self.sceneChanged.emit("")  # シーンなしを通知
             self.build_role_assignment_ui()
+
+    # --- ★ 追加: Style 変更ハンドラ ---
+    @Slot(int)
+    def _on_style_changed(self, index: int):
+        """Style コンボボックスの選択が変更されたときの処理。"""
+        new_style_id = self.style_combo.itemData(
+            index
+        )  # itemData (ID または "") を取得
+        if new_style_id != self._current_style_id:
+            print(f"[DEBUG] PromptPanel: Style changed to {new_style_id}")
+            self._current_style_id = new_style_id if new_style_id else None
+            self.styleChanged.emit(
+                new_style_id or ""
+            )  # MainWindow に通知 (None は空文字で)
+
+    # --- ★ 追加ここまで ---
 
     @Slot(str, str)
     def _on_actor_assigned(self, role_id: str, actor_id: str):

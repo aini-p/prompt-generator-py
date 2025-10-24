@@ -16,6 +16,7 @@ from ..models import (
     Background,
     Lighting,
     Composition,
+    Style,
     StableDiffusionParams,
     SceneRole,
     RoleDirection,
@@ -51,6 +52,7 @@ class DataHandler:
             db_data["backgrounds"] = db.load_backgrounds()
             db_data["lighting"] = db.load_lighting()
             db_data["compositions"] = db.load_compositions()
+            db_data["styles"] = db.load_styles()
             sd_params = db.load_sd_params()
             print("[DEBUG] Data loaded successfully from database.")
 
@@ -99,6 +101,8 @@ class DataHandler:
                 db.save_lighting(lighting)
             for composition in db_data.get("compositions", {}).values():
                 db.save_composition(composition)
+            for style in db_data.get("styles", {}).values():
+                db.save_style(style)
             db.save_sd_params(sd_params)
 
             QMessageBox.information(
@@ -201,6 +205,7 @@ class DataHandler:
                         "backgrounds": Background,
                         "lighting": Lighting,
                         "compositions": Composition,
+                        "styles": Style,
                     }
 
                     for key, klass in type_map.items():
@@ -300,6 +305,8 @@ class DataHandler:
             elif db_key == "sdParams" and isinstance(item_data, StableDiffusionParams):
                 # SD Params は通常 save_all_data で処理されるが、念のため
                 db.save_sd_params(item_data)
+            elif db_key == "styles" and isinstance(item_data, Style):
+                db.save_style(item_data)
             else:
                 print(
                     f"[DEBUG] Warning: save_single_item - Unsupported db_key '{db_key}' or incorrect data type '{type(item_data).__name__}'."

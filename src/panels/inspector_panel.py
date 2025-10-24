@@ -117,6 +117,7 @@ class InspectorPanel(QWidget):
             "backgrounds",
             "lighting",
             "compositions",
+            "styles",
         ]:
             InspectorClass = SimplePartInspector
         # --- ここまで ---

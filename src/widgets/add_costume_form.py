@@ -18,8 +18,12 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Slot
 from typing import Optional, Dict, Any, List
 
-# ★ Costume, ColorPaletteItem, CharacterColorRef をインポート
-from ..models import Costume, ColorPaletteItem, CharacterColorRef
+from ..models import Costume, ColorPaletteItem
+
+CHARACTER_COLOR_REFS = {
+    "personal_color": "パーソナルカラー",
+    "underwear_color": "下着カラー",
+}
 
 
 class AddCostumeForm(QDialog):
@@ -123,15 +127,20 @@ class AddCostumeForm(QDialog):
         placeholder_edit = QLineEdit(item.placeholder)
         placeholder_edit.setPlaceholderText("[C1]")
         color_ref_combo = QComboBox()
-        ref_names = [
-            CharacterColorRef.get_display_name(ref) for ref in CharacterColorRef
-        ]
+        ref_display_names = list(CHARACTER_COLOR_REFS.values())  # 表示名リスト
+        ref_internal_names = list(
+            CHARACTER_COLOR_REFS.keys()
+        )  # 内部値 (属性文字列) リスト
         color_ref_combo.addItems(ref_names)
         try:
-            current_ref_name = CharacterColorRef.get_display_name(item.color_ref)
-            combo_index = ref_names.index(current_ref_name)
+            # 現在の文字列値に対応する表示名を探して選択
+            current_ref_value = item.color_ref  # 文字列のはず
+            display_name = CHARACTER_COLOR_REFS.get(
+                current_ref_value, ref_display_names[0]
+            )  # 見つからなければ先頭
+            combo_index = ref_display_names.index(display_name)
             color_ref_combo.setCurrentIndex(combo_index)
-        except ValueError:
+        except (ValueError, IndexError):
             color_ref_combo.setCurrentIndex(0)
         remove_button = QPushButton("🗑️")
 
@@ -140,7 +149,11 @@ class AddCostumeForm(QDialog):
             lambda text, idx=index: self._update_palette_item(idx, placeholder=text)
         )
         color_ref_combo.currentIndexChanged.connect(
-            lambda c_idx, idx=index: self._update_palette_item(idx, combo_index=c_idx)
+            lambda c_idx,
+            idx=index,
+            internal_names=ref_internal_names: self._update_palette_item(
+                idx, combo_index=c_idx, internal_names=internal_names
+            )
         )
         remove_button.clicked.connect(
             lambda checked=False, idx=index: self._remove_palette_item_ui_slot(idx)
@@ -159,7 +172,8 @@ class AddCostumeForm(QDialog):
         """新しいパレット項目を内部状態に追加し、UIを再構築します。"""
         new_index = len(self.current_palette_items)
         default_item = ColorPaletteItem(
-            placeholder=f"[C{new_index + 1}]", color_ref=list(CharacterColorRef)[0]
+            placeholder=f"[C{new_index + 1}]",
+            color_ref=list(CHARACTER_COLOR_REFS.keys())[0],  # 最初の属性文字列
         )
         self.current_palette_items.append(default_item)
         self._rebuild_palette_ui()  # UI全体を再構築
@@ -176,22 +190,17 @@ class AddCostumeForm(QDialog):
         index: int,
         placeholder: Optional[str] = None,
         combo_index: Optional[int] = None,
+        internal_names: Optional[List[str]] = None,
     ):
         """内部状態のパレット項目を更新します。"""
         if 0 <= index < len(self.current_palette_items):
             item = self.current_palette_items[index]
             if placeholder is not None:
                 item.placeholder = placeholder.strip()
-            if combo_index is not None:
-                ref_names = [
-                    CharacterColorRef.get_display_name(ref) for ref in CharacterColorRef
-                ]
-                if 0 <= combo_index < len(ref_names):
-                    ref_enum = CharacterColorRef.from_display_name(
-                        ref_names[combo_index]
-                    )
-                    if ref_enum:
-                        item.color_ref = ref_enum
+            # --- ▼▼▼ combo_index から文字列を取得して設定 ▼▼▼ ---
+            if combo_index is not None and internal_names:
+                if 0 <= combo_index < len(internal_names):
+                    item.color_ref = internal_names[combo_index]  # 文字列を直接設定
 
     @Slot()
     def accept(self):

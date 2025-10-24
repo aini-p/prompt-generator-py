@@ -20,8 +20,8 @@ from .models import (
     StableDiffusionParams,
     SceneRole,
     RoleDirection,
+    Style,
     ColorPaletteItem,
-    CharacterColorRef,
 )
 from .utils.json_helpers import (
     list_to_json_str,
@@ -53,55 +53,24 @@ def initialize_db():
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        # カラムが存在しない場合のみ追加 (より安全な方法)
-        cursor.execute("PRAGMA table_info(characters)")
-        columns = [col[1] for col in cursor.fetchall()]
-        if "personal_color" not in columns:
-            cursor.execute("ALTER TABLE characters ADD COLUMN personal_color TEXT")
-        if "underwear_color" not in columns:
-            cursor.execute("ALTER TABLE characters ADD COLUMN underwear_color TEXT")
-        # --- ★ Costume テーブル修正 ---
-        # カラムが存在しない場合のみ追加
-        cursor.execute("PRAGMA table_info(costumes)")
-        columns = [col[1] for col in cursor.fetchall()]
-        if "color_placeholders" in columns:
-            # 古いカラム名をリネーム (SQLiteの制限により複雑になるため、ここでは削除して再作成を推奨)
-            # または、データを保持したい場合は手動での移行が必要
-            print(
-                "INFO: Renaming 'color_placeholders' column to 'color_palette' in 'costumes' table is recommended."
-            )
-            # 簡単な移行 (カラム追加 -> データコピー -> 古いカラム削除)
-            if "color_palette" not in columns:
-                cursor.execute("ALTER TABLE costumes ADD COLUMN color_palette TEXT")
-                # ここで古いデータを新しい形式に変換してコピーするロジックが必要
-                # cursor.execute("UPDATE costumes SET color_palette = ... WHERE color_placeholders IS NOT NULL")
-                # cursor.execute("ALTER TABLE costumes DROP COLUMN color_placeholders") # SQLiteはDROP COLUMNをサポートしない場合が多い
-        elif "color_palette" not in columns:
-            cursor.execute(
-                "ALTER TABLE costumes ADD COLUMN color_palette TEXT"
-            )  # 新しいカラム名で追加
-        # --- ★ Work テーブル作成 ---
+        # --- ★★★ 修正箇所 (CREATE TABLE を先に移動) ★★★ ---
+
+        # --- 1. すべてのテーブルを CREATE TABLE IF NOT EXISTS で先に作成 ---
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS works (
                 id TEXT PRIMARY KEY, title_jp TEXT, title_en TEXT,
                 tags TEXT, sns_tags TEXT
             )""")
-        # --- ★ Character テーブル作成 ---
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS characters (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, work_id TEXT, tags TEXT
             )""")
-        # --- ★ Actor テーブル修正 ---
-        # cursor.execute(
-        #    """ DROP TABLE IF EXISTS actors """
-        # )  # 古い構造を削除（開発中のみ）
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS actors (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
                 prompt TEXT, negative_prompt TEXT,
-                character_id TEXT, -- 変更
+                character_id TEXT,
                 base_costume_id TEXT, base_pose_id TEXT, base_expression_id TEXT
-                -- work_title, character_name 削除
             )""")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS scenes (
@@ -117,6 +86,8 @@ def initialize_db():
                 prompt TEXT, negative_prompt TEXT,
                 costume_id TEXT, pose_id TEXT, expression_id TEXT
             )""")
+
+        # costumes, styles など (simple_parts_tables)
         simple_parts_tables = [
             "costumes",
             "poses",
@@ -124,15 +95,47 @@ def initialize_db():
             "backgrounds",
             "lighting",
             "compositions",
+            "styles",  # (前回の修正が適用されている想定)
         ]
         for table_name in simple_parts_tables:
+            # costumes テーブルには color_palette カラムも必要
+            extra_columns = ""
+            if table_name == "costumes":
+                extra_columns = ", color_palette TEXT"  # ★ Costume は特別扱い
+
             cursor.execute(f"""
                 CREATE TABLE IF NOT EXISTS {table_name} (
                     id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
                     prompt TEXT, negative_prompt TEXT
+                    {extra_columns}
                 )""")
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS sd_params ( key TEXT PRIMARY KEY, value TEXT )""")
+
+        # --- 2. テーブル作成後にカラム修正 (ALTER TABLE) を実行 ---
+
+        # Character テーブルのカラム追加
+        cursor.execute("PRAGMA table_info(characters)")
+        columns = [col[1] for col in cursor.fetchall()]
+        if "personal_color" not in columns:
+            cursor.execute("ALTER TABLE characters ADD COLUMN personal_color TEXT")
+        if "underwear_color" not in columns:
+            cursor.execute("ALTER TABLE characters ADD COLUMN underwear_color TEXT")
+
+        # Costume テーブルのカラム修正 (color_placeholders -> color_palette)
+        cursor.execute("PRAGMA table_info(costumes)")
+        columns = [col[1] for col in cursor.fetchall()]
+        if "color_placeholders" in columns and "color_palette" not in columns:
+            # (簡易的な移行: カラム名変更の代わりに新しいカラムを追加)
+            print(
+                "INFO: Found legacy 'color_placeholders' column. Adding 'color_palette' column."
+            )
+            cursor.execute("ALTER TABLE costumes ADD COLUMN color_palette TEXT")
+            # 必要ならここでデータ移行処理 (UPDATE costumes SET color_palette = color_placeholders;
+        elif "color_palette" not in columns:
+            # (CREATE TABLE で既に追加されているはずだが、念のため)
+            cursor.execute("ALTER TABLE costumes ADD COLUMN color_palette TEXT")
 
         # --- 初期データの挿入 ---
         cursor.execute("SELECT COUNT(*) FROM works")  # Work テーブルで確認
@@ -162,6 +165,8 @@ def initialize_db():
                 save_lighting(lighting)
             for composition in initialMockDatabase.compositions.values():
                 save_composition(composition)
+            for style in initialMockDatabase.styles.values():
+                save_style(style)
             save_sd_params(initialMockDatabase.sdParams)
             print("初期データの挿入が完了しました。")
         else:
@@ -238,37 +243,25 @@ def _load_items(table_name: str, class_type: Type[T]) -> Dict[str, T]:
                 row_dict.get("role_directions"), RoleDirection
             )
 
-        color_palette_json = row_dict.get("color_palette") or row_dict.get(
-            "color_placeholders"
-        )
-        if class_type == Costume and color_palette_json:
-            # ★ データクラスリスト用ヘルパーを使用
-            row_dict["color_palette"] = json_str_to_dataclass_list(
+        # --- ★ Costume の color_palette をリストに変換 (修正) ---
+        if class_type == Costume:
+            color_palette_json = row_dict.get("color_palette") or row_dict.get(
+                "color_placeholders"
+            )
+            # json_str_to_dataclass_list で ColorPaletteItem のリストに変換するだけ
+            # (color_ref は既に文字列として読み込まれる)
+            palette_list = json_str_to_dataclass_list(
                 color_palette_json, ColorPaletteItem
             )
-            # 古いカラムが存在すれば削除
+            row_dict["color_palette"] = palette_list if palette_list else []
+
             if "color_placeholders" in row_dict:
                 del row_dict["color_placeholders"]
-        elif class_type == Costume and "color_palette" not in row_dict:
-            row_dict["color_palette"] = []  # カラム自体がない場合も空リストで初期化
+
+            if "color_placeholders" in row_dict:
+                del row_dict["color_placeholders"]
 
         try:
-            # --- ★ CharacterColorRef の Enum 変換 ---
-            # Costume.color_palette 内の color_ref が文字列で読み込まれるため Enum に変換
-            if class_type == Costume and "color_palette" in row_dict:
-                for item in row_dict["color_palette"]:
-                    if isinstance(item, ColorPaletteItem) and isinstance(
-                        item.color_ref, str
-                    ):
-                        try:
-                            item.color_ref = CharacterColorRef(item.color_ref)
-                        except ValueError:
-                            print(
-                                f"Warning: Invalid CharacterColorRef value '{item.color_ref}' found in Costume {item_id}. Setting to default."
-                            )
-                            item.color_ref = list(CharacterColorRef)[
-                                0
-                            ]  # デフォルト値 (例: PERSONAL_COLOR)
             items[item_id] = class_type(**row_dict)
         except Exception as e:  # より広範なエラーをキャッチ
             # dataclassのフィールドとDBのカラムが一致しない場合や型変換エラーなど
@@ -465,6 +458,21 @@ def load_compositions() -> Dict[str, Composition]:
 
 def delete_composition(composition_id: str):
     _delete_item("compositions", composition_id)
+
+
+# --- Style ---
+def save_style(style: Style):
+    data = style.__dict__.copy()
+    data["tags"] = json.dumps(data.get("tags", []))
+    _save_item("styles", data)
+
+
+def load_styles() -> Dict[str, Style]:
+    return _load_items("styles", Style)
+
+
+def delete_style(style_id: str):
+    _delete_item("styles", style_id)
 
 
 # --- SD Params Save/Load ---

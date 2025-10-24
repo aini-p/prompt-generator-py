@@ -13,6 +13,7 @@ from .models import (
     Work,
     Character,
     Costume,
+    Style,
 )
 
 # UIから渡される「配役」
@@ -95,8 +96,8 @@ def generate_actor_prompt(
         replacements = {}  # 置換ペアを一時格納
         for item in costume.color_palette:
             placeholder = item.placeholder
-            color_ref_enum = item.color_ref
-            attr_name = color_ref_enum.value  # Enum の値 (属性名文字列) を取得
+            color_ref_str = item.color_ref
+            attr_name = color_ref_str
 
             if hasattr(character, attr_name):
                 color_value = getattr(character, attr_name, "")
@@ -152,7 +153,8 @@ def generate_actor_prompt(
 def generate_batch_prompts(
     scene_id: str,
     actor_assignments: ActorAssignments,
-    db: FullDatabase,  # ★ 型ヒントを FullDatabase に
+    db: FullDatabase,
+    style_id: Optional[str] = None,
 ) -> List[GeneratedPrompt]:
     # --- ★ 修正: db["key"] -> db.attribute ---
     scene = db.scenes.get(scene_id)
@@ -167,6 +169,11 @@ def generate_batch_prompts(
             )
         ]
 
+    # --- ★ Style オブジェクトを取得 ---
+    selected_style: Optional[Style] = db.styles.get(style_id) if style_id else None
+    style_prompt = selected_style.prompt if selected_style else ""
+    style_negative = selected_style.negative_prompt if selected_style else ""
+
     # --- 1. シーン共通パーツと共通プロンプト ---
     # --- ★ 修正: db["key"] -> db.attribute ---
     common_parts: List[Optional[PromptPartBase]] = [
@@ -178,12 +185,17 @@ def generate_batch_prompts(
     valid_common_parts = [p for p in common_parts if p is not None]
 
     common_positive_base = ", ".join(
-        filter(None, [scene.prompt_template] + [p.prompt for p in valid_common_parts])
+        filter(
+            None,
+            [style_prompt, scene.prompt_template]
+            + [p.prompt for p in valid_common_parts],
+        )
     )
     common_negative_base = ", ".join(
         filter(
             None,
-            [scene.negative_template] + [p.negative_prompt for p in valid_common_parts],
+            [style_negative, scene.negative_template]
+            + [p.negative_prompt for p in valid_common_parts],
         )
     )
 
