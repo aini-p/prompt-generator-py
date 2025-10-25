@@ -18,6 +18,7 @@ from .models import (
     Lighting,
     Composition,
     StableDiffusionParams,
+    Cut,
     SceneRole,
     RoleDirection,
     Style,
@@ -73,11 +74,17 @@ def initialize_db():
                 base_costume_id TEXT, base_pose_id TEXT, base_expression_id TEXT
             )""")
         cursor.execute("""
+            CREATE TABLE IF NOT EXISTS cuts (
+                id TEXT PRIMARY KEY, name TEXT,
+                prompt_template TEXT, negative_template TEXT,
+                roles TEXT
+            )""")
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS scenes (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
-                prompt_template TEXT, negative_template TEXT,
                 background_id TEXT, lighting_id TEXT, composition_id TEXT,
-                roles TEXT, role_directions TEXT,
+                cut_id TEXT, -- ★ cuts を cut_id に変更
+                role_directions TEXT,
                 reference_image_path TEXT, image_mode TEXT
             )""")
         cursor.execute("""
@@ -144,8 +151,21 @@ def initialize_db():
             print("[INFO] Adding missing 'character_id' column to 'actors' table.")
             cursor.execute("ALTER TABLE actors ADD COLUMN character_id TEXT")
 
+        # ★ scenes テーブルの移行 (簡易的: 旧カラム削除、新カラム追加)
+        cursor.execute("PRAGMA table_info(scenes)")
+        scene_columns = {col[1] for col in cursor.fetchall()}
+        # 古いカラムが存在しても _load_items で無視されるので削除は必須ではないが、
+        # ALTER TABLE DROP COLUMN は SQLite 3.35.0 以降なのでコメントアウト
+        # if "prompt_template" in scene_columns: cursor.execute("ALTER TABLE scenes DROP COLUMN prompt_template")
+        # if "negative_template" in scene_columns: cursor.execute("ALTER TABLE scenes DROP COLUMN negative_template")
+        # if "roles" in scene_columns: cursor.execute("ALTER TABLE scenes DROP COLUMN roles")
+        # if "cuts" in scene_columns: cursor.execute("ALTER TABLE scenes DROP COLUMN cuts") # cuts カラム削除
+        if "cut_id" not in scene_columns:
+            print("[INFO] Adding 'cut_id' column to 'scenes' table.")
+            cursor.execute("ALTER TABLE scenes ADD COLUMN cut_id TEXT")
+
         # --- 初期データの挿入 ---
-        cursor.execute("SELECT COUNT(*) FROM works")  # Work テーブルで確認
+        cursor.execute("SELECT COUNT(*) FROM cuts")  # Work テーブルで確認
         scene_count = cursor.fetchone()[0]
 
         if scene_count == 0:
@@ -156,6 +176,8 @@ def initialize_db():
                 save_character(character)
             for actor in initialMockDatabase.actors.values():
                 save_actor(actor)
+            for cut in initialMockDatabase.cuts.values():
+                save_cut(cut)
             for scene in initialMockDatabase.scenes.values():
                 save_scene(scene)
             for direction in initialMockDatabase.directions.values():
@@ -244,11 +266,22 @@ def _load_items(table_name: str, class_type: Type[T]) -> Dict[str, T]:
 
         # Scene 固有の処理
         if class_type == Scene:
-            # json_str_to_list ヘルパーを使う
-            row_dict["roles"] = json_str_to_list(row_dict.get("roles"), SceneRole)
             row_dict["role_directions"] = json_str_to_list(
                 row_dict.get("role_directions"), RoleDirection
             )
+            # cuts の JSON パースは不要になった
+            # 古い属性の削除 (変更なし)
+            if "prompt_template" in row_dict:
+                del row_dict["prompt_template"]
+            if "negative_template" in row_dict:
+                del row_dict["negative_template"]
+            if "roles" in row_dict:
+                del row_dict["roles"]
+            if "cuts" in row_dict:
+                del row_dict["cuts"]
+
+        if class_type == Cut:
+            row_dict["roles"] = json_str_to_list(row_dict.get("roles"), SceneRole)
 
         # --- ★ Costume の color_palette をリストに変換 (修正) ---
         if class_type == Costume:
@@ -308,6 +341,23 @@ def _delete_item(table_name: str, item_id: str):
 # (各関数は汎用関数を呼び出すだけ)
 
 
+# --- ▼▼▼ Cut 用関数を追加 ▼▼▼ ---
+def save_cut(cut: Cut):
+    data = cut.__dict__.copy()
+    # roles を JSON 文字列に変換
+    data["roles"] = list_to_json_str(data.get("roles", []))
+    _save_item("cuts", data)
+
+
+def load_cuts() -> Dict[str, Cut]:
+    return _load_items("cuts", Cut)  # _load_items で roles の JSON パースは処理済み
+
+
+def delete_cut(cut_id: str):
+    # TODO: この Cut を参照している Scene があれば、そこから ID を削除する処理が必要
+    _delete_item("cuts", cut_id)
+
+
 # --- ★ Work 用関数 ---
 def save_work(work: Work):
     data = work.__dict__.copy()
@@ -359,13 +409,20 @@ def delete_actor(actor_id: str):
 def save_scene(scene: Scene):
     data = scene.__dict__.copy()
     data["tags"] = json.dumps(data.get("tags", []))
-    # ★ models.py のヘルパー関数を使用
-    data["roles"] = list_to_json_str(data.get("roles", []))
+    # cut_id は Optional[str] なのでそのまま保存 (None は NULL になる)
+    data["cut_id"] = data.get("cut_id")  # get で存在確認
     data["role_directions"] = list_to_json_str(data.get("role_directions", []))
+    # 不要な属性を削除
+    data.pop("cuts", None)  # cuts 属性はもうないはずだが念のため
+    data.pop("prompt_template", None)
+    data.pop("negative_template", None)
+    data.pop("roles", None)
     _save_item("scenes", data)
 
 
 def load_scenes() -> Dict[str, Scene]:
+    # _load_items で cut_id は文字列として読み込まれる
+    # Cut オブジェクトへの解決はここでは行わない
     return _load_items("scenes", Scene)
 
 

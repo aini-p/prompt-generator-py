@@ -8,6 +8,7 @@ from ..models import (
     Work,
     Character,
     Actor,
+    Cut,
     Scene,
     Direction,
     Costume,
@@ -114,6 +115,7 @@ class DataHandler:
             db_data["works"] = db.load_works()
             db_data["characters"] = db.load_characters()
             db_data["actors"] = db.load_actors()
+            db_data["cuts"] = db.load_cuts()
             db_data["scenes"] = db.load_scenes()
             db_data["directions"] = db.load_directions()
             db_data["costumes"] = db.load_costumes()

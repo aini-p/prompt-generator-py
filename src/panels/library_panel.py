@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, Slot
 from typing import Dict, List, Tuple, Optional, Any
-from ..models import DatabaseKey, Work, StableDiffusionParams
+from ..models import DatabaseKey, Work, StableDiffusionParams, Cut
 
 
 class LibraryPanel(QWidget):
@@ -50,6 +50,7 @@ class LibraryPanel(QWidget):
             ("Works", "works"),
             ("Characters", "characters"),
             ("Scenes", "scenes"),
+            ("Cuts", "cuts"),
             ("Actors", "actors"),
             ("Directions", "directions"),
             ("Costumes", "costumes"),
@@ -143,32 +144,42 @@ class LibraryPanel(QWidget):
 
         items_dict = self._db_data_ref.get(db_key)
 
-        if db_key == "sdParams":
-            # SD Params は MainWindow が持っているので、ここでは表示しないか、
-            # MainWindow から値を受け取って表示する必要がある。
-            # 今回はリストには表示せず、選択不可とする。
-            list_item = QListWidgetItem("SD Params (Edit not available here)")
-            list_item.setData(
-                Qt.ItemDataRole.UserRole, "sdParams_placeholder"
-            )  # ダミーID
-            list_item.setFlags(
-                list_item.flags() & ~Qt.ItemFlag.ItemIsSelectable
-            )  # 選択不可に
-            self.library_list_widget.addItem(list_item)
-            is_add_enabled = False
-            is_delete_enabled = False
-            is_search_enabled = False
-        elif isinstance(items_dict, dict):
+        is_add_enabled = False
+        is_delete_enabled = False
+        is_search_enabled = False
 
+        if db_key == "sdParams":
+            # SD Params は特殊扱い (ボタン無効)
+            list_item = QListWidgetItem("SD Params (Edit not available here)")
+            list_item.setData(Qt.ItemDataRole.UserRole, "sdParams_placeholder")
+            list_item.setFlags(list_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            self.library_list_widget.addItem(list_item)
+            # is_add_enabled などは False のまま
+
+        # --- ▼▼▼ elif 条件を修正 ▼▼▼ ---
+        elif isinstance(items_dict, dict):  # items_dict が辞書の場合のみリスト処理
+            # sdParams 以外の有効なキーで、データが辞書の場合 (通常ケース)
+            is_add_enabled = True
+            is_delete_enabled = True
+            is_search_enabled = True
+
+            # --- リスト項目の追加処理 (変更なし) ---
             def get_display_name(item: Any) -> str:
-                """Workならtitle_jp、それ以外ならnameを取得するローカル関数"""
                 if isinstance(item, Work):
                     return getattr(item, "title_jp", "")
+                elif isinstance(item, Cut):
+                    return getattr(item, "name", "") or getattr(
+                        item, "id", "Unnamed"
+                    )  # Cut の name を優先
                 else:
-                    return getattr(item, "name", "")
+                    return getattr(item, "name", "") or getattr(item, "id", "Unnamed")
 
+            # name 属性がない場合も考慮してソート
             sorted_items = sorted(
-                items_dict.values(), key=lambda item: getattr(item, "name", "").lower()
+                items_dict.values(),
+                key=lambda item: (
+                    getattr(item, "name", None) or getattr(item, "id", "")
+                ).lower(),
             )
             for item_obj in sorted_items:
                 item_name = get_display_name(item_obj) or "Unnamed"
@@ -177,13 +188,14 @@ class LibraryPanel(QWidget):
                     list_item = QListWidgetItem(f"{item_name} ({item_id})")
                     list_item.setData(Qt.ItemDataRole.UserRole, item_id)
                     self.library_list_widget.addItem(list_item)
-            is_add_enabled = True
-            is_delete_enabled = True
-            is_search_enabled = True
+            # --- リスト項目追加ここまで ---
         else:
-            is_add_enabled = False
-            is_delete_enabled = False
-            is_search_enabled = False
+            # データが見つからない、または予期しない形式の場合 (ボタン無効)
+            # 警告ログはここでも表示されるはず
+            print(
+                f"[WARN] No data found or unexpected data format ({type(items_dict)}) for key: {db_key}"
+            )
+            # is_add_enabled などは False のまま
 
         self.library_add_btn.setEnabled(is_add_enabled)
         self.library_delete_btn.setEnabled(is_delete_enabled)

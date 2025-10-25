@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, Slot
 from typing import Dict, List, Optional, Any
-from ..models import Scene, Actor, Style  # 必要なモデル
+from ..models import Scene, Actor, Style, Cut, SceneRole  # 必要なモデル
 
 
 class PromptPanel(QWidget):
@@ -237,16 +237,19 @@ class PromptPanel(QWidget):
         )
 
     def build_role_assignment_ui(self):
-        """役割割り当てUIを動的に構築します。"""
+        """役割割り当てUIを動的に構築します。現在のシーンに紐づく *単一のカット* の配役を使用します。"""
         print(
             f"[DEBUG] PromptPanel.build_role_assignment_ui called for scene ID: {self._current_scene_id}"
         )
         layout = self.role_assignment_widget.layout()
+        # --- Layout Clear ---
         if layout is None:
             layout = QVBoxLayout(self.role_assignment_widget)
         else:  # クリア処理
-            item = layout.takeAt(0)
-            while item is not None:
+            while layout.count():  # count() を使用
+                item = layout.takeAt(0)
+                if item is None:
+                    break  # アイテムがなければループ終了
                 widget = item.widget()
                 layout_item = item.layout()
                 if widget:
@@ -254,11 +257,13 @@ class PromptPanel(QWidget):
                 elif layout_item:
                     while layout_item.count():
                         inner = layout_item.takeAt(0)
+                        if inner is None:
+                            break
                         inner_w = inner.widget()
                         if inner_w:
                             inner_w.deleteLater()
                     layout_item.deleteLater()
-                item = layout.takeAt(0)
+                del item  # item オブジェクト自体も削除
 
         layout.addWidget(QLabel("2. Assign Actors to Roles:"))
         current_scene = (
@@ -267,24 +272,49 @@ class PromptPanel(QWidget):
             else None
         )
 
-        if not current_scene:
+        # --- Get Roles from the single Cut ---
+        selected_cut: Optional[Cut] = None
+        roles_to_display: List[SceneRole] = []
+
+        if current_scene:
+            cut_id = getattr(current_scene, "cut_id", None)
+            if cut_id:
+                selected_cut = self._db_data_ref.get("cuts", {}).get(cut_id)
+                if selected_cut and isinstance(selected_cut, Cut):
+                    roles_to_display = selected_cut.roles
+                    print(f"[DEBUG] Using roles from Cut ID: {cut_id}")
+                else:
+                    print(f"[WARN] Cut object not found or invalid for ID: {cut_id}")
+                    layout.addWidget(QLabel(f"(Error: Cut '{cut_id}' not found)"))
+            else:
+                layout.addWidget(
+                    QLabel("(このシーンにはカットが割り当てられていません)")
+                )
+        elif not current_scene:
             layout.addWidget(QLabel("No scene selected."))
-            layout.addStretch()
-            # シーンがない場合は内部割り当てもクリアすべきか？ -> クリアする
-            if self._current_assignments:  # クリアする場合のみ通知
+            if self._current_assignments:
                 self._current_assignments = {}
-                self.assignmentChanged.emit({})  # MainWindow に通知
+                self.assignmentChanged.emit({})
+            layout.addStretch()
             return
 
-        actor_list = list(self._db_data_ref.get("actors", {}).values())
+        # --- Actor List ---
+        actor_list = sorted(
+            self._db_data_ref.get("actors", {}).values(), key=lambda a: a.name.lower()
+        )
         actor_names = ["-- Select Actor --"] + [a.name for a in actor_list]
         actor_ids = [""] + [a.id for a in actor_list]
 
-        if not current_scene.roles:
-            layout.addWidget(QLabel("(このシーンには配役が定義されていません)"))
+        # --- Build UI for Roles ---
+        if (
+            not roles_to_display
+            and current_scene
+            and getattr(current_scene, "cut_id", None)
+        ):
+            layout.addWidget(QLabel("(選択されたカットには配役が定義されていません)"))
 
-        # 不要になった配役を削除
-        valid_role_ids = {role.id for role in current_scene.roles}
+        # Remove outdated assignments
+        valid_role_ids = {role.id for role in roles_to_display}
         current_assignments_updated = False
         keys_to_delete = [
             role_id
@@ -299,29 +329,28 @@ class PromptPanel(QWidget):
                 f"[DEBUG] Removed assignments for non-existent roles: {keys_to_delete}"
             )
 
-        for role in current_scene.roles:
+        for role in roles_to_display:
             role_layout = QHBoxLayout()
             label_text = f"{role.name_in_scene} ([{role.id.upper()}])"
             role_layout.addWidget(QLabel(label_text))
             combo = QComboBox()
             combo.addItems(actor_names)
 
-            assigned_actor_id = self._current_assignments.get(role.id)  # 内部状態を参照
+            # Set current assignment
+            assigned_actor_id = self._current_assignments.get(role.id)
             current_index = 0
             if assigned_actor_id and assigned_actor_id in actor_ids:
                 try:
                     current_index = actor_ids.index(assigned_actor_id)
                 except ValueError:
-                    # 割り当てられていた Actor が削除された場合など
                     print(
                         f"[DEBUG] Assigned actor ID '{assigned_actor_id}' for role '{role.id}' not found. Resetting."
                     )
                     if role.id in self._current_assignments:
-                        del self._current_assignments[role.id]  # 内部状態からも削除
+                        del self._current_assignments[role.id]
                         current_assignments_updated = True
 
             combo.setCurrentIndex(current_index)
-            # 選択変更時に MainWindow のメソッドを直接呼ぶ代わりに、辞書を直接更新
             combo.currentIndexChanged.connect(
                 lambda index,
                 r_id=role.id,
@@ -334,7 +363,6 @@ class PromptPanel(QWidget):
 
         layout.addStretch()
         print("[DEBUG] PromptPanel.build_role_assignment_ui complete.")
-        # 不要な配役を削除した場合、変更を通知
         if current_assignments_updated:
             self.assignmentChanged.emit(self._current_assignments.copy())
 
@@ -349,7 +377,7 @@ class PromptPanel(QWidget):
         if new_scene_id != self._current_scene_id:
             print(f"[DEBUG] PromptPanel: Scene selection changed to {new_scene_id}")
             self._current_scene_id = new_scene_id
-            # self._current_assignments = {} # ← この行を削除またはコメントアウト
+            # self._current_assignments = {} # 配役はクリアしない
             self.sceneChanged.emit(new_scene_id or "")  # MainWindow に通知
             self.build_role_assignment_ui()  # UI 更新 (配役維持を試みる)
 

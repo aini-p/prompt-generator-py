@@ -12,6 +12,7 @@ from src.models import (
     Background,
     Lighting,
     Composition,
+    Cut,
     Scene,
     SceneRole,
     RoleDirection,
@@ -19,6 +20,25 @@ from src.models import (
     ColorPaletteItem,
 )
 
+# --- ▼▼▼ Cut モックデータを作成 ▼▼▼ ---
+cut_default_solo_1 = Cut(
+    id="cut_default_solo_1",
+    name="ソロカット1",
+    prompt_template="masterpiece, best quality, solo focus, ([R1])",  # Scene から移動
+    negative_template="worst quality, low quality, watermark, signature, multiple people",  # Scene から移動
+    roles=[SceneRole(id="r1", name_in_scene="モデル")],  # Scene から移動
+)
+
+cut_default_pair_1 = Cut(
+    id="cut_default_pair_1",
+    name="ペアカット1",
+    prompt_template="masterpiece, best quality, ([R1]) and ([R2]), (2 people:1.2)",  # Scene から移動
+    negative_template="worst quality, low quality, watermark, signature, 3 people",  # Scene から移動
+    roles=[  # Scene から移動
+        SceneRole(id="r1", name_in_scene="人物A"),
+        SceneRole(id="r2", name_in_scene="人物B"),
+    ],
+)
 # --- ★ Work モックデータ ---
 work_default = Work(
     id="work_default",
@@ -124,6 +144,11 @@ initialMockDatabase: FullDatabase = FullDatabase(
             base_expression_id="expr_default_neutral",
         ),
     },
+    # --- ▼▼▼ cuts 辞書を追加 ▼▼▼ ---
+    cuts={
+        cut_default_solo_1.id: cut_default_solo_1,
+        cut_default_pair_1.id: cut_default_pair_1,
+    },
     # --- 衣装 (Costumes) ---
     costumes={
         "costume_default_shirt": Costume(
@@ -222,15 +247,13 @@ initialMockDatabase: FullDatabase = FullDatabase(
             id="scene_default_solo",
             name="デフォルトソロシーン",
             tags=["solo"],
-            prompt_template="masterpiece, best quality, solo focus, ([R1])",
-            negative_template="worst quality, low quality, watermark, signature, multiple people",
             background_id="bg_default_white",
             lighting_id="light_default_studio",
             composition_id="comp_default_medium",
-            roles=[SceneRole(id="r1", name_in_scene="モデル")],
-            role_directions=[
+            cut_id=cut_default_solo_1.id,  # ★ Cut の ID を設定
+            role_directions=[  # これは Scene に残る
                 RoleDirection(role_id="r1", direction_ids=["dir_default_base"])
-            ],  # 基本状態のみ
+            ],
             reference_image_path="",
             image_mode="txt2img",
         ),
@@ -238,20 +261,13 @@ initialMockDatabase: FullDatabase = FullDatabase(
             id="scene_default_pair",
             name="デフォルトペアシーン",
             tags=["pair"],
-            prompt_template="masterpiece, best quality, ([R1]) and ([R2]), (2 people:1.2)",
-            negative_template="worst quality, low quality, watermark, signature, 3 people",
             background_id="bg_default_white",
             lighting_id="light_default_studio",
             composition_id="comp_default_medium",
-            roles=[
-                SceneRole(id="r1", name_in_scene="人物A"),
-                SceneRole(id="r2", name_in_scene="人物B"),
-            ],
-            role_directions=[
+            cut_id=cut_default_pair_1.id,  # ★ Cut の ID を設定
+            role_directions=[  # これは Scene に残る
                 RoleDirection(role_id="r1", direction_ids=["dir_default_base"]),
-                RoleDirection(
-                    role_id="r2", direction_ids=["dir_default_smile"]
-                ),  # 片方だけ微笑む
+                RoleDirection(role_id="r2", direction_ids=["dir_default_smile"]),
             ],
             reference_image_path="",
             image_mode="txt2img",

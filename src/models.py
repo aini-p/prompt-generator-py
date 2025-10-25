@@ -107,6 +107,15 @@ class SceneRole:
 
 
 @dataclass
+class Cut:
+    id: str
+    name: str = ""  # カット名 (オプション)
+    prompt_template: str = ""
+    negative_template: str = ""
+    roles: List[SceneRole] = field(default_factory=list)
+
+
+@dataclass
 class RoleDirection:
     role_id: str
     direction_ids: List[str] = field(default_factory=list)
@@ -117,13 +126,13 @@ class Scene:
     id: str
     name: str
     tags: List[str] = field(default_factory=list)
-    prompt_template: str = ""
-    negative_template: str = ""
     background_id: str = ""
     lighting_id: str = ""
     composition_id: str = ""
-    roles: List[SceneRole] = field(default_factory=list)
-    role_directions: List[RoleDirection] = field(default_factory=list)
+    cut_id: Optional[str] = None
+    role_directions: List[RoleDirection] = field(
+        default_factory=list
+    )  # これは Scene が持つ
     reference_image_path: str = ""
     image_mode: str = "txt2img"
 
@@ -175,6 +184,7 @@ class FullDatabase:
     works: Dict[str, Work] = field(default_factory=dict)  # 追加
     characters: Dict[str, Character] = field(default_factory=dict)  # 追加
     actors: Dict[str, Actor] = field(default_factory=dict)
+    cuts: Dict[str, Cut] = field(default_factory=dict)
     costumes: Dict[str, Costume] = field(default_factory=dict)
     poses: Dict[str, Pose] = field(default_factory=dict)
     expressions: Dict[str, Expression] = field(default_factory=dict)
@@ -237,6 +247,7 @@ STORAGE_KEYS: Dict[str, str] = {
     "works": "promptBuilder_works",  # 追加
     "characters": "promptBuilder_characters",  # 追加
     "actors": "promptBuilder_actors",
+    "cuts": "promptBuilder_cuts",
     "costumes": "promptBuilder_costumes",
     "poses": "promptBuilder_poses",
     "expressions": "promptBuilder_expressions",
@@ -254,6 +265,7 @@ DatabaseKey = Literal[
     "works",  # 追加
     "characters",  # 追加
     "actors",
+    "cuts",
     "costumes",
     "poses",
     "expressions",
