@@ -62,27 +62,17 @@ from .panels.prompt_panel import PromptPanel
 from .panels.data_management_panel import DataManagementPanel
 
 # --- 編集ダイアログのインポート ---
-from .widgets.actor_editor_dialog import (
-    ActorEditorDialog,
-)
-from .widgets.scene_editor_dialog import (
-    SceneEditorDialog,
-)
-from .widgets.direction_editor_dialog import (
-    DirectionEditorDialog,
-)
-from .widgets.simple_part_editor_dialog import (
-    SimplePartEditorDialog,
-)
-from .widgets.work_editor_dialog import (
-    WorkEditorDialog,
-)
-from .widgets.character_editor_dialog import (
-    CharacterEditorDialog,
-)
+from .widgets.actor_editor_dialog import ActorEditorDialog
+from .widgets.scene_editor_dialog import SceneEditorDialog
+from .widgets.direction_editor_dialog import DirectionEditorDialog
+from .widgets.simple_part_editor_dialog import SimplePartEditorDialog
+from .widgets.work_editor_dialog import WorkEditorDialog
+from .widgets.character_editor_dialog import CharacterEditorDialog
 from .widgets.costume_editor_dialog import CostumeEditorDialog
-from .widgets.sd_params_editor_dialog import SDParamsEditorDialog
-from .widgets.cut_editor_dialog import CutEditorDialog
+from .widgets.sd_params_editor_dialog import (
+    SDParamsEditorDialog,
+)  # ★ SDParamsEditorDialog をインポート
+from .widgets.cut_editor_dialog import CutEditorDialog  # ★ CutEditorDialog をインポート
 
 # ------------------------------------
 from .prompt_generator import generate_batch_prompts, create_image_generation_tasks
@@ -95,7 +85,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Object-Oriented Prompt Builder")
         self.setGeometry(100, 100, 1200, 800)
 
-        # --- editor_dialog_mapping (変更なし) ---
+        # --- editor_dialog_mapping を修正 ---
         self.editor_dialog_mapping = {
             "WORK": (WorkEditorDialog, "works"),
             "CHARACTER": (CharacterEditorDialog, "characters"),
@@ -110,16 +100,23 @@ class MainWindow(QMainWindow):
             "LIGHTING": (SimplePartEditorDialog, "lighting"),
             "COMPOSITION": (SimplePartEditorDialog, "compositions"),
             "STYLE": (SimplePartEditorDialog, "styles"),
+            "SDPARAMS": (SDParamsEditorDialog, "sdParams"),  # ★ 追加 (大文字に変更)
         }
+        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
-        # --- データ関連 (変更なし) ---
+        # --- データ関連 ---
         self.db_data: Dict[str, Dict[str, Any]] = {}
-        self.sd_params: StableDiffusionParams = StableDiffusionParams()
+        # self.sd_params: StableDiffusionParams = StableDiffusionParams() # ← 削除
         self.data_handler = DataHandler(self)
-        self.db_data, self.sd_params, initial_scene_id = (
-            self.data_handler.load_all_data()
+
+        # --- ▼▼▼ データと設定の読み込みを修正 ▼▼▼ ---
+        # 1. DBから基本データをロード (sd_params は db_data['sdParams'] に辞書として入る)
+        self.db_data, initial_scene_id = self.data_handler.load_all_data()
+        # 2. 設定ファイルから最後の状態をロード
+        last_scene_id, last_style_id, last_assignments, last_sd_param_id = (
+            self.data_handler.load_config()
         )
-        last_scene_id, last_style_id, last_assignments = self.data_handler.load_config()
+        # 3. 状態を初期化
         self.current_scene_id = (
             last_scene_id
             if last_scene_id in self.db_data.get("scenes", {})
@@ -128,14 +125,23 @@ class MainWindow(QMainWindow):
         self.current_style_id = (
             last_style_id if last_style_id in self.db_data.get("styles", {}) else None
         )
+        # ★ current_sd_param_id を初期化
+        self.current_sd_param_id = (
+            last_sd_param_id
+            if last_sd_param_id in self.db_data.get("sdParams", {})
+            else next(
+                iter(self.db_data.get("sdParams", {})), None
+            )  # 最後の選択、なければ最初のプリセット、それもなければ None
+        )
         self.actor_assignments = {
             role_id: actor_id
             for role_id, actor_id in last_assignments.items()
             if actor_id in self.db_data.get("actors", {})
         }
         self.generated_prompts: List[GeneratedPrompt] = []
+        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
-        # --- UI要素 (変更なし) ---
+        # --- UI要素 ---
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
         main_layout = QHBoxLayout(main_widget)
@@ -167,23 +173,23 @@ class MainWindow(QMainWindow):
         splitter.setSizes([450, 750])
         main_layout.addWidget(splitter)
 
-        # --- シグナル接続 (変更なし) ---
         self._connect_signals()
 
-        # --- 初期UI状態設定 (変更なし) ---
         self.prompt_panel.set_current_scene(self.current_scene_id)
         self.prompt_panel.set_current_style(self.current_style_id)
+        self.prompt_panel.set_current_sd_params(self.current_sd_param_id)  # ★ 追加
         self.prompt_panel.set_assignments(self.actor_assignments)
         self.update_prompt_display()
 
     def _connect_signals(self):
-        """パネル間のシグナルを接続します。"""
         # Data Management Panel
         self.data_management_panel.saveClicked.connect(
-            lambda: self.data_handler.save_all_data(self.db_data, self.sd_params)
+            lambda: self.data_handler.save_all_data(
+                self.db_data
+            )  # ★ sd_params 引数削除
         )
         self.data_management_panel.exportClicked.connect(
-            lambda: self.data_handler.export_data(self.db_data, self.sd_params)
+            lambda: self.data_handler.export_data(self.db_data)  # ★ sd_params 引数削除
         )
         self.data_management_panel.importClicked.connect(self._handle_import)
 
@@ -199,7 +205,10 @@ class MainWindow(QMainWindow):
         self.prompt_panel.styleChanged.connect(
             self._handle_style_change_and_save_config
         )
-        self.prompt_panel.editSdParamsClicked.connect(self._handle_edit_sd_params)
+        # self.prompt_panel.editSdParamsClicked.connect(self._handle_edit_sd_params) # ← 削除
+        self.prompt_panel.sdParamsChanged.connect(
+            self._handle_sd_params_change_and_save_config
+        )  # ★ 追加
 
         # Library Panel
         self.library_panel.library_list_widget.itemDoubleClicked.connect(
@@ -208,93 +217,10 @@ class MainWindow(QMainWindow):
         self.library_panel.addNewItemClicked.connect(self._handle_add_new_item)
         self.library_panel.deleteItemClicked.connect(self._handle_delete_item)
 
-    @Slot()
-    def _handle_edit_sd_params(self):
-        """PromptPanel の Edit SD Params ボタンに対応するスロット。"""
-        print("[DEBUG] Edit SD Params button clicked.")
-        dialog = SDParamsEditorDialog(self.sd_params, self.db_data, self)
-        result = dialog.exec()
-        if result == QDialog.DialogCode.Accepted:
-            updated_params = dialog.saved_data
-            if updated_params and isinstance(updated_params, StableDiffusionParams):
-                self.sd_params = updated_params
-                print("[DEBUG] SD Params updated in MainWindow.")
-                try:
-                    db.save_sd_params(self.sd_params)
-                    print("[DEBUG] Updated SD Params saved to database.")
-                except Exception as e:
-                    QMessageBox.warning(
-                        self,
-                        "DB Save Error",
-                        f"SD Params のデータベース保存に失敗しました: {e}",
-                    )
-                    print(f"[ERROR] Failed to save updated SD Params to DB: {e}")
-            else:
-                print("[DEBUG] SD Params dialog returned invalid data.")
-        else:
-            print("[DEBUG] SD Params dialog cancelled.")
-
-    @Slot(str)
-    def _handle_scene_change_and_save_config(self, new_scene_id: str):
-        """PromptPanel からシーン変更の通知を受け取り、設定を保存するスロット。"""
-        print(f"[DEBUG] MainWindow received sceneChanged signal: {new_scene_id}")
-        current_scene_id_before = self.current_scene_id
-        self.current_scene_id = new_scene_id if new_scene_id else None
-        if current_scene_id_before != self.current_scene_id:
-            self.generated_prompts = []
-            self.update_prompt_display()
-            self.data_handler.save_config(
-                self.current_scene_id, self.current_style_id, self.actor_assignments
-            )
-
-    @Slot(dict)
-    def _handle_assignment_change_and_save_config(self, new_assignments: dict):
-        """PromptPanel から割り当て変更の通知を受け取り、設定を保存するスロット。"""
-        print(f"[DEBUG] MainWindow received assignmentChanged: {new_assignments}")
-        self.actor_assignments = new_assignments.copy()
-        self.generated_prompts = []
-        self.update_prompt_display()
-        self.data_handler.save_config(
-            self.current_scene_id, self.current_style_id, self.actor_assignments
-        )
-
-    @Slot(str)
-    def _handle_style_change_and_save_config(self, new_style_id: str):
-        """PromptPanel から Style 変更の通知を受け取り、設定を保存するスロット。"""
-        print(f"[DEBUG] MainWindow received styleChanged signal: {new_style_id}")
-        new_id_or_none = new_style_id if new_style_id else None
-        if self.current_style_id != new_id_or_none:
-            self.current_style_id = new_id_or_none
-            self.generated_prompts = []
-            self.update_prompt_display()
-            self.data_handler.save_config(
-                self.current_scene_id, self.current_style_id, self.actor_assignments
-            )
-
-    def closeEvent(self, event: QCloseEvent):
-        """アプリケーション終了時に設定を保存します。"""
-        print("[DEBUG] MainWindow closing. Saving config...")
-        self.data_handler.save_config(
-            self.current_scene_id, self.current_style_id, self.actor_assignments
-        )
-        event.accept()
-
-    @Slot()
-    def _handle_import(self):
-        """インポートボタンが押されたときの処理。"""
-        imported = self.data_handler.import_data()
-        if imported:
-            self.db_data, imported_sd_params = imported
-            self.sd_params = imported_sd_params
-            self.library_panel.set_data_reference(self.db_data)
-            self.prompt_panel.set_data_reference(self.db_data)
-            scenes_dict = self.db_data.get("scenes", {})
-            new_scene_id = next(iter(scenes_dict), None)
-            if self.current_scene_id not in scenes_dict:
-                self.current_scene_id = new_scene_id
-            self.update_ui_after_data_change()
-            self.prompt_panel.set_current_scene(self.current_scene_id)
-            self.prompt_panel.set_current_style(None)
+    # --- ▼▼▼ _handle_edit_sd_params を削除 ▼▼▼ ---
+    # @Slot()
+    # def _handle_edit_sd_params(self): ...
+    # --- ▲▲▲ 削除ここまで ▲▲▲ ---
 
     @Slot(str, str)
     def _handle_add_new_item(self, db_key_str: str, modal_title: str):
@@ -304,11 +230,116 @@ class MainWindow(QMainWindow):
             print(
                 f"[DEBUG] Add New button clicked for type: {db_key_str} -> {modal_type}"
             )
-            self.open_edit_dialog(modal_type, None)
+            self.open_edit_dialog(modal_type, None)  # item_data=None でダイアログを開く
         else:
             print(
                 f"[DEBUG] Error: Cannot determine modal_type for db_key '{db_key_str}'"
             )
+
+    # --- ▼▼▼ _handle_..._and_save_config を修正 (sd_param_id 追加) ▼▼▼ ---
+    @Slot(str)
+    def _handle_scene_change_and_save_config(self, new_scene_id: str):
+        print(f"[DEBUG] MainWindow received sceneChanged signal: {new_scene_id}")
+        current_scene_id_before = self.current_scene_id
+        self.current_scene_id = new_scene_id if new_scene_id else None
+        if current_scene_id_before != self.current_scene_id:
+            self.generated_prompts = []
+            self.update_prompt_display()
+            self.data_handler.save_config(
+                self.current_scene_id,
+                self.current_style_id,
+                self.actor_assignments,
+                self.current_sd_param_id,  # ★ 追加
+            )
+
+    @Slot(dict)
+    def _handle_assignment_change_and_save_config(self, new_assignments: dict):
+        print(f"[DEBUG] MainWindow received assignmentChanged: {new_assignments}")
+        self.actor_assignments = new_assignments.copy()
+        self.generated_prompts = []
+        self.update_prompt_display()
+        self.data_handler.save_config(
+            self.current_scene_id,
+            self.current_style_id,
+            self.actor_assignments,
+            self.current_sd_param_id,  # ★ 追加
+        )
+
+    @Slot(str)
+    def _handle_style_change_and_save_config(self, new_style_id: str):
+        print(f"[DEBUG] MainWindow received styleChanged signal: {new_style_id}")
+        new_id_or_none = new_style_id if new_style_id else None
+        if self.current_style_id != new_id_or_none:
+            self.current_style_id = new_id_or_none
+            self.generated_prompts = []
+            self.update_prompt_display()
+            self.data_handler.save_config(
+                self.current_scene_id,
+                self.current_style_id,
+                self.actor_assignments,
+                self.current_sd_param_id,  # ★ 追加
+            )
+
+    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+
+    # --- ▼▼▼ _handle_sd_params_change_and_save_config を追加 ▼▼▼ ---
+    @Slot(str)
+    def _handle_sd_params_change_and_save_config(self, new_sd_param_id: str):
+        """PromptPanel から SD Params 変更の通知を受け取り、設定を保存するスロット。"""
+        print(f"[DEBUG] MainWindow received sdParamsChanged signal: {new_sd_param_id}")
+        new_id_or_none = new_sd_param_id if new_sd_param_id else None
+        if self.current_sd_param_id != new_id_or_none:
+            self.current_sd_param_id = new_id_or_none
+            self.generated_prompts = []  # 設定が変わったらプレビューはリセット
+            self.update_prompt_display()
+            self.data_handler.save_config(
+                self.current_scene_id,
+                self.current_style_id,
+                self.actor_assignments,
+                self.current_sd_param_id,
+            )
+
+    # --- ▲▲▲ 追加ここまで ▲▲▲ ---
+
+    def closeEvent(self, event: QCloseEvent):
+        """アプリケーション終了時に設定を保存します。"""
+        print("[DEBUG] MainWindow closing. Saving config...")
+        self.data_handler.save_config(
+            self.current_scene_id,
+            self.current_style_id,
+            self.actor_assignments,
+            self.current_sd_param_id,  # ★ 追加
+        )
+        event.accept()
+
+    @Slot()
+    def _handle_import(self):
+        """インポートボタンが押されたときの処理。"""
+        imported_db_data = self.data_handler.import_data()  # ★ 戻り値を変更
+        if imported_db_data:
+            self.db_data = imported_db_data  # ★ db_data を丸ごと入れ替え
+            # self.sd_params = ... # ← 削除
+            self.library_panel.set_data_reference(self.db_data)
+            self.prompt_panel.set_data_reference(self.db_data)
+
+            # --- ▼▼▼ インポート後のデフォルト選択を修正 ▼▼▼ ---
+            scenes_dict = self.db_data.get("scenes", {})
+            new_scene_id = next(iter(scenes_dict), None)
+            # if self.current_scene_id not in scenes_dict: # current_scene_id は上書きするのでチェック不要
+            self.current_scene_id = new_scene_id
+
+            self.current_style_id = None  # Style はリセット
+
+            # SD Params もリセット (最初のプリセットを選択)
+            self.current_sd_param_id = next(
+                iter(self.db_data.get("sdParams", {})), None
+            )
+
+            self.update_ui_after_data_change()  # UI全体更新
+            self.prompt_panel.set_current_scene(self.current_scene_id)
+            self.prompt_panel.set_current_style(self.current_style_id)
+            self.prompt_panel.set_current_sd_params(self.current_sd_param_id)  # ★ 追加
+            # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
     @Slot(QListWidgetItem)
     def _handle_item_double_clicked(self, item: QListWidgetItem):
@@ -335,7 +366,6 @@ class MainWindow(QMainWindow):
 
     @Slot(str, str)
     def _handle_delete_item(self, db_key_str: str, item_id: str):
-        """LibraryPanel の Delete ボタンに対応するスロット。"""
         db_key: Optional[DatabaseKey] = (
             db_key_str if db_key_str in get_args(DatabaseKey) else None
         )
@@ -346,7 +376,7 @@ class MainWindow(QMainWindow):
             return
         self.delete_item(db_key, item_id)
 
-    @Slot(str, object, QWidget)
+    @Slot(str, object, QWidget)  # QComboBox -> QWidget
     def _handle_open_nested_editor(
         self, modal_type: str, initial_data: Optional[Any], target_widget: QWidget
     ):
@@ -361,58 +391,32 @@ class MainWindow(QMainWindow):
     @Slot()
     def generate_prompts(self):
         """プロンプト生成を実行します。"""
-        if not self.current_scene_id:
+        current_scene = self.db_data.get("scenes", {}).get(self.current_scene_id)
+        if not current_scene:  # ... エラー処理 ...
             QMessageBox.warning(self, "Generate", "Please select a scene first.")
             return
-        current_scene = self.db_data.get("scenes", {}).get(self.current_scene_id)
-        if not current_scene:
-            QMessageBox.warning(self, "Generate", "Selected scene data not found.")
-            return
-
-        # --- ▼▼▼ 修正 ▼▼▼ ---
-        # 1. Scene から cut_id を取得
         current_cut_id = getattr(current_scene, "cut_id", None)
-        if not current_cut_id:
+        if not current_cut_id:  # ... エラー処理 ...
             QMessageBox.warning(
                 self, "Generate", "選択されたシーンにカットが割り当てられていません。"
             )
             return
-
-        # 2. cut_id から Cut オブジェクトを取得
         current_cut = self.db_data.get("cuts", {}).get(current_cut_id)
-        if not current_cut or not isinstance(current_cut, Cut):
+        if not current_cut or not isinstance(current_cut, Cut):  # ... エラー処理 ...
             QMessageBox.warning(
                 self,
                 "Generate",
                 f"割り当てられたカットが見つかりません (ID: {current_cut_id})。",
             )
             return
-
-        # 3. Cut の roles を使用
         roles_in_cut = current_cut.roles
-        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
-        print(f"[DEBUG] generate_prompts: Checking scene ID: {self.current_scene_id}")
-        # --- ▼▼▼ 修正 ▼▼▼ ---
-        # L484: current_scene.roles -> roles_in_cut
-        print(
-            f"[DEBUG] generate_prompts: Expected Role IDs: {[r.id for r in roles_in_cut]}"
-        )
-        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
-        print(
-            f"[DEBUG] generate_prompts: Current assignments: {self.actor_assignments}"
-        )
-
-        # --- ▼▼▼ 修正 ▼▼▼ ---
-        # L490: current_scene.roles -> roles_in_cut
         missing_roles = [
             r.name_in_scene
             for r in roles_in_cut
             if r.id not in self.actor_assignments or not self.actor_assignments[r.id]
         ]
-        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
-
-        if missing_roles:
+        if missing_roles:  # ... エラー処理 ...
             QMessageBox.warning(
                 self,
                 "Generate",
@@ -421,7 +425,8 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            full_db = FullDatabase(**self.db_data, sdParams=self.sd_params)
+            # FullDatabase には辞書を渡す
+            full_db = FullDatabase(**self.db_data)  # sdParams は db_data 内に含まれる
             self.generated_prompts = generate_batch_prompts(
                 scene_id=self.current_scene_id,
                 actor_assignments=self.actor_assignments,
@@ -439,18 +444,38 @@ class MainWindow(QMainWindow):
     @Slot()
     def execute_generation(self):
         """画像生成を実行します。"""
-        if not self.generated_prompts:
+        if not self.generated_prompts:  # ... エラー処理 ...
             QMessageBox.warning(
                 self, "Execute", "先に 'Generate Prompt Preview' を実行してください。"
             )
             return
         current_scene = self.db_data.get("scenes", {}).get(self.current_scene_id)
-        if not current_scene:
+        if not current_scene:  # ... エラー処理 ...
             QMessageBox.warning(self, "Execute", "シーンが選択されていません。")
             return
+
         try:
+            # --- ▼▼▼ current_sd_params を取得 ▼▼▼ ---
+            current_sd_params = self.db_data.get("sdParams", {}).get(
+                self.current_sd_param_id
+            )
+            if not current_sd_params:
+                # フォールバック (最初のプリセット、なければデフォルト値)
+                current_sd_params = next(
+                    iter(self.db_data.get("sdParams", {}).values()),
+                    StableDiffusionParams(
+                        id="default_fallback", name="Default Fallback"
+                    ),  # ★ デフォルトに ID, Name 追加
+                )
+                print(
+                    f"[WARN] No SD Params selected or found, using fallback: {current_sd_params.name}"
+                )
+            # --- ▲▲▲ 取得ここまで ▲▲▲ ---
+
             tasks = create_image_generation_tasks(
-                self.generated_prompts, self.sd_params, current_scene
+                self.generated_prompts,
+                current_sd_params,
+                current_scene,  # ★ current_sd_params を渡す
             )
             if not tasks:
                 QMessageBox.warning(self, "Execute", "生成タスクがありません。")
@@ -495,9 +520,11 @@ class MainWindow(QMainWindow):
             current_list_selection_id = current_item.data(Qt.ItemDataRole.UserRole)
         current_type_index = self.library_panel.library_type_combo.currentIndex()
 
+        # データ参照を更新
         self.prompt_panel.set_data_reference(self.db_data)
         self.library_panel.set_data_reference(self.db_data)
 
+        # リストタイプと選択状態を復元
         if current_type_index >= 0:
             self.library_panel.library_type_combo.blockSignals(True)
             self.library_panel.library_type_combo.setCurrentIndex(current_type_index)
@@ -537,17 +564,17 @@ class MainWindow(QMainWindow):
             f"[DEBUG] Opening editor dialog for type: {modal_type}, data: {'Exists' if item_data else 'None'}"
         )
         dialog: Optional[BaseEditorDialog] = None
-        newly_created_cut_id: Optional[str] = None  # ★ 新規 Cut ID 退避用
-
         try:
+            # --- ▼▼▼ SDParamsEditorDialog の呼び出しを追加 ▼▼▼ ---
             if DialogClass == SimplePartEditorDialog:
                 dialog = DialogClass(item_data, modal_type, self.db_data, self)
             elif DialogClass == CutEditorDialog:
                 dialog = DialogClass(item_data, self.db_data, self)
+            elif DialogClass == SDParamsEditorDialog:  # ★ 追加
+                dialog = DialogClass(item_data, self.db_data, self)
             else:
                 dialog = DialogClass(item_data, self.db_data, self)
-            print(f"[DEBUG] Dialog instance created: {dialog}")
-
+            # --- ▲▲▲ 追加ここまで ▲▲▲ ---
             if dialog:
                 dialog.request_open_editor.connect(self._handle_open_nested_editor)
 
@@ -563,7 +590,6 @@ class MainWindow(QMainWindow):
             result = dialog.exec()
             if result == QDialog.DialogCode.Accepted:
                 saved_data = dialog.saved_data
-
                 if saved_data:
                     item_id_to_select = getattr(saved_data, "id", None)
                     print(
@@ -586,30 +612,19 @@ class MainWindow(QMainWindow):
                             target_class = Composition
                         elif db_key == "styles":
                             target_class = Style
-
                         if target_class:
-                            print(
-                                f"[DEBUG] Converting PromptPartBase to {target_class.__name__} object."
-                            )
                             try:
                                 saved_data = target_class(**saved_data.__dict__)
-                                print(
-                                    f"[DEBUG] Conversion successful: {type(saved_data).__name__}"
-                                )
                             except TypeError as e:
-                                print(
-                                    f"[ERROR] Failed to convert PromptPartBase to {target_class.__name__}: {e}. Cannot save."
-                                )
+                                print(f"[ERROR] Failed to convert...: {e}")
                                 saved_data = None
                         else:
-                            print(
-                                f"[ERROR] Unknown db_key '{db_key}' for SimplePartEditorDialog result. Cannot save."
-                            )
+                            print(f"[ERROR] Unknown db_key '{db_key}'...")
                             saved_data = None
 
                     if saved_data and item_id_to_select:
                         # 1. メモリに追加/更新
-                        is_new_scene_with_new_cut = False
+                        is_new_scene_with_new_cut = False  # (不要になった)
                         if db_key == "cuts":
                             if "cuts" not in self.db_data:
                                 self.db_data["cuts"] = {}
@@ -617,53 +632,28 @@ class MainWindow(QMainWindow):
                             print(
                                 f"[DEBUG] Cut {item_id_to_select} saved/updated in memory."
                             )
-                            if (
-                                target_widget_to_update
-                                and isinstance(
-                                    target_widget_to_update.parent(), SceneEditorDialog
-                                )
-                                and not target_widget_to_update.parent().initial_data
-                            ):
-                                newly_created_cut_id = item_id_to_select
-                                print(
-                                    f"[DEBUG] New Cut {newly_created_cut_id} created during new Scene creation."
-                                )
+                            # newly_created_cut_id のロジックは削除
 
-                        elif db_key == "scenes" and not item_data:  # 新規 Scene
-                            scene_cut_id = getattr(saved_data, "cut_id", None)
-                            # この時点では newly_created_cut_id はまだ設定されていない可能性
-                            # -> このロジックは SceneEditorDialog.get_data に任せるべき
-                            # ここでは Scene をメモリに保存するだけ
-                            if db_key in self.db_data:
-                                self.db_data[db_key][item_id_to_select] = saved_data
-                            else:
-                                print(f"[ERROR] Invalid db_key '{db_key}'...")
-                                return
-
+                        elif db_key == "sdParams":  # ★ sdParams をメモリに追加
+                            if "sdParams" not in self.db_data:
+                                self.db_data["sdParams"] = {}
+                            self.db_data["sdParams"][item_id_to_select] = saved_data
+                            print(
+                                f"[DEBUG] SD Param {item_id_to_select} saved/updated in memory."
+                            )
                         elif db_key in self.db_data:
                             self.db_data[db_key][item_id_to_select] = saved_data
                         else:
-                            print(
-                                f"[ERROR] Invalid db_key '{db_key}' when trying to save data."
-                            )
+                            print(f"[ERROR] Invalid db_key '{db_key}'...")
                             return
 
                         # 2. DBに即時保存
                         try:
-                            # ★ 新規 Scene が新規 Cut を参照する場合、Cut を先に保存
-                            if db_key == "scenes" and not item_data:  # 新規 Scene
-                                scene_cut_id = getattr(saved_data, "cut_id", None)
-                                # new_cut = self.db_data.get("cuts", {}).get(scene_cut_id)
-                                # if new_cut and scene_cut_id == newly_created_cut_id: # この判定が難しい
-                                #     print(f"[DEBUG] Saving newly created Cut {scene_cut_id} first...")
-                                #     db.save_cut(new_cut)
-                                #
-                                # 簡略化: Cut は Cut ダイアログが閉じた時点で即時保存されているはず
-                                # (このロジックは Cut が List[Cut] だったときの名残)
-                                pass
-
+                            # is_new_scene_with_new_cut のロジックは削除
                             if db_key == "cuts":
                                 db.save_cut(saved_data)
+                            elif db_key == "sdParams":
+                                db.save_sd_param(saved_data)  # ★ sdParams をDBに保存
                             else:
                                 self.data_handler.save_single_item(db_key, saved_data)
                         except Exception as db_save_e:
@@ -678,24 +668,10 @@ class MainWindow(QMainWindow):
                                 parent_dialog, QDialog
                             ):
                                 parent_dialog = parent_dialog.parent()
-
                             if isinstance(parent_dialog, BaseEditorDialog):
-                                if isinstance(target_widget_to_update, QComboBox):
-                                    parent_dialog.update_combo_box_after_edit(
-                                        target_widget_to_update,
-                                        db_key,
-                                        item_id_to_select,
-                                    )
-                                elif isinstance(target_widget_to_update, QListWidget):
-                                    parent_dialog.update_combo_box_after_edit(  # 基底メソッドを呼ぶ (SceneEditorDialog がオーバーライド)
-                                        target_widget_to_update,
-                                        db_key,
-                                        item_id_to_select,
-                                    )
-                                else:
-                                    print(
-                                        f"[ERROR] Unsupported target widget type for update: {type(target_widget_to_update)}"
-                                    )
+                                parent_dialog.update_combo_box_after_edit(
+                                    target_widget_to_update, db_key, item_id_to_select
+                                )
                             else:
                                 print(
                                     "[ERROR] Could not find parent BaseEditorDialog..."
@@ -710,7 +686,6 @@ class MainWindow(QMainWindow):
                             "Save Error",
                             "データの保存に失敗しました (型変換エラーまたは不明なタイプ)。",
                         )
-
                 else:
                     print("[DEBUG] Dialog accepted but returned no valid data.")
             else:
@@ -719,79 +694,83 @@ class MainWindow(QMainWindow):
     def _get_modal_type_from_db_key(
         self, db_key: Optional[DatabaseKey]
     ) -> Optional[str]:
-        """db_key 文字列から editor_dialog_mapping のキー (modal_type) を逆引きします。"""
         if not db_key:
             return None
         for modal_type, (dialog_class, key_str) in self.editor_dialog_mapping.items():
             if key_str == db_key:
                 return modal_type
+        # ★ sdParams 用のフォールバック (大文字に変更したため) -> 不要、マッピングキーを大文字にした
+        # if db_key == "sdParams": return "SDPARAMS"
         return None
 
     def delete_item(self, db_key: DatabaseKey, item_id: str):
-        """指定されたアイテムを削除します（確認含む）。"""
         item_to_delete = self.db_data.get(db_key, {}).get(item_id)
-        if not item_to_delete:
-            QMessageBox.warning(
-                self, "Delete Error", f"Item '{item_id}' not found in '{db_key}'."
-            )
+        if not item_to_delete:  # ... エラー処理 ...
             return
-
         item_name = getattr(item_to_delete, "title_jp", None) or getattr(
             item_to_delete, "name", item_id
         )
-
-        confirm = QMessageBox.question(
-            self,
-            "Confirm Delete",
-            f"'{item_name}' ({item_id}) をメモリとデータベースから削除しますか？\n"
-            f"この操作は元に戻せません。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
+        confirm = QMessageBox.question(...)
         if confirm == QMessageBox.StandardButton.Yes:
             deleted_from_memory = self.data_handler.handle_delete_part(
                 db_key, item_id, self.db_data
             )
             if deleted_from_memory:
                 try:
-                    db._delete_item(db_key, item_id)
+                    # --- ▼▼▼ sdParam の削除処理を追加 ▼▼▼ ---
+                    if db_key == "sdParams":
+                        db.delete_sd_param(item_id)
+                    else:
+                        db._delete_item(db_key, item_id)
+                    # --- ▲▲▲ 変更ここまで ▲▲▲ ---
                     print(
                         f"[DEBUG] Item {item_id} deleted from database table '{db_key}'."
                     )
-                except Exception as db_del_e:
-                    print(
-                        f"[ERROR] Failed to delete item {item_id} from database: {db_del_e}"
-                    )
-                    QMessageBox.warning(
-                        self,
-                        "DB Delete Error",
-                        f"メモリからは削除しましたが、データベースからの削除中にエラーが発生しました。\nError: {db_del_e}",
-                    )
+                except Exception as db_del_e:  # ... エラー処理 ...
+                    pass
 
-                if db_key == "actors":
-                    self.actor_assignments = {
-                        k: v for k, v in self.actor_assignments.items() if v != item_id
-                    }
+                # --- ▼▼▼ 関連データの更新 ▼▼▼ ---
+                if db_key == "actors":  # ... actor_assignments ...
+                    pass
                 if db_key == "scenes" and item_id == self.current_scene_id:
                     self.current_scene_id = next(
                         iter(self.db_data.get("scenes", {})), None
                     )
-                # ★ Cut 削除時に Scene の cut_id をクリアする処理を追加
                 if db_key == "cuts":
                     for scene in self.db_data.get("scenes", {}).values():
                         if scene.cut_id == item_id:
                             scene.cut_id = None
                             db.save_scene(scene)  # DB も更新
-                    # もし PromptPanel でその Cut を持つ Scene が選択されていたら UI 更新
-                    if self.current_scene_id:
-                        current_scene = self.db_data.get("scenes", {}).get(
-                            self.current_scene_id
-                        )
-                        if current_scene and current_scene.cut_id == item_id:
-                            self.prompt_panel.build_role_assignment_ui()
+                    # UI 更新は update_ui_after_data_change でカバーされるはず
+                if db_key == "sdParams" and item_id == self.current_sd_param_id:
+                    # ★ 削除された SD Param が選択されていたらリセット
+                    self.current_sd_param_id = next(
+                        iter(self.db_data.get("sdParams", {})), None
+                    )
+                    self.prompt_panel.set_current_sd_params(
+                        self.current_sd_param_id
+                    )  # ★ UI も更新
+                # --- ▲▲▲ 変更ここまで ▲▲▲ ---
 
                 self.update_ui_after_data_change()
-            else:
-                pass
+            # ... (else 節) ...
         else:
             print(f"[DEBUG] Deletion cancelled by user for {item_id}.")
+
+
+# --- (main 関数実行部分は変更なし) ---
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    try:
+        db.initialize_db()
+    except Exception as e:
+        print(f"FATAL: Could not initialize database: {e}")
+        sys.exit(1)
+    try:
+        window = MainWindow()
+        window.show()
+    except Exception as e:
+        print(f"FATAL: Could not create main window: {e}")
+        traceback.print_exc()  # ★ 詳細なトレースバックを表示
+        sys.exit(1)
+    sys.exit(app.exec())

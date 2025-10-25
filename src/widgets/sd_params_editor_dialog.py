@@ -1,4 +1,5 @@
 # src/widgets/sd_params_editor_dialog.py
+import time  # ★ time をインポート
 from PySide6.QtWidgets import (
     QSpinBox,
     QDoubleSpinBox,
@@ -19,17 +20,8 @@ class SDParamsEditorDialog(BaseEditorDialog):
         db_dict: Dict[str, Dict],
         parent=None,
     ):
-        # db_dict は使わないが基底クラスのインターフェースに合わせる
-        # initial_data は必須とする (None は想定しない)
-        if initial_data is None:
-            # 万が一 None で呼び出された場合、デフォルト値で作成
-            initial_data = StableDiffusionParams()
-            print(
-                "[WARN] SDParamsEditorDialog called with None initial_data. Using defaults."
-            )
-
+        # ★ initial_data が None (新規作成) の場合も考慮
         super().__init__(initial_data, db_dict, "SD Parameters", parent)
-        # UI構築
 
     def _populate_fields(self):
         """UI要素を作成し、配置します。"""
@@ -37,10 +29,16 @@ class SDParamsEditorDialog(BaseEditorDialog):
         if not self.form_layout:
             return
 
-        # sd_params_inspector.py のロジックを流用
+        # --- ▼▼▼ name フィールドを追加 ▼▼▼ ---
+        self.name_edit = QLineEdit(getattr(self.initial_data, "name", "New SD Params"))
+        self.form_layout.addRow("Name:", self.name_edit)
+        self._widgets["name"] = self.name_edit  # _widgets に登録
+        # --- ▲▲▲ 追加ここまで ▲▲▲ ---
+
+        # sd_params_inspector.py のロジックを流用 (変更なし)
         fields_info = {
             "steps": (QSpinBox, {"minimum": 1, "maximum": 200}),
-            "sampler_name": (QLineEdit, {}),  # QComboBox に変更も可
+            "sampler_name": (QLineEdit, {}),
             "cfg_scale": (
                 QDoubleSpinBox,
                 {"minimum": 1.0, "maximum": 30.0, "singleStep": 0.5},
@@ -54,10 +52,18 @@ class SDParamsEditorDialog(BaseEditorDialog):
             ),
         }
 
+        # initial_data が None の場合はデフォルト値を使う
+        data_source = (
+            self.initial_data
+            if self.initial_data
+            else StableDiffusionParams(id="", name="")
+        )  # デフォルト値用
+
         for field_name, (widget_class, kwargs) in fields_info.items():
             widget = widget_class(**kwargs)
-            current_value = getattr(self.initial_data, field_name, None)
+            current_value = getattr(data_source, field_name, None)  # data_source を参照
 
+            # ... (widget への値設定ロジックは変更なし) ...
             if isinstance(widget, QLineEdit):
                 widget.setText(str(current_value) if current_value is not None else "")
             elif isinstance(widget, QSpinBox):
@@ -75,26 +81,45 @@ class SDParamsEditorDialog(BaseEditorDialog):
                 except (ValueError, TypeError):
                     widget.setValue(0.0)
 
-            # フォームレイアウトに行を追加
             self.form_layout.addRow(
                 f"{field_name.replace('_', ' ').capitalize()}:", widget
             )
-            # ウィジェットを辞書に保存
             self._widgets[field_name] = widget
 
+    # --- ▼▼▼ get_data を修正 (新規作成・編集対応) ▼▼▼ ---
     def get_data(self) -> Optional[StableDiffusionParams]:
-        """UIからデータを取得し、initial_data オブジェクトを更新して返します。"""
-        if not self.initial_data:  # 基本的にここには来ないはず
-            QMessageBox.critical(
-                self, "Error", "Cannot save SD Params without initial data."
-            )
+        """UIからデータを取得し、新規作成または更新されたオブジェクトを返します。"""
+
+        name = self.name_edit.text().strip()
+        if not name:
+            QMessageBox.warning(self, "入力エラー", "Name は必須です。")
             return None
 
-        updated_params = self.initial_data  # 元のオブジェクトを更新
-        if self._update_object_from_widgets(updated_params):
-            print("[DEBUG] SD Params updated from dialog.")
-            return updated_params
-        else:
-            # _update_object_from_widgets 内でエラーメッセージ表示済みのはず
-            print("[DEBUG] Failed to update SD Params from dialog.")
-            return None  # 更新失敗
+        if self.initial_data:  # 更新
+            updated_params = self.initial_data
+            if self._update_object_from_widgets(updated_params):
+                print("[DEBUG] SD Params updated from dialog.")
+                return updated_params
+            else:
+                print("[DEBUG] Failed to update SD Params from dialog.")
+                return None  # 更新失敗
+        else:  # 新規作成
+            try:
+                new_params = StableDiffusionParams(
+                    id=f"sdp_{int(time.time())}",
+                    name=name,
+                    steps=self._widgets["steps"].value(),
+                    sampler_name=self._widgets["sampler_name"].text().strip(),
+                    cfg_scale=self._widgets["cfg_scale"].value(),
+                    seed=self._widgets["seed"].value(),
+                    width=self._widgets["width"].value(),
+                    height=self._widgets["height"].value(),
+                    denoising_strength=self._widgets["denoising_strength"].value(),
+                )
+                print("[DEBUG] New SD Params created from dialog.")
+                return new_params
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to create SD Params: {e}")
+                return None
+
+    # --- ▲▲▲ 修正ここまで ▲▲▲ ---

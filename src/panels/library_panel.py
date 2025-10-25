@@ -13,7 +13,10 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, Slot
 from typing import Dict, List, Tuple, Optional, Any
+
+# --- ▼▼▼ Cut, Work, StableDiffusionParams をインポート ▼▼▼ ---
 from ..models import DatabaseKey, Work, StableDiffusionParams, Cut
+# --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
 
 class LibraryPanel(QWidget):
@@ -30,9 +33,9 @@ class LibraryPanel(QWidget):
         self._init_ui()
 
     def set_data_reference(self, db_data: Dict[str, Dict[str, Any]]):
-        """MainWindow からデータ辞書とSDパラメータへの参照を設定します。"""
+        """MainWindow からデータ辞書への参照を設定します。"""
         self._db_data_ref = db_data
-        self._update_library_list()
+        self._update_library_list()  # データをセットしたらリストを更新
 
     def _init_ui(self):
         """UI要素を初期化します。"""
@@ -46,6 +49,7 @@ class LibraryPanel(QWidget):
         type_layout = QHBoxLayout()
         type_layout.addWidget(QLabel("Type:"))
         self.library_type_combo = QComboBox()
+        # --- ▼▼▼ library_types に SD Params を追加 ▼▼▼ ---
         self.library_types: List[Tuple[str, DatabaseKey]] = [
             ("Works", "works"),
             ("Characters", "characters"),
@@ -60,7 +64,9 @@ class LibraryPanel(QWidget):
             ("Lighting", "lighting"),
             ("Compositions", "compositions"),
             ("Styles", "styles"),
+            ("SD Params", "sdParams"),  # ★ 追加
         ]
+        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
         self.library_type_combo.addItems([name for name, key in self.library_types])
         self.library_type_combo.currentIndexChanged.connect(self._on_type_changed)
         type_layout.addWidget(self.library_type_combo)
@@ -77,6 +83,7 @@ class LibraryPanel(QWidget):
 
         # オブジェクトリスト
         self.library_list_widget = QListWidget()
+        # itemDoubleClicked は MainWindow で接続
         library_layout.addWidget(self.library_list_widget)
 
         # 操作ボタン
@@ -107,21 +114,19 @@ class LibraryPanel(QWidget):
         index = self.library_type_combo.currentIndex()
         if self._current_db_key and 0 <= index < len(self.library_types):
             modal_title, db_key = self.library_types[index]
-            if db_key != "sdParams":  # SD Params は追加不可
-                self.addNewItemClicked.emit(db_key, modal_title)  # シグナル発行
+            # if db_key != "sdParams": # ← 削除
+            self.addNewItemClicked.emit(db_key, modal_title)  # シグナル発行
 
     @Slot()
     def _on_delete_clicked(self):
         """削除ボタンがクリックされたときの処理。"""
         selected_items = self.library_list_widget.selectedItems()
         if (
-            selected_items
-            and self._current_db_key
-            and self._current_db_key != "sdParams"
+            selected_items and self._current_db_key
+            # and self._current_db_key != "sdParams" # ← 削除
         ):
             item_id = selected_items[0].data(Qt.ItemDataRole.UserRole)
-            item_text = selected_items[0].text()
-            # 確認ダイアログは MainWindow 側で表示する想定
+            # item_text = selected_items[0].text() # 確認ダイアログは MainWindow 側
             self.deleteItemClicked.emit(self._current_db_key, item_id)  # シグナル発行
 
     def update_list(self):
@@ -144,43 +149,41 @@ class LibraryPanel(QWidget):
 
         items_dict = self._db_data_ref.get(db_key)
 
+        # --- ▼▼▼ フラグ変数をここで初期化 ▼▼▼ ---
         is_add_enabled = False
         is_delete_enabled = False
         is_search_enabled = False
+        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
-        if db_key == "sdParams":
-            # SD Params は特殊扱い (ボタン無効)
-            list_item = QListWidgetItem("SD Params (Edit not available here)")
-            list_item.setData(Qt.ItemDataRole.UserRole, "sdParams_placeholder")
-            list_item.setFlags(list_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-            self.library_list_widget.addItem(list_item)
-            # is_add_enabled などは False のまま
+        # --- ▼▼▼ sdParams の特別扱いを削除 ▼▼▼ ---
+        # if db_key == "sdParams":
+        #    ...
+        # --- ▲▲▲ 削除ここまで ▲▲▲ ---
 
-        # --- ▼▼▼ elif 条件を修正 ▼▼▼ ---
-        elif isinstance(items_dict, dict):  # items_dict が辞書の場合のみリスト処理
-            # sdParams 以外の有効なキーで、データが辞書の場合 (通常ケース)
+        if isinstance(items_dict, dict):  # works, characters, cuts, sdParams など
             is_add_enabled = True
             is_delete_enabled = True
             is_search_enabled = True
 
-            # --- リスト項目の追加処理 (変更なし) ---
             def get_display_name(item: Any) -> str:
                 if isinstance(item, Work):
                     return getattr(item, "title_jp", "")
                 elif isinstance(item, Cut):
-                    return getattr(item, "name", "") or getattr(
-                        item, "id", "Unnamed"
-                    )  # Cut の name を優先
+                    return getattr(item, "name", "") or getattr(item, "id", "Unnamed")
+                # --- ▼▼▼ SDParams の name を取得 ▼▼▼ ---
+                elif isinstance(item, StableDiffusionParams):
+                    return getattr(item, "name", "") or getattr(item, "id", "Unnamed")
+                # --- ▲▲▲ 追加ここまで ▲▲▲ ---
                 else:
                     return getattr(item, "name", "") or getattr(item, "id", "Unnamed")
 
-            # name 属性がない場合も考慮してソート
             sorted_items = sorted(
                 items_dict.values(),
                 key=lambda item: (
                     getattr(item, "name", None) or getattr(item, "id", "")
                 ).lower(),
             )
+
             for item_obj in sorted_items:
                 item_name = get_display_name(item_obj) or "Unnamed"
                 item_id = getattr(item_obj, "id", None)
@@ -188,14 +191,10 @@ class LibraryPanel(QWidget):
                     list_item = QListWidgetItem(f"{item_name} ({item_id})")
                     list_item.setData(Qt.ItemDataRole.UserRole, item_id)
                     self.library_list_widget.addItem(list_item)
-            # --- リスト項目追加ここまで ---
         else:
-            # データが見つからない、または予期しない形式の場合 (ボタン無効)
-            # 警告ログはここでも表示されるはず
             print(
                 f"[WARN] No data found or unexpected data format ({type(items_dict)}) for key: {db_key}"
             )
-            # is_add_enabled などは False のまま
 
         self.library_add_btn.setEnabled(is_add_enabled)
         self.library_delete_btn.setEnabled(is_delete_enabled)
@@ -225,5 +224,3 @@ class LibraryPanel(QWidget):
                     break
         self.library_list_widget.setCurrentItem(found_item)  # 見つからなければ選択解除
         self.library_list_widget.blockSignals(False)
-        # 選択状態が変わったので、手動でシグナルハンドラ（インスペクター更新）を呼ぶ必要がある場合がある
-        # しかし、update_ui_after_data_change から呼ばれることを想定し、ここでは呼ばない

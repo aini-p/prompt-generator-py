@@ -8,7 +8,6 @@ from ..models import (
     Work,
     Character,
     Actor,
-    Cut,
     Scene,
     Direction,
     Costume,
@@ -21,8 +20,10 @@ from ..models import (
     StableDiffusionParams,
     SceneRole,
     RoleDirection,
+    Cut,  # ★ Cut をインポート
     STORAGE_KEYS,
     DatabaseKey,
+    ColorPaletteItem,  # ★ Costume インポート用
 )
 
 if TYPE_CHECKING:
@@ -39,16 +40,24 @@ class DataHandler:
     def __init__(self, main_window: "MainWindow"):
         self.main_window = main_window  # MainWindowのインスタンスを保持
 
-    def load_config(self) -> Tuple[Optional[str], Optional[str], Dict[str, str]]:
-        """設定ファイルから最後の Scene ID, Style ID, 配役を読み込みます。"""
+    def load_config(
+        self,
+    ) -> Tuple[Optional[str], Optional[str], Dict[str, str], Optional[str]]:
+        """設定ファイルから最後の Scene ID, Style ID, 配役, SD Param ID を読み込みます。"""
         default_scene_id = None
         default_style_id = None
         default_assignments = {}
+        default_sd_param_id = None  # ★ 追加
         if not os.path.exists(_CONFIG_FILE_PATH):
             print(
                 f"[DEBUG] Config file not found: {_CONFIG_FILE_PATH}. Using defaults."
             )
-            return default_scene_id, default_style_id, default_assignments
+            return (
+                default_scene_id,
+                default_style_id,
+                default_assignments,
+                default_sd_param_id,
+            )
 
         try:
             with open(_CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
@@ -69,28 +78,40 @@ class DataHandler:
                 if isinstance(config_data.get("last_assignments"), dict)
                 else default_assignments
             )
+            sd_param_id = (  # ★ 追加
+                config_data.get("last_sd_param_id")
+                if isinstance(config_data.get("last_sd_param_id"), str)
+                else default_sd_param_id
+            )
 
             print(
-                f"[DEBUG] Config loaded: scene={scene_id}, style={style_id}, assignments={assignments}"
+                f"[DEBUG] Config loaded: scene={scene_id}, style={style_id}, sd_param={sd_param_id}, assignments={assignments}"
             )
-            return scene_id, style_id, assignments
+            return scene_id, style_id, assignments, sd_param_id  # ★ 追加
         except (json.JSONDecodeError, OSError, TypeError) as e:
             print(
                 f"[ERROR] Failed to load config file {_CONFIG_FILE_PATH}: {e}. Using defaults."
             )
-            return default_scene_id, default_style_id, default_assignments
+            return (
+                default_scene_id,
+                default_style_id,
+                default_assignments,
+                default_sd_param_id,
+            )
 
     def save_config(
         self,
         scene_id: Optional[str],
         style_id: Optional[str],
         assignments: Dict[str, str],
+        sd_param_id: Optional[str],  # ★ 追加
     ):
-        """現在の Scene ID, Style ID, 配役を設定ファイルに保存します。"""
+        """現在の Scene ID, Style ID, 配役, SD Param ID を設定ファイルに保存します。"""
         config_data = {
             "last_scene_id": scene_id,
             "last_style_id": style_id,
             "last_assignments": assignments,
+            "last_sd_param_id": sd_param_id,  # ★ 追加
         }
         try:
             # data ディレクトリが存在しない場合は作成
@@ -105,18 +126,18 @@ class DataHandler:
 
     def load_all_data(
         self,
-    ) -> Tuple[Dict[str, Dict[str, Any]], StableDiffusionParams, Optional[str]]:
+    ) -> Tuple[Dict[str, Dict[str, Any]], Optional[str]]:
         """データベースから全てのデータをロードします。"""
         print("[DEBUG] DataHandler.load_all_data called.")
         db_data: Dict[str, Dict[str, Any]] = {}
-        sd_params = StableDiffusionParams()
+        # sd_params = StableDiffusionParams() # ← 削除
         initial_scene_id: Optional[str] = None
         try:
             db_data["works"] = db.load_works()
             db_data["characters"] = db.load_characters()
             db_data["actors"] = db.load_actors()
-            db_data["cuts"] = db.load_cuts()
-            db_data["scenes"] = db.load_scenes()
+            db_data["cuts"] = db.load_cuts()  # ★ Cut 読み込み
+            db_data["scenes"] = db.load_scenes()  # Scene は Cut の後に読み込む
             db_data["directions"] = db.load_directions()
             db_data["costumes"] = db.load_costumes()
             db_data["poses"] = db.load_poses()
@@ -125,12 +146,12 @@ class DataHandler:
             db_data["lighting"] = db.load_lighting()
             db_data["compositions"] = db.load_compositions()
             db_data["styles"] = db.load_styles()
-            sd_params = db.load_sd_params()
+            db_data["sdParams"] = db.load_sd_params()  # ★ 辞書としてロード
             print("[DEBUG] Data loaded successfully from database.")
 
             scenes_dict = db_data.get("scenes", {})
             if scenes_dict:
-                initial_scene_id = next(iter(scenes_dict), None)  # 最初のシーンIDを取得
+                initial_scene_id = next(iter(scenes_dict), None)
             print(f"[DEBUG] Initial scene ID set to: {initial_scene_id}")
 
         except Exception as e:
@@ -138,14 +159,14 @@ class DataHandler:
                 self.main_window, "Load Error", f"Failed to load data: {e}"
             )
             print(f"[DEBUG] DB load error: {e}")
-            db_data = {k: {} for k in STORAGE_KEYS if k != "sdParams"}
-            sd_params = StableDiffusionParams()
+            db_data = {k: {} for k in STORAGE_KEYS}  # sdParams も辞書として初期化
             initial_scene_id = None
 
-        return db_data, sd_params, initial_scene_id
+        return db_data, initial_scene_id  # ★ sd_params を返さない
 
     def save_all_data(
-        self, db_data: Dict[str, Dict[str, Any]], sd_params: StableDiffusionParams
+        self,
+        db_data: Dict[str, Dict[str, Any]],  # ★ sd_params 引数を削除
     ):
         """メモリ上の全データをSQLiteデータベースに保存します。"""
         print("[DEBUG] DataHandler.save_all_data called.")
@@ -157,6 +178,8 @@ class DataHandler:
                 db.save_character(character)
             for actor in db_data.get("actors", {}).values():
                 db.save_actor(actor)
+            for cut in db_data.get("cuts", {}).values():
+                db.save_cut(cut)  # ★ Cut
             for scene in db_data.get("scenes", {}).values():
                 db.save_scene(scene)
             for direction in db_data.get("directions", {}).values():
@@ -175,7 +198,10 @@ class DataHandler:
                 db.save_composition(composition)
             for style in db_data.get("styles", {}).values():
                 db.save_style(style)
-            db.save_sd_params(sd_params)
+            # ★ sdParams もループで保存
+            for param in db_data.get("sdParams", {}).values():
+                db.save_sd_param(param)
+            # db.save_sd_params(sd_params) # ← 削除
 
             QMessageBox.information(
                 self.main_window, "Save Data", "全データをデータベースに保存しました。"
@@ -190,7 +216,8 @@ class DataHandler:
             print(f"[DEBUG] Error saving data to DB: {e}")
 
     def export_data(
-        self, db_data: Dict[str, Dict[str, Any]], sd_params: StableDiffusionParams
+        self,
+        db_data: Dict[str, Dict[str, Any]],  # ★ sd_params 引数を削除
     ):
         """現在のデータをJSONファイルにエクスポートします。"""
         print("[DEBUG] DataHandler.export_data called.")
@@ -208,17 +235,30 @@ class DataHandler:
             try:
                 export_dict = {}
                 for key, data_dict in db_data.items():
+                    # sdParams も含め、すべての dataclass ベースの辞書をエクスポート
                     export_dict[key] = {
                         item_id: item.__dict__ for item_id, item in data_dict.items()
                     }
-                export_dict["sdParams"] = sd_params.__dict__
+                # export_dict["sdParams"] = sd_params.__dict__ # ← 削除
+
+                # ネストされた dataclass リストを辞書に変換
                 if "scenes" in export_dict:
                     for scene_id, scene_data in export_dict["scenes"].items():
-                        scene_data["roles"] = [
-                            r.__dict__ for r in scene_data.get("roles", [])
-                        ]
+                        # Scene.cuts は ID リストになったので変換不要
+                        scene_data.pop("cuts", None)  # cuts 属性はもうない
                         scene_data["role_directions"] = [
                             rd.__dict__ for rd in scene_data.get("role_directions", [])
+                        ]
+                if "cuts" in export_dict:
+                    for cut_id, cut_data in export_dict["cuts"].items():
+                        cut_data["roles"] = [
+                            r.__dict__ for r in cut_data.get("roles", [])
+                        ]
+                if "costumes" in export_dict:
+                    for costume_id, costume_data in export_dict["costumes"].items():
+                        # color_ref は既に文字列なのでそのまま
+                        costume_data["color_palette"] = [
+                            cp.__dict__ for cp in costume_data.get("color_palette", [])
                         ]
 
                 with open(fileName, "w", encoding="utf-8") as f:
@@ -239,7 +279,7 @@ class DataHandler:
 
     def import_data(
         self,
-    ) -> Optional[Tuple[Dict[str, Dict[str, Any]], StableDiffusionParams]]:
+    ) -> Optional[Dict[str, Dict[str, Any]]]:  # ★ 戻り値を変更
         """JSONファイルからデータをインポートし、新しいデータセットを返します。"""
         print("[DEBUG] DataHandler.import_data called.")
         options = QFileDialog.Options()
@@ -264,11 +304,12 @@ class DataHandler:
                         imported_data = json.load(f)
 
                     new_db_data: Dict[str, Dict[str, Any]] = {}
-                    new_sd_params = StableDiffusionParams()
+                    # new_sd_params = StableDiffusionParams() # ← 削除
                     type_map = {
                         "works": Work,
                         "characters": Character,
                         "actors": Actor,
+                        "cuts": Cut,
                         "scenes": Scene,
                         "directions": Direction,
                         "costumes": Costume,
@@ -278,6 +319,7 @@ class DataHandler:
                         "lighting": Lighting,
                         "compositions": Composition,
                         "styles": Style,
+                        "sdParams": StableDiffusionParams,  # ★ sdParams を追加
                     }
 
                     for key, klass in type_map.items():
@@ -288,46 +330,38 @@ class DataHandler:
                                 f"[DEBUG] Warning: Expected dict for '{key}' in JSON, got {type(items_dict)}. Skipping."
                             )
                             continue
+
                         for item_id, item_data in items_dict.items():
                             try:
+                                # ネストされた dataclass の復元
                                 if klass == Scene:
-                                    item_data["roles"] = [
-                                        SceneRole(**r)
-                                        for r in item_data.get("roles", [])
-                                    ]
+                                    # Scene.cuts は ID リストのはず
+                                    item_data.pop(
+                                        "cuts", None
+                                    )  # 旧データの cuts リストは削除
                                     item_data["role_directions"] = [
                                         RoleDirection(**rd)
                                         for rd in item_data.get("role_directions", [])
                                     ]
+                                elif klass == Cut:
+                                    item_data["roles"] = [
+                                        SceneRole(**r)
+                                        for r in item_data.get("roles", [])
+                                    ]
+                                elif klass == Costume:
+                                    # color_ref は文字列として読み込まれる
+                                    item_data["color_palette"] = [
+                                        ColorPaletteItem(**cp)
+                                        for cp in item_data.get("color_palette", [])
+                                    ]
+
                                 new_db_data[key][item_id] = klass(**item_data)
                             except Exception as ex:
                                 print(
                                     f"[DEBUG] Import Warning: Skipping item '{item_id}' in '{key}' due to error: {ex}. Data: {item_data}"
                                 )
 
-                    sd_params_data = imported_data.get("sdParams", {})
-                    try:
-                        cleaned_sd_data = {}
-                        default_sd = StableDiffusionParams()
-                        for field_name, default_value in default_sd.__dict__.items():
-                            imported_value = sd_params_data.get(field_name)
-                            if imported_value is not None:
-                                try:
-                                    target_type = type(default_value)
-                                    cleaned_sd_data[field_name] = target_type(
-                                        imported_value
-                                    )
-                                except (ValueError, TypeError):
-                                    cleaned_sd_data[field_name] = default_value
-                            else:
-                                cleaned_sd_data[field_name] = default_value
-                        new_sd_params = StableDiffusionParams(**cleaned_sd_data)
-                        print("[DEBUG] SD Params imported and converted.")
-                    except Exception as ex:
-                        print(
-                            f"[DEBUG] Import Error: Unexpected error importing SD Params: {ex}. Using defaults. Data: {sd_params_data}"
-                        )
-                        new_sd_params = StableDiffusionParams()
+                    # sdParams の特別な処理は不要になった
 
                     QMessageBox.information(
                         self.main_window,
@@ -335,7 +369,7 @@ class DataHandler:
                         f"データを {fileName} からメモリにインポートしました。\n変更を永続化するには 'Save to DB' を押してください。",
                     )
                     print(f"[DEBUG] Data imported from {fileName} into memory.")
-                    return new_db_data, new_sd_params
+                    return new_db_data  # ★ new_db_data のみを返す
 
                 except Exception as e:
                     QMessageBox.critical(
@@ -344,7 +378,7 @@ class DataHandler:
                         f"データのインポート中にエラーが発生しました: {e}",
                     )
                     print(f"[DEBUG] Error importing data: {e}")
-        return None  # インポートがキャンセルされたか失敗した場合
+        return None
 
     def save_single_item(self, db_key: DatabaseKey, item_data: Any):
         """指定されたタイプの単一アイテムをデータベースに保存します。"""
@@ -358,6 +392,8 @@ class DataHandler:
                 db.save_character(item_data)
             elif db_key == "actors" and isinstance(item_data, Actor):
                 db.save_actor(item_data)
+            elif db_key == "cuts" and isinstance(item_data, Cut):
+                db.save_cut(item_data)
             elif db_key == "scenes" and isinstance(item_data, Scene):
                 db.save_scene(item_data)
             elif db_key == "directions" and isinstance(item_data, Direction):
@@ -374,23 +410,21 @@ class DataHandler:
                 db.save_lighting(item_data)
             elif db_key == "compositions" and isinstance(item_data, Composition):
                 db.save_composition(item_data)
-            elif db_key == "sdParams" and isinstance(item_data, StableDiffusionParams):
-                # SD Params は通常 save_all_data で処理されるが、念のため
-                db.save_sd_params(item_data)
             elif db_key == "styles" and isinstance(item_data, Style):
                 db.save_style(item_data)
+            elif db_key == "sdParams" and isinstance(item_data, StableDiffusionParams):
+                db.save_sd_param(item_data)  # ★ 修正
             else:
                 print(
                     f"[DEBUG] Warning: save_single_item - Unsupported db_key '{db_key}' or incorrect data type '{type(item_data).__name__}'."
                 )
-                return  # 保存処理を行わない
+                return
 
             print(
                 f"[DEBUG] Successfully saved item {getattr(item_data, 'id', 'N/A')} to DB table '{db_key}'."
             )
 
         except Exception as e:
-            # 保存失敗しても致命的エラーにはしない（メモリ上には残る）
             QMessageBox.warning(
                 self.main_window,
                 "DB Save Warning",

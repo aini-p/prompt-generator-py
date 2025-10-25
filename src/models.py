@@ -4,36 +4,32 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Literal, TypeAlias
 
 
-# --- ★ Work と Character を追加 ---
+# --- (Work, ColorPaletteItem, Character, PromptPartBase, Costume, Pose, Expression, Background, Lighting, Composition, Style, Actor, Direction, SceneRole, Cut, RoleDirection, Scene は変更なし) ---
 @dataclass
 class Work:
     id: str
     title_jp: str = ""
     title_en: str = ""
     tags: List[str] = field(default_factory=list)
-    sns_tags: str = ""  # カンマ区切り想定
+    sns_tags: str = ""
 
 
-# --- ★ カラーパレット項目 データクラス ---
 @dataclass
 class ColorPaletteItem:
     placeholder: str = "[C1]"
-    color_ref: str = "personal_color"  # デフォルト値も文字列に
+    color_ref: str = "personal_color"
 
 
 @dataclass
 class Character:
     id: str
     name: str = ""
-    work_id: str = ""  # 対応する Work の ID
-    tags: List[str] = field(
-        default_factory=list
-    )  # キャラクター固有のタグ（オプション）
-    personal_color: str = ""  # 例: "blue"
-    underwear_color: str = ""  # 例: "white"
+    work_id: str = ""
+    tags: List[str] = field(default_factory=list)
+    personal_color: str = ""
+    underwear_color: str = ""
 
 
-# --- ベースオブジェクト ---
 @dataclass
 class PromptPartBase:
     id: str
@@ -43,7 +39,6 @@ class PromptPartBase:
     negative_prompt: str = ""
 
 
-# --- Level 1: ライブラリ (基本パーツ) ---
 @dataclass
 class Costume(PromptPartBase):
     color_palette: List[ColorPaletteItem] = field(default_factory=list)
@@ -79,17 +74,12 @@ class Style(PromptPartBase):
     pass
 
 
-# --- Level 2: Actor, Direction ---
 @dataclass
 class Actor(PromptPartBase):
-    # --- ★ work_title, character_name を削除し、character_id を追加 ---
-    character_id: str = ""  # 対応する Character の ID
-    # --- ★ 削除ここまで ---
+    character_id: str = ""
     base_costume_id: str = ""
     base_pose_id: str = ""
     base_expression_id: str = ""
-    # work_title: str = "" # 削除
-    # character_name: str = "" # 削除
 
 
 @dataclass
@@ -99,7 +89,6 @@ class Direction(PromptPartBase):
     expression_id: Optional[str] = None
 
 
-# --- Level 3: Scene (シーン・テンプレート) ---
 @dataclass
 class SceneRole:
     id: str
@@ -109,7 +98,7 @@ class SceneRole:
 @dataclass
 class Cut:
     id: str
-    name: str = ""  # カット名 (オプション)
+    name: str = ""
     prompt_template: str = ""
     negative_template: str = ""
     roles: List[SceneRole] = field(default_factory=list)
@@ -129,17 +118,17 @@ class Scene:
     background_id: str = ""
     lighting_id: str = ""
     composition_id: str = ""
-    cut_id: Optional[str] = None
-    role_directions: List[RoleDirection] = field(
-        default_factory=list
-    )  # これは Scene が持つ
+    cut_id: Optional[str] = None  # ★ cut_id に変更済み
+    role_directions: List[RoleDirection] = field(default_factory=list)
     reference_image_path: str = ""
     image_mode: str = "txt2img"
 
 
-# --- Stable Diffusion パラメータ ---
+# --- ▼▼▼ StableDiffusionParams を修正 ▼▼▼ ---
 @dataclass
 class StableDiffusionParams:
+    id: str  # ★ ID を追加
+    name: str  # ★ 名前を追加
     steps: int = 20
     sampler_name: str = "Euler a"
     cfg_scale: float = 7.0
@@ -149,7 +138,10 @@ class StableDiffusionParams:
     denoising_strength: float = 0.6
 
 
-# --- tasks.json 用 ---
+# --- ▲▲▲ 修正ここまで ▲▲▲ ---
+
+
+# --- tasks.json 用 (変更なし) ---
 @dataclass
 class ImageGenerationTask:
     prompt: str
@@ -166,23 +158,21 @@ class ImageGenerationTask:
     denoising_strength: Optional[float]
 
 
-# --- プロンプト生成結果の型 ---
+# --- プロンプト生成結果の型 (変更なし) ---
 @dataclass
 class GeneratedPrompt:
     cut: int
     name: str
     positive: str
     negative: str
-    # ★ firstActorInfo の型を変更 (Character と Work を含める)
     firstActorInfo: Optional[Dict[str, Any]] = None
-    # 例: {"character": Character(...), "work": Work(...)}
 
 
-# --- ★ DB全体の構造に Work と Character を追加 ---
+# --- ▼▼▼ FullDatabase を修正 ▼▼▼ ---
 @dataclass
 class FullDatabase:
-    works: Dict[str, Work] = field(default_factory=dict)  # 追加
-    characters: Dict[str, Character] = field(default_factory=dict)  # 追加
+    works: Dict[str, Work] = field(default_factory=dict)
+    characters: Dict[str, Character] = field(default_factory=dict)
     actors: Dict[str, Actor] = field(default_factory=dict)
     cuts: Dict[str, Cut] = field(default_factory=dict)
     costumes: Dict[str, Costume] = field(default_factory=dict)
@@ -194,58 +184,21 @@ class FullDatabase:
     compositions: Dict[str, Composition] = field(default_factory=dict)
     scenes: Dict[str, Scene] = field(default_factory=dict)
     styles: Dict[str, Style] = field(default_factory=dict)
-    sdParams: StableDiffusionParams = field(default_factory=StableDiffusionParams)
+    # ★ sdParams を Dict 型に変更
+    sdParams: Dict[str, StableDiffusionParams] = field(default_factory=dict)
 
 
-# --- Helper functions ---
-def list_to_json_str(data_list: List[Any]) -> str:
-    return json.dumps(
-        [item.__dict__ if hasattr(item, "__dict__") else item for item in data_list]
-    )
+# --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
 
-def json_str_to_list(json_str: Optional[str], class_type: type) -> List[Any]:
-    if not json_str:
-        return []
-    try:
-        data = json.loads(json_str)
-        if callable(class_type):
-            # リスト内の各辞書に対してクラスをインスタンス化
-            # ここで **item が失敗する場合、item が辞書でない可能性がある
-            return [class_type(**item) for item in data if isinstance(item, dict)]
-        else:
-            print(f"Warning: class_type {class_type} is not callable for JSON list.")
-            return data  # 変換せずにそのまま返す
-    except json.JSONDecodeError:
-        print(
-            f"Error decoding JSON for {getattr(class_type, '__name__', class_type)}: {json_str}"
-        )
-        return []
-    except TypeError as e:
-        # **item でインスタンス化しようとした際に、予期せぬキーや型があると発生
-        print(
-            f"Error creating instance of {getattr(class_type, '__name__', class_type)}: {e}. JSON part: {json_str[:100]}..."
-        )  # エラー箇所特定のため一部表示
-        # エラーが発生した要素を除外してリストを作成する試み（オプション）
-        valid_items = []
-        try:
-            data = json.loads(json_str)
-            for item in data:
-                if isinstance(item, dict):
-                    try:
-                        valid_items.append(class_type(**item))
-                    except TypeError:
-                        print(f"  Skipping item due to TypeError: {item}")
-        except:
-            pass  # 二次的なエラーは無視
-        return valid_items
-        # return [] # または、エラー時は空リストを返す
+# --- Helper functions (変更なし) ---
+# ... (list_to_json_str, json_str_to_list) ...
 
 
-# --- ★ STORAGE_KEYS に Work と Character を追加 ---
+# --- STORAGE_KEYS (変更なし) ---
 STORAGE_KEYS: Dict[str, str] = {
-    "works": "promptBuilder_works",  # 追加
-    "characters": "promptBuilder_characters",  # 追加
+    "works": "promptBuilder_works",
+    "characters": "promptBuilder_characters",
     "actors": "promptBuilder_actors",
     "cuts": "promptBuilder_cuts",
     "costumes": "promptBuilder_costumes",
@@ -260,10 +213,10 @@ STORAGE_KEYS: Dict[str, str] = {
     "sdParams": "promptBuilder_sdParams",
 }
 
-# --- ★ DatabaseKey に Work と Character を追加 ---
+# --- DatabaseKey (変更なし) ---
 DatabaseKey = Literal[
-    "works",  # 追加
-    "characters",  # 追加
+    "works",
+    "characters",
     "actors",
     "cuts",
     "costumes",

@@ -4,7 +4,6 @@ import json
 import os
 from typing import Dict, List, Type, TypeVar, Any
 
-# ★ 修正: FullDatabase は import しない, Helper関数を import
 from .models import (
     Work,
     Character,
@@ -27,8 +26,7 @@ from .models import (
 from .utils.json_helpers import (
     list_to_json_str,
     json_str_to_list,
-    dict_to_json_str,
-    json_str_to_dict,
+    # dict_to_json_str, json_str_to_dict, # 未使用なのでコメントアウト
     dataclass_list_to_json_str,
     json_str_to_dataclass_list,
 )
@@ -54,8 +52,6 @@ def initialize_db():
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        # --- ★★★ 修正箇所 (CREATE TABLE を先に移動) ★★★ ---
-
         # --- 1. すべてのテーブルを CREATE TABLE IF NOT EXISTS で先に作成 ---
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS works (
@@ -64,7 +60,8 @@ def initialize_db():
             )""")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS characters (
-                id TEXT PRIMARY KEY, name TEXT NOT NULL, work_id TEXT, tags TEXT
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, work_id TEXT, tags TEXT,
+                personal_color TEXT, underwear_color TEXT
             )""")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS actors (
@@ -94,7 +91,6 @@ def initialize_db():
                 costume_id TEXT, pose_id TEXT, expression_id TEXT
             )""")
 
-        # costumes, styles など (simple_parts_tables)
         simple_parts_tables = [
             "costumes",
             "poses",
@@ -102,14 +98,10 @@ def initialize_db():
             "backgrounds",
             "lighting",
             "compositions",
-            "styles",  # (前回の修正が適用されている想定)
+            "styles",
         ]
         for table_name in simple_parts_tables:
-            # costumes テーブルには color_palette カラムも必要
-            extra_columns = ""
-            if table_name == "costumes":
-                extra_columns = ", color_palette TEXT"  # ★ Costume は特別扱い
-
+            extra_columns = ", color_palette TEXT" if table_name == "costumes" else ""
             cursor.execute(f"""
                 CREATE TABLE IF NOT EXISTS {table_name} (
                     id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
@@ -118,57 +110,161 @@ def initialize_db():
                 )""")
 
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS sd_params ( key TEXT PRIMARY KEY, value TEXT )""")
+            CREATE TABLE IF NOT EXISTS sd_params (
+                id TEXT PRIMARY KEY, name TEXT NOT NULL,
+                steps INTEGER, sampler_name TEXT, cfg_scale REAL,
+                seed INTEGER, width INTEGER, height INTEGER,
+                denoising_strength REAL
+            )""")
 
-        # --- 2. テーブル作成後にカラム修正 (ALTER TABLE) を実行 ---
-
+        # --- 2. カラム修正 (ALTER TABLE) を実行 ---
         # Character テーブルのカラム追加
         cursor.execute("PRAGMA table_info(characters)")
-        columns = [col[1] for col in cursor.fetchall()]
+        columns = {col[1] for col in cursor.fetchall()}
         if "personal_color" not in columns:
             cursor.execute("ALTER TABLE characters ADD COLUMN personal_color TEXT")
         if "underwear_color" not in columns:
             cursor.execute("ALTER TABLE characters ADD COLUMN underwear_color TEXT")
 
-        # Costume テーブルのカラム修正 (color_placeholders -> color_palette)
+        # Costume テーブルのカラム修正
         cursor.execute("PRAGMA table_info(costumes)")
-        columns = [col[1] for col in cursor.fetchall()]
+        columns = {col[1] for col in cursor.fetchall()}
         if "color_placeholders" in columns and "color_palette" not in columns:
-            # (簡易的な移行: カラム名変更の代わりに新しいカラムを追加)
             print(
                 "INFO: Found legacy 'color_placeholders' column. Adding 'color_palette' column."
             )
             cursor.execute("ALTER TABLE costumes ADD COLUMN color_palette TEXT")
-            # 必要ならここでデータ移行処理 (UPDATE costumes SET color_palette = color_placeholders;
         elif "color_palette" not in columns:
-            # (CREATE TABLE で既に追加されているはずだが、念のため)
             cursor.execute("ALTER TABLE costumes ADD COLUMN color_palette TEXT")
 
-        # --- ▼▼▼ actors テーブルに character_id カラムを追加 (ALTER TABLE) ▼▼▼ ---
+        # actors テーブルに character_id カラムを追加
         cursor.execute("PRAGMA table_info(actors)")
-        columns = [col[1] for col in cursor.fetchall()]
+        columns = {col[1] for col in cursor.fetchall()}
         if "character_id" not in columns:
             print("[INFO] Adding missing 'character_id' column to 'actors' table.")
             cursor.execute("ALTER TABLE actors ADD COLUMN character_id TEXT")
 
-        # ★ scenes テーブルの移行 (簡易的: 旧カラム削除、新カラム追加)
+        # scenes テーブルの移行 (cuts カラム削除 -> cut_id カラム追加)
         cursor.execute("PRAGMA table_info(scenes)")
         scene_columns = {col[1] for col in cursor.fetchall()}
-        # 古いカラムが存在しても _load_items で無視されるので削除は必須ではないが、
-        # ALTER TABLE DROP COLUMN は SQLite 3.35.0 以降なのでコメントアウト
-        # if "prompt_template" in scene_columns: cursor.execute("ALTER TABLE scenes DROP COLUMN prompt_template")
-        # if "negative_template" in scene_columns: cursor.execute("ALTER TABLE scenes DROP COLUMN negative_template")
-        # if "roles" in scene_columns: cursor.execute("ALTER TABLE scenes DROP COLUMN roles")
-        # if "cuts" in scene_columns: cursor.execute("ALTER TABLE scenes DROP COLUMN cuts") # cuts カラム削除
-        if "cut_id" not in scene_columns:
+        if "prompt_template" in scene_columns or "cuts" in scene_columns:
+            print("[INFO] Found old columns in 'scenes' table. Attempting migration...")
+            # ALTER TABLE DROP COLUMN は SQLite 3.35.0 以降なので使わない
+            # テーブルを作り直すのが安全
+            try:
+                # 1. 既存テーブルをリネーム
+                cursor.execute("ALTER TABLE scenes RENAME TO scenes_old")
+                print("[INFO] Renamed 'scenes' to 'scenes_old'.")
+                # 2. 新しいスキーマでテーブル再作成
+                cursor.execute("""
+                    CREATE TABLE scenes (
+                        id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
+                        background_id TEXT, lighting_id TEXT, composition_id TEXT,
+                        cut_id TEXT,
+                        role_directions TEXT,
+                        reference_image_path TEXT, image_mode TEXT
+                    )""")
+                print("[INFO] Created new 'scenes' table with updated schema.")
+                # 3. データ移行は行わない (旧データは破棄)
+                #    必要なら SELECT して INSERT する処理をここに追加
+                # cursor.execute("DROP TABLE scenes_old") # 旧テーブル削除
+            except sqlite3.OperationalError as e:
+                print(
+                    f"[WARN] Could not migrate 'scenes' table schema automatically: {e}"
+                )
+                # 既に新しいスキーマの場合など
+                if "cut_id" not in scene_columns:
+                    # ここで cut_id を追加する方が安全かも
+                    try:
+                        cursor.execute("ALTER TABLE scenes ADD COLUMN cut_id TEXT")
+                    except sqlite3.OperationalError:
+                        pass  # カラムが既に存在するなど
+
+        elif "cut_id" not in scene_columns:  # 新規作成でもカラムがない場合
             print("[INFO] Adding 'cut_id' column to 'scenes' table.")
             cursor.execute("ALTER TABLE scenes ADD COLUMN cut_id TEXT")
 
-        # --- 初期データの挿入 ---
-        cursor.execute("SELECT COUNT(*) FROM cuts")  # Work テーブルで確認
-        scene_count = cursor.fetchone()[0]
+        # 古い sd_params テーブルからデータを移行 (簡易的)
+        try:
+            cursor.execute("PRAGMA table_info(sd_params)")
+            new_columns = {col[1] for col in cursor.fetchall()}
 
-        if scene_count == 0:
+            old_table_exists = False
+            if "key" in new_columns:  # まだ古いテーブルレイアウトの場合
+                print("[INFO] Found old 'sd_params' table (key-value). Migrating...")
+                try:
+                    cursor.execute("ALTER TABLE sd_params RENAME TO sd_params_old")
+                    print("[INFO] Renamed 'sd_params' to 'sd_params_old'.")
+                    old_table_exists = True
+                except sqlite3.OperationalError as e:
+                    print(
+                        f"[WARN] Could not rename old sd_params table (might already exist): {e}"
+                    )
+                    if "already exists" in str(e):
+                        cursor.execute("DROP TABLE sd_params")
+                        print("[INFO] Dropped problematic old 'sd_params' table.")
+
+                cursor.execute("""
+                    CREATE TABLE sd_params (
+                        id TEXT PRIMARY KEY, name TEXT NOT NULL,
+                        steps INTEGER, sampler_name TEXT, cfg_scale REAL,
+                        seed INTEGER, width INTEGER, height INTEGER,
+                        denoising_strength REAL
+                    )""")
+
+            cursor.execute("SELECT COUNT(*) FROM sd_params")
+            new_count = cursor.fetchone()[0]
+
+            if old_table_exists and new_count == 0:
+                print("[INFO] Migrating data from 'sd_params_old'...")
+                params_dict = {}
+                try:
+                    cursor.execute("SELECT key, value FROM sd_params_old")
+                    rows = cursor.fetchall()
+                    params_dict = {key: value for key, value in rows}
+
+                    default_preset = StableDiffusionParams(
+                        id="sdp_default_migrated",
+                        name="Migrated Default",
+                        steps=int(params_dict.get("steps", 20)),
+                        sampler_name=params_dict.get("sampler_name", "Euler a"),
+                        cfg_scale=float(params_dict.get("cfg_scale", 7.0)),
+                        seed=int(params_dict.get("seed", -1)),
+                        width=int(params_dict.get("width", 512)),
+                        height=int(params_dict.get("height", 512)),
+                        denoising_strength=float(
+                            params_dict.get("denoising_strength", 0.6)
+                        ),
+                    )
+                    cursor.execute(
+                        """INSERT INTO sd_params (id, name, steps, sampler_name, cfg_scale, seed, width, height, denoising_strength)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            default_preset.id,
+                            default_preset.name,
+                            default_preset.steps,
+                            default_preset.sampler_name,
+                            default_preset.cfg_scale,
+                            default_preset.seed,
+                            default_preset.width,
+                            default_preset.height,
+                            default_preset.denoising_strength,
+                        ),
+                    )
+                    print("[INFO] Migration successful.")
+                    # cursor.execute("DROP TABLE sd_params_old")
+                except Exception as e:
+                    print(
+                        f"[ERROR] Failed to migrate sd_params data: {e}. Skipping migration."
+                    )
+
+        except sqlite3.Error as e:
+            print(f"[WARN] Error during sd_params table migration check: {e}")
+
+        # --- 初期データの挿入 ---
+        cursor.execute("SELECT COUNT(*) FROM cuts")
+        cut_count = cursor.fetchone()[0]
+        if cut_count == 0:
             print("データベースが空のようです。初期データを挿入します...")
             for work in initialMockDatabase.works.values():
                 save_work(work)
@@ -196,7 +292,8 @@ def initialize_db():
                 save_composition(composition)
             for style in initialMockDatabase.styles.values():
                 save_style(style)
-            save_sd_params(initialMockDatabase.sdParams)
+            for param in initialMockDatabase.sdParams.values():
+                save_sd_param(param)
             print("初期データの挿入が完了しました。")
         else:
             print(
@@ -209,15 +306,12 @@ def initialize_db():
         conn.rollback()
     finally:
         conn.close()
-
     print(
         f"データベースが初期化されました（または既存データを確認しました）: {DB_PATH}"
     )
 
 
 # --- Generic Load/Save/Delete Functions ---
-
-
 def _save_item(table_name: str, item_data: Dict[str, Any]):
     """汎用: アイテムをテーブルに挿入または置換します。"""
     conn = get_connection()
@@ -230,7 +324,7 @@ def _save_item(table_name: str, item_data: Dict[str, Any]):
         conn.commit()
     except sqlite3.Error as e:
         print(f"Error saving item to {table_name}: {e}")
-        conn.rollback()  # エラー時はロールバック
+        conn.rollback()
     finally:
         conn.close()
 
@@ -256,69 +350,54 @@ def _load_items(table_name: str, class_type: Type[T]) -> Dict[str, T]:
         if not item_id:
             continue
 
-        # --- ★ JSON 文字列 -> リスト 変換処理 ---
-        # tags フィールドを持つすべてのクラスで共通処理
+        # --- JSON 文字列 -> リスト 変換処理 ---
         if "tags" in row_dict and isinstance(row_dict["tags"], str):
             try:
                 row_dict["tags"] = json.loads(row_dict["tags"])
             except json.JSONDecodeError:
                 row_dict["tags"] = []
 
-        # Scene 固有の処理
+        # ★ Scene: role_directions の処理のみ
         if class_type == Scene:
             row_dict["role_directions"] = json_str_to_list(
                 row_dict.get("role_directions"), RoleDirection
             )
-            # cuts の JSON パースは不要になった
-            # 古い属性の削除 (変更なし)
-            if "prompt_template" in row_dict:
-                del row_dict["prompt_template"]
-            if "negative_template" in row_dict:
-                del row_dict["negative_template"]
-            if "roles" in row_dict:
-                del row_dict["roles"]
-            if "cuts" in row_dict:
-                del row_dict["cuts"]
+            # cut_id は TEXT なので変換不要
+            # 古い属性の削除
+            row_dict.pop("prompt_template", None)
+            row_dict.pop("negative_template", None)
+            row_dict.pop("roles", None)
+            row_dict.pop("cuts", None)  # 古い cuts カラムも削除
 
+        # ★ Cut: roles の処理
         if class_type == Cut:
             row_dict["roles"] = json_str_to_list(row_dict.get("roles"), SceneRole)
 
-        # --- ★ Costume の color_palette をリストに変換 (修正) ---
+        # ★ Costume: color_palette の処理
         if class_type == Costume:
             color_palette_json = row_dict.get("color_palette") or row_dict.get(
                 "color_placeholders"
             )
-            # json_str_to_dataclass_list で ColorPaletteItem のリストに変換するだけ
-            # (color_ref は既に文字列として読み込まれる)
             palette_list = json_str_to_dataclass_list(
                 color_palette_json, ColorPaletteItem
             )
             row_dict["color_palette"] = palette_list if palette_list else []
+            row_dict.pop("color_placeholders", None)
 
-            if "color_placeholders" in row_dict:
-                del row_dict["color_placeholders"]
-
-            if "color_placeholders" in row_dict:
-                del row_dict["color_placeholders"]
-
+        # ★ Actor: 古い属性の削除
         if class_type == Actor:
-            # 古い属性が存在すれば削除
-            if "work_title" in row_dict:
-                print(f"[DEBUG] Removing deprecated 'work_title' from Actor {item_id}")
-                del row_dict["work_title"]
-            if "character_name" in row_dict:
-                print(
-                    f"[DEBUG] Removing deprecated 'character_name' from Actor {item_id}"
-                )
-                del row_dict["character_name"]
+            row_dict.pop("work_title", None)
+            row_dict.pop("character_name", None)
 
         try:
             items[item_id] = class_type(**row_dict)
-        except Exception as e:  # より広範なエラーをキャッチ
-            # dataclassのフィールドとDBのカラムが一致しない場合や型変換エラーなど
+        except Exception as e:
             print(
                 f"Error creating instance of {class_type.__name__} for id '{item_id}'. Row data: {row_dict}. Error: {e}"
             )
+            import traceback
+
+            traceback.print_exc()
 
     return items
 
@@ -338,27 +417,24 @@ def _delete_item(table_name: str, item_id: str):
 
 
 # --- Specific Save/Load/Delete Functions ---
-# (各関数は汎用関数を呼び出すだけ)
 
 
-# --- ▼▼▼ Cut 用関数を追加 ▼▼▼ ---
+# --- Cut 用関数 (変更なし) ---
 def save_cut(cut: Cut):
     data = cut.__dict__.copy()
-    # roles を JSON 文字列に変換
     data["roles"] = list_to_json_str(data.get("roles", []))
     _save_item("cuts", data)
 
 
 def load_cuts() -> Dict[str, Cut]:
-    return _load_items("cuts", Cut)  # _load_items で roles の JSON パースは処理済み
+    return _load_items("cuts", Cut)
 
 
 def delete_cut(cut_id: str):
-    # TODO: この Cut を参照している Scene があれば、そこから ID を削除する処理が必要
     _delete_item("cuts", cut_id)
 
 
-# --- ★ Work 用関数 ---
+# --- Work 用関数 (変更なし) ---
 def save_work(work: Work):
     data = work.__dict__.copy()
     data["tags"] = json.dumps(data.get("tags", []))
@@ -370,11 +446,10 @@ def load_works() -> Dict[str, Work]:
 
 
 def delete_work(work_id: str):
-    # TODO: 関連する Character や Actor の扱いをどうするか？ (今回は単純削除)
     _delete_item("works", work_id)
 
 
-# --- ★ Character 用関数 ---
+# --- Character 用関数 (変更なし) ---
 def save_character(character: Character):
     data = character.__dict__.copy()
     data["tags"] = json.dumps(data.get("tags", []))
@@ -386,34 +461,32 @@ def load_characters() -> Dict[str, Character]:
 
 
 def delete_character(character_id: str):
-    # TODO: 関連する Actor の扱いをどうするか？ (今回は単純削除)
     _delete_item("characters", character_id)
 
 
-# --- ★ Actor 用関数 (修正) ---
+# --- Actor 用関数 (変更なし) ---
 def save_actor(actor: Actor):
     data = actor.__dict__.copy()
     data["tags"] = json.dumps(data.get("tags", []))
-    # work_title, character_name はもうない
     _save_item("actors", data)
 
 
 def load_actors() -> Dict[str, Actor]:
-    return _load_items("actors", Actor)  # _load_items 側で tags は処理されるはず
+    return _load_items("actors", Actor)
 
 
 def delete_actor(actor_id: str):
     _delete_item("actors", actor_id)
 
 
+# --- Scene 用関数 (修正済み) ---
 def save_scene(scene: Scene):
     data = scene.__dict__.copy()
     data["tags"] = json.dumps(data.get("tags", []))
-    # cut_id は Optional[str] なのでそのまま保存 (None は NULL になる)
     data["cut_id"] = data.get("cut_id")  # get で存在確認
     data["role_directions"] = list_to_json_str(data.get("role_directions", []))
     # 不要な属性を削除
-    data.pop("cuts", None)  # cuts 属性はもうないはずだが念のため
+    data.pop("cuts", None)
     data.pop("prompt_template", None)
     data.pop("negative_template", None)
     data.pop("roles", None)
@@ -421,8 +494,6 @@ def save_scene(scene: Scene):
 
 
 def load_scenes() -> Dict[str, Scene]:
-    # _load_items で cut_id は文字列として読み込まれる
-    # Cut オブジェクトへの解決はここでは行わない
     return _load_items("scenes", Scene)
 
 
@@ -430,6 +501,7 @@ def delete_scene(scene_id: str):
     _delete_item("scenes", scene_id)
 
 
+# --- Direction 用関数 (変更なし) ---
 def save_direction(direction: Direction):
     data = direction.__dict__.copy()
     data["tags"] = json.dumps(data.get("tags", []))
@@ -444,7 +516,7 @@ def delete_direction(direction_id: str):
     _delete_item("directions", direction_id)
 
 
-# --- Simple Parts (例: Costume) ---
+# --- Simple Parts (Costume, Pose, Expression, Background, Lighting, Composition, Style) ---
 def save_costume(costume: Costume):
     data = costume.__dict__.copy()
     data["tags"] = json.dumps(data.get("tags", []))
@@ -460,7 +532,7 @@ def delete_costume(costume_id: str):
     _delete_item("costumes", costume_id)
 
 
-# --- Pose ---
+# --- Pose (変更なし) ---
 def save_pose(pose: Pose):
     data = pose.__dict__.copy()
     data["tags"] = json.dumps(data.get("tags", []))
@@ -475,7 +547,7 @@ def delete_pose(pose_id: str):
     _delete_item("poses", pose_id)
 
 
-# --- Expression ---
+# --- Expression (変更なし) ---
 def save_expression(expression: Expression):
     data = expression.__dict__.copy()
     data["tags"] = json.dumps(data.get("tags", []))
@@ -490,7 +562,7 @@ def delete_expression(expression_id: str):
     _delete_item("expressions", expression_id)
 
 
-# --- Background ---
+# --- Background (変更なし) ---
 def save_background(background: Background):
     data = background.__dict__.copy()
     data["tags"] = json.dumps(data.get("tags", []))
@@ -505,7 +577,7 @@ def delete_background(background_id: str):
     _delete_item("backgrounds", background_id)
 
 
-# --- Lighting ---
+# --- Lighting (変更なし) ---
 def save_lighting(lighting: Lighting):
     data = lighting.__dict__.copy()
     data["tags"] = json.dumps(data.get("tags", []))
@@ -520,7 +592,7 @@ def delete_lighting(lighting_id: str):
     _delete_item("lighting", lighting_id)
 
 
-# --- Composition ---
+# --- Composition (変更なし) ---
 def save_composition(composition: Composition):
     data = composition.__dict__.copy()
     data["tags"] = json.dumps(data.get("tags", []))
@@ -535,7 +607,7 @@ def delete_composition(composition_id: str):
     _delete_item("compositions", composition_id)
 
 
-# --- Style ---
+# --- Style (変更なし) ---
 def save_style(style: Style):
     data = style.__dict__.copy()
     data["tags"] = json.dumps(data.get("tags", []))
@@ -550,50 +622,30 @@ def delete_style(style_id: str):
     _delete_item("styles", style_id)
 
 
-# --- SD Params Save/Load ---
-def save_sd_params(params: StableDiffusionParams):
+# --- SD Params Save/Load/Delete (修正済み) ---
+def save_sd_param(param: StableDiffusionParams):
+    """StableDiffusionParams プリセットを保存します。"""
+    data = param.__dict__.copy()
     conn = get_connection()
     cursor = conn.cursor()
+    columns = ", ".join(data.keys())
+    placeholders = ", ".join(["?"] * len(data))
+    sql = f"INSERT OR REPLACE INTO sd_params ({columns}) VALUES ({placeholders})"
     try:
-        for key, value in params.__dict__.items():
-            cursor.execute(
-                "INSERT OR REPLACE INTO sd_params (key, value) VALUES (?, ?)",
-                (key, str(value)),
-            )  # 全て文字列として保存
+        cursor.execute(sql, list(data.values()))
         conn.commit()
     except sqlite3.Error as e:
-        print(f"Error saving SD params: {e}")
+        print(f"Error saving SD param item to sd_params: {e}")
         conn.rollback()
     finally:
         conn.close()
 
 
-def load_sd_params() -> StableDiffusionParams:
-    conn = get_connection()
-    cursor = conn.cursor()
-    params_dict = {}
-    try:
-        cursor.execute("SELECT key, value FROM sd_params")
-        rows = cursor.fetchall()
-        params_dict = {key: value for key, value in rows}
-    except sqlite3.OperationalError:
-        print("SD Params table not found, using defaults.")
-    except sqlite3.Error as e:
-        print(f"Error loading SD params: {e}")
-    finally:
-        conn.close()
+def load_sd_params() -> Dict[str, StableDiffusionParams]:
+    """StableDiffusionParams プリセットをすべてロードします。"""
+    return _load_items("sd_params", StableDiffusionParams)
 
-    # 文字列から正しい型に変換して dataclass を作成
-    try:
-        return StableDiffusionParams(
-            steps=int(params_dict.get("steps", 20)),
-            sampler_name=params_dict.get("sampler_name", "Euler a"),
-            cfg_scale=float(params_dict.get("cfg_scale", 7.0)),
-            seed=int(params_dict.get("seed", -1)),
-            width=int(params_dict.get("width", 512)),
-            height=int(params_dict.get("height", 512)),
-            denoising_strength=float(params_dict.get("denoising_strength", 0.6)),
-        )
-    except (ValueError, TypeError) as e:
-        print(f"Error converting SD params, using defaults: {e}")
-        return StableDiffusionParams()  # エラー時はデフォルト値を返す
+
+def delete_sd_param(param_id: str):
+    """StableDiffusionParams プリセットを削除します。"""
+    _delete_item("sd_params", param_id)
