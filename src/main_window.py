@@ -668,22 +668,44 @@ class MainWindow(QMainWindow):
                         f"[DEBUG] Dialog returned data: {item_id_to_select} of type {type(saved_data).__name__}."
                     )
 
-                    # --- ▼▼▼ Style の場合の型変換を追加 ▼▼▼ ---
-                    if db_key == "styles" and isinstance(saved_data, PromptPartBase):
-                        print("[DEBUG] Converting PromptPartBase to Style object.")
-                        # PromptPartBase の属性を使って Style オブジェクトを作成
-                        # (id, name, tags, prompt, negative_prompt は共通)
-                        try:
-                            saved_data = Style(**saved_data.__dict__)
+                    # --- ▼▼▼ SimplePart の場合の型変換を修正・拡張 ▼▼▼ ---
+                    if DialogClass == SimplePartEditorDialog and isinstance(
+                        saved_data, PromptPartBase
+                    ):
+                        target_class: Optional[Type[PromptPartBase]] = None
+                        if db_key == "poses":
+                            target_class = Pose
+                        elif db_key == "expressions":
+                            target_class = Expression
+                        elif db_key == "backgrounds":
+                            target_class = Background  # ★ Background を追加
+                        elif db_key == "lighting":
+                            target_class = Lighting  # ★ Lighting を追加
+                        elif db_key == "compositions":
+                            target_class = Composition  # ★ Composition を追加
+                        elif db_key == "styles":
+                            target_class = Style  # ★ Style も含める
+
+                        if target_class:
                             print(
-                                f"[DEBUG] Conversion successful: {type(saved_data).__name__}"
+                                f"[DEBUG] Converting PromptPartBase to {target_class.__name__} object."
                             )
-                        except TypeError as e:
+                            try:
+                                # PromptPartBase の属性を使って具体的なクラスのオブジェクトを作成
+                                saved_data = target_class(**saved_data.__dict__)
+                                print(
+                                    f"[DEBUG] Conversion successful: {type(saved_data).__name__}"
+                                )
+                            except TypeError as e:
+                                print(
+                                    f"[ERROR] Failed to convert PromptPartBase to {target_class.__name__}: {e}. Cannot save."
+                                )
+                                saved_data = None  # 保存しない
+                        else:
                             print(
-                                f"[ERROR] Failed to convert PromptPartBase to Style: {e}. Cannot save."
+                                f"[ERROR] Unknown db_key '{db_key}' for SimplePartEditorDialog result. Cannot save."
                             )
-                            saved_data = None  # 保存しないように None にする
-                    # --- ▲▲▲ 変更ここまで ▲▲▲ ---
+                            saved_data = None  # 保存しない
 
                     # saved_data が None でなければ処理続行
                     if saved_data and item_id_to_select:
