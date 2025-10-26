@@ -23,12 +23,17 @@ from .models import (
     RoleDirection,
     Style,
     ColorPaletteItem,
+    Sequence,
+    SequenceSceneEntry,
+    QueueItem,
 )
 from .utils.json_helpers import (
     list_to_json_str,
     json_str_to_list,
     dataclass_list_to_json_str,
     json_str_to_dataclass_list,
+    dict_to_json_str,
+    json_str_to_dict,
 )
 
 # 初期データをインポート
@@ -131,6 +136,19 @@ def initialize_db():
                 steps INTEGER, sampler_name TEXT, cfg_scale REAL,
                 seed INTEGER, width INTEGER, height INTEGER,
                 denoising_strength REAL
+            )""")
+        cursor.execute("""
+            CREATE TABLE sequences (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                scene_entries TEXT
+            )""")
+        cursor.execute("""
+            CREATE TABLE batch_queue (
+                id TEXT PRIMARY KEY,
+                sequence_id TEXT NOT NULL,
+                actor_assignments TEXT,
+                item_order INTEGER
             )""")
 
         print("[INFO] Database tables created.")
@@ -241,7 +259,10 @@ def _load_items(table_name: str, class_type: Type[T]) -> Dict[str, T]:
                 row_dict.get("color_palette"), ColorPaletteItem
             )
             row_dict["color_palette"] = palette_list if palette_list else []
-
+        if class_type == Sequence and "scene_entries" in row_dict:
+            row_dict["scene_entries"] = json_str_to_list(
+                row_dict.get("scene_entries"), SequenceSceneEntry
+            )
         try:
             # dataclass に存在するフィールドのみでインスタンス化
             items[item_id] = class_type(**row_dict)
@@ -272,6 +293,108 @@ def _delete_item(table_name: str, item_id: str):
 
 # --- Specific Save/Load/Delete Functions ---
 # (各関数は汎用関数を呼び出すだけ、または型固有の処理を行う)
+
+
+# --- ▼▼▼ Sequence 用関数 ▼▼▼ ---
+def save_sequence(sequence: Sequence):
+    data = sequence.__dict__.copy()
+    # scene_entries リストをJSON文字列に変換
+    data["scene_entries"] = dataclass_list_to_json_str(data.get("scene_entries", []))
+    _save_item("sequences", data)
+
+
+def load_sequences() -> Dict[str, Sequence]:
+    return _load_items("sequences", Sequence)
+
+
+def delete_sequence(sequence_id: str):
+    _delete_item("sequences", sequence_id)
+
+
+# --- ▼▼▼ Batch Queue 用関数 ▼▼▼ ---
+def save_queue_item(queue_item: QueueItem):
+    data = queue_item.__dict__.copy()
+    # actor_assignments 辞書をJSON文字列に変換
+    data["actor_assignments"] = dict_to_json_str(data.get("actor_assignments", {}))
+    # 'order' を 'item_order' カラム名にマッピング (モデルとDBカラム名が違う場合)
+    data["item_order"] = data.pop("order", 0)
+    _save_item("batch_queue", data)
+
+
+def load_batch_queue() -> List[QueueItem]:
+    """キューアイテムを order 順にソートしてリストでロードします。"""
+    conn = get_connection()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    items: List[QueueItem] = []
+    try:
+        # item_order でソートして取得
+        cursor.execute("SELECT * FROM batch_queue ORDER BY item_order ASC")
+        rows = cursor.fetchall()
+    except sqlite3.OperationalError:
+        print("テーブル 'batch_queue' が見つかりません。空のリストを返します。")
+        rows = []
+    finally:
+        conn.close()
+
+    class_fields = {f.name for f in QueueItem.__dataclass_fields__.values()}
+
+    for row in rows:
+        row_dict_raw = dict(row)
+        item_id = row_dict_raw.get("id")
+        if not item_id:
+            continue
+
+        row_dict = {
+            k: v
+            for k, v in row_dict_raw.items()
+            if k in class_fields or k == "item_order"
+        }
+
+        # JSON 文字列 -> Dict 変換処理
+        if "actor_assignments" in row_dict and isinstance(
+            row_dict["actor_assignments"], str
+        ):
+            row_dict["actor_assignments"] = json_str_to_dict(
+                row_dict["actor_assignments"]
+            )
+        else:
+            row_dict["actor_assignments"] = {}
+
+        # 'item_order' を 'order' にマッピング
+        row_dict["order"] = row_dict.pop("item_order", 0)
+
+        try:
+            # 存在しないフィールドは無視してインスタンス化
+            valid_args = {k: v for k, v in row_dict.items() if k in class_fields}
+            items.append(QueueItem(**valid_args))
+        except Exception as e:
+            print(
+                f"Error creating instance of QueueItem for id '{item_id}'. Data: {row_dict}. Error: {e}"
+            )
+            import traceback
+
+            traceback.print_exc()
+
+    return items
+
+
+def delete_queue_item(queue_item_id: str):
+    _delete_item("batch_queue", queue_item_id)
+
+
+def clear_batch_queue():
+    """バッチキューテーブルを空にします。"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM batch_queue")
+        conn.commit()
+    except sqlite3.Error as e:
+        print(f"Error clearing batch_queue: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
 
 
 # --- Cut ---

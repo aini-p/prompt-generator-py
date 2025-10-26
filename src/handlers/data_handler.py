@@ -1,8 +1,9 @@
 # src/handlers/data_handler.py
 import json
 import os
+import time
 from PySide6.QtWidgets import QFileDialog, QMessageBox
-from typing import Dict, Optional, Any, Tuple, TYPE_CHECKING
+from typing import Dict, Optional, Any, Tuple, TYPE_CHECKING, List
 from .. import database as db
 from ..models import (
     Work,
@@ -20,7 +21,10 @@ from ..models import (
     StableDiffusionParams,
     SceneRole,
     RoleDirection,
-    Cut,  # ★ Cut をインポート
+    Cut,
+    Sequence,
+    SequenceSceneEntry,
+    QueueItem,
     STORAGE_KEYS,
     DatabaseKey,
     ColorPaletteItem,  # ★ Costume インポート用
@@ -131,6 +135,7 @@ class DataHandler:
         print("[DEBUG] DataHandler.load_all_data called.")
         db_data: Dict[str, Dict[str, Any]] = {}
         # sd_params = StableDiffusionParams() # ← 削除
+        batch_queue: List[QueueItem] = []
         initial_scene_id: Optional[str] = None
         try:
             db_data["works"] = db.load_works()
@@ -147,6 +152,9 @@ class DataHandler:
             db_data["compositions"] = db.load_compositions()
             db_data["styles"] = db.load_styles()
             db_data["sdParams"] = db.load_sd_params()  # ★ 辞書としてロード
+            db_data["sequences"] = db.load_sequences()  # ★ Sequence 読み込み
+            batch_queue = db.load_batch_queue()  # ★ Batch Queue 読み込み
+
             print("[DEBUG] Data loaded successfully from database.")
 
             scenes_dict = db_data.get("scenes", {})
@@ -160,9 +168,10 @@ class DataHandler:
             )
             print(f"[DEBUG] DB load error: {e}")
             db_data = {k: {} for k in STORAGE_KEYS}  # sdParams も辞書として初期化
+            batch_queue = []
             initial_scene_id = None
 
-        return db_data, initial_scene_id  # ★ sd_params を返さない
+        return db_data, batch_queue, initial_scene_id  # ★ sd_params を返さない
 
     def save_all_data(
         self,
@@ -201,7 +210,14 @@ class DataHandler:
             # ★ sdParams もループで保存
             for param in db_data.get("sdParams", {}).values():
                 db.save_sd_param(param)
+            for sequence in db_data.get("sequences", {}).values():  # ★ Sequence 保存
+                db.save_sequence(sequence)
             # db.save_sd_params(sd_params) # ← 削除
+
+            # ★ Batch Queue 保存 (一旦クリアして全件保存)
+            db.clear_batch_queue()
+            for item in batch_queue:
+                db.save_queue_item(item)
 
             QMessageBox.information(
                 self.main_window, "Save Data", "全データをデータベースに保存しました。"
@@ -260,6 +276,17 @@ class DataHandler:
                         costume_data["color_palette"] = [
                             cp.__dict__ for cp in costume_data.get("color_palette", [])
                         ]
+                if "sequences" in db_data:
+                    export_dict["sequences"] = {}
+                    for seq_id, seq_data in db_data["sequences"].items():
+                        seq_dict = seq_data.__dict__.copy()
+                        seq_dict["scene_entries"] = [
+                            entry.__dict__ for entry in seq_data.scene_entries
+                        ]
+                        export_dict["sequences"][seq_id] = seq_dict
+
+                # ★ Batch Queue もエクスポート
+                export_dict["batch_queue"] = [item.__dict__ for item in batch_queue]
 
                 with open(fileName, "w", encoding="utf-8") as f:
                     json.dump(export_dict, f, indent=2, ensure_ascii=False)
@@ -279,7 +306,7 @@ class DataHandler:
 
     def import_data(
         self,
-    ) -> Optional[Dict[str, Dict[str, Any]]]:  # ★ 戻り値を変更
+    ) -> Optional[Tuple[Dict[str, Dict[str, Any]], List[QueueItem]]]:
         """JSONファイルからデータをインポートし、新しいデータセットを返します。"""
         print("[DEBUG] DataHandler.import_data called.")
         options = QFileDialog.Options()
@@ -320,6 +347,7 @@ class DataHandler:
                         "compositions": Composition,
                         "styles": Style,
                         "sdParams": StableDiffusionParams,  # ★ sdParams を追加
+                        "sequences": Sequence,
                     }
 
                     for key, klass in type_map.items():
@@ -354,6 +382,11 @@ class DataHandler:
                                         ColorPaletteItem(**cp)
                                         for cp in item_data.get("color_palette", [])
                                     ]
+                                if klass == Sequence:
+                                    item_data["scene_entries"] = [
+                                        SequenceSceneEntry(**entry)
+                                        for entry in item_data.get("scene_entries", [])
+                                    ]
 
                                 new_db_data[key][item_id] = klass(**item_data)
                             except Exception as ex:
@@ -361,7 +394,30 @@ class DataHandler:
                                     f"[DEBUG] Import Warning: Skipping item '{item_id}' in '{key}' due to error: {ex}. Data: {item_data}"
                                 )
 
-                    # sdParams の特別な処理は不要になった
+                    # ★ Batch Queue の復元
+                    queue_list = imported_data.get("batch_queue", [])
+                    if isinstance(queue_list, list):
+                        for item_data in queue_list:
+                            try:
+                                # order がなければデフォルト値を使うかエラーにする
+                                if "order" not in item_data:
+                                    item_data["order"] = 0
+                                # id がなければ生成
+                                if "id" not in item_data or not item_data["id"]:
+                                    item_data["id"] = (
+                                        f"queue_item_{int(time.time() * 1000)}_{len(new_batch_queue)}"
+                                    )
+
+                                new_batch_queue.append(QueueItem(**item_data))
+                            except Exception as ex:
+                                print(
+                                    f"[DEBUG] Import Warning: Skipping queue item due to error: {ex}. Data: {item_data}"
+                                )
+                    # ★ キューを order でソート
+                    new_batch_queue.sort(key=lambda item: item.order)
+                    # ★ インポート後に order を再割り当て (0からの連番)
+                    for i, item in enumerate(new_batch_queue):
+                        item.order = i
 
                     QMessageBox.information(
                         self.main_window,
@@ -369,7 +425,7 @@ class DataHandler:
                         f"データを {fileName} からメモリにインポートしました。\n変更を永続化するには 'Save to DB' を押してください。",
                     )
                     print(f"[DEBUG] Data imported from {fileName} into memory.")
-                    return new_db_data  # ★ new_db_data のみを返す
+                    return new_db_data, new_batch_queue
 
                 except Exception as e:
                     QMessageBox.critical(
@@ -414,6 +470,8 @@ class DataHandler:
                 db.save_style(item_data)
             elif db_key == "sdParams" and isinstance(item_data, StableDiffusionParams):
                 db.save_sd_param(item_data)  # ★ 修正
+            elif db_key == "sequences" and isinstance(item_data, Sequence):  # ★ 追加
+                db.save_sequence(item_data)
             else:
                 print(
                     f"[DEBUG] Warning: save_single_item - Unsupported db_key '{db_key}' or incorrect data type '{type(item_data).__name__}'."
@@ -436,19 +494,131 @@ class DataHandler:
             traceback.print_exc()
 
     def handle_delete_part(
-        self, db_key: DatabaseKey, partId: str, db_data: Dict[str, Dict[str, Any]]
-    ) -> bool:
-        """メモリ上のデータを削除します (MainWindow から呼び出される)。"""
-        item_to_delete = db_data.get(db_key, {}).get(partId)
-        partName = getattr(item_to_delete, "name", "Item") if item_to_delete else "Item"
+        self,
+        db_key: DatabaseKey,
+        partId: str,
+        db_data: Dict[str, Dict[str, Any]],
+        batch_queue: List[QueueItem],
+    ) -> Tuple[bool, bool]:
+        """メモリ上のデータを削除します。キュー内の関連アイテムも削除します。"""
+        # ... (アイテム名取得など) ...
         print(
-            f"[DEBUG] DataHandler.handle_delete_part called for db_key='{db_key}', partId='{partId}' ({partName})"
+            f"[DEBUG] DataHandler.handle_delete_part called for db_key='{db_key}', partId='{partId}'..."
         )
+
+        queue_modified = False
+        deleted_from_memory = False
 
         if db_key in db_data and partId in db_data[db_key]:
             del db_data[db_key][partId]
+            deleted_from_memory = True
             print(f"[DEBUG] Deletion from db_data complete for {partId}.")
-            return True
+
+            # ★ 関連するキューアイテムの削除
+            if db_key == "sequences":
+                original_queue_len = len(batch_queue)
+                # list comprehension で新しいリストを作成
+                new_queue = [item for item in batch_queue if item.sequence_id != partId]
+                if len(new_queue) < original_queue_len:
+                    # batch_queue[:] = new_queue # リスト自体を置き換える
+                    queue_modified = True
+                    print(
+                        f"[DEBUG] Removed queue items associated with deleted sequence {partId}."
+                    )
+                    # ★ order の再割り当て
+                    for i, item in enumerate(new_queue):
+                        item.order = i
+                    batch_queue[:] = new_queue  # リスト自体を置き換える
+
         else:
             print(f"[DEBUG] Item {partId} not found in {db_key}, cannot delete.")
-            return False
+
+        return deleted_from_memory, queue_modified  # ★ 戻り値変更
+
+    # --- ▼▼▼ キュー操作用メソッドを追加 ▼▼▼ ---
+    def save_batch_queue(self, batch_queue: List[QueueItem]):
+        """現在のキューの状態をDBに保存します。"""
+        try:
+            db.clear_batch_queue()
+            for item in batch_queue:
+                db.save_queue_item(item)
+            print("[DEBUG] Batch queue saved to database.")
+        except Exception as e:
+            QMessageBox.warning(
+                self.main_window, "Queue Save Error", f"キューの保存に失敗しました: {e}"
+            )
+            print(f"[ERROR] Failed to save batch queue: {e}")
+
+    def add_item_to_queue(
+        self,
+        sequence_id: str,
+        actor_assignments: Dict[str, str],
+        batch_queue: List[QueueItem],
+    ):
+        """新しいアイテムをキューの末尾に追加し、DBに保存します。"""
+        new_order = len(batch_queue)
+        new_item = QueueItem(
+            id=f"queue_item_{int(time.time() * 1000)}_{new_order}",
+            sequence_id=sequence_id,
+            actor_assignments=actor_assignments,
+            order=new_order,
+        )
+        batch_queue.append(new_item)
+        self.save_batch_queue(batch_queue)  # DBにも保存
+
+    def update_queue_item_assignments(
+        self,
+        item_id: str,
+        new_assignments: Dict[str, str],
+        batch_queue: List[QueueItem],
+    ):
+        """指定されたキューアイテムのアクター割り当てを更新し、DBに保存します。"""
+        item_updated = False
+        for item in batch_queue:
+            if item.id == item_id:
+                item.actor_assignments = new_assignments
+                item_updated = True
+                break
+        if item_updated:
+            self.save_batch_queue(batch_queue)
+        else:
+            print(
+                f"[WARN] Could not find queue item with id {item_id} to update assignments."
+            )
+
+    def remove_item_from_queue(
+        self, item_id: str, batch_queue: List[QueueItem]
+    ) -> bool:
+        """指定されたアイテムをキューから削除し、DBを更新、order を再割り当てします。"""
+        original_len = len(batch_queue)
+        new_queue = [item for item in batch_queue if item.id != item_id]
+        if len(new_queue) < original_len:
+            # order を再割り当て
+            for i, item in enumerate(new_queue):
+                item.order = i
+            batch_queue[:] = new_queue  # リストを更新
+            self.save_batch_queue(batch_queue)  # DBも更新
+            return True
+        return False
+
+    def reorder_queue(self, new_ordered_ids: List[str], batch_queue: List[QueueItem]):
+        """キューの順序を更新し、DBに保存します。"""
+        id_to_item = {item.id: item for item in batch_queue}
+        new_queue = []
+        for i, item_id in enumerate(new_ordered_ids):
+            item = id_to_item.get(item_id)
+            if item:
+                item.order = i
+                new_queue.append(item)
+            else:
+                print(f"[WARN] Item ID {item_id} not found during reorder.")
+
+        if len(new_queue) == len(batch_queue):  # 整合性チェック
+            batch_queue[:] = new_queue
+            self.save_batch_queue(batch_queue)
+        else:
+            QMessageBox.warning(
+                self.main_window,
+                "Queue Reorder Error",
+                "キューの並び替え中に不整合が発生しました。",
+            )

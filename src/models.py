@@ -168,6 +168,29 @@ class GeneratedPrompt:
     firstActorInfo: Optional[Dict[str, Any]] = None
 
 
+@dataclass
+class SequenceSceneEntry:
+    scene_id: str
+    is_enabled: bool = True
+    # order: int = 0 # 順序はリストのインデックスで管理
+
+
+@dataclass
+class Sequence:
+    id: str
+    name: str
+    scene_entries: List[SequenceSceneEntry] = field(default_factory=list)
+
+
+@dataclass
+class QueueItem:
+    id: str  # キューアイテム自体の一意なID (例: queue_item_timestamp)
+    sequence_id: str
+    actor_assignments: Dict[str, str] = field(default_factory=dict)
+    order: int = 0  # キュー内での順序
+    # status: str = "pending" # オプション: 実行状態
+
+
 # --- ▼▼▼ FullDatabase を修正 ▼▼▼ ---
 @dataclass
 class FullDatabase:
@@ -184,8 +207,8 @@ class FullDatabase:
     compositions: Dict[str, Composition] = field(default_factory=dict)
     scenes: Dict[str, Scene] = field(default_factory=dict)
     styles: Dict[str, Style] = field(default_factory=dict)
-    # ★ sdParams を Dict 型に変更
     sdParams: Dict[str, StableDiffusionParams] = field(default_factory=dict)
+    sequences: Dict[str, Sequence] = field(default_factory=dict)
 
 
 # --- ▲▲▲ 修正ここまで ▲▲▲ ---
@@ -211,6 +234,7 @@ STORAGE_KEYS: Dict[str, str] = {
     "scenes": "promptBuilder_scenes",
     "styles": "promptBuilder_styles",
     "sdParams": "promptBuilder_sdParams",
+    "sequences": "promptBuilder_sequences",
 }
 
 # --- DatabaseKey (変更なし) ---
@@ -229,4 +253,5 @@ DatabaseKey = Literal[
     "scenes",
     "styles",
     "sdParams",
+    "sequences",
 ]
