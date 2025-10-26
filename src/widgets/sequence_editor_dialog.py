@@ -20,6 +20,7 @@ from typing import Optional, Dict, List, Any
 
 from .base_editor_dialog import BaseEditorDialog  # 継承しない独立ダイアログでも可
 from ..models import Scene, Sequence, SequenceSceneEntry
+from .scene_selection_dialog import SceneSelectionDialog
 
 
 # ドラッグアンドドロップ可能なリストウィジェット (BatchPanelと同じものを使うか再定義)
@@ -28,8 +29,9 @@ class DraggableListWidget(QListWidget):
     pass
 
 
-class SequenceEditorDialog(QDialog):  # BaseEditorDialog を継承しない
-    requestSceneSelection = Signal(object)  # シーン追加ボタンから MainWindow へ
+class SequenceEditorDialog(QDialog):
+    # requestSceneSelection シグナルは不要になったので削除
+    # requestSceneSelection = Signal(object)
 
     def __init__(
         self,
@@ -39,11 +41,10 @@ class SequenceEditorDialog(QDialog):  # BaseEditorDialog を継承しない
     ):
         super().__init__(parent)
         self.initial_data = initial_data
-        self.db_data = db_data  # Scene データ参照用
+        self.db_data = db_data
         self.current_scene_entries: List[SequenceSceneEntry] = []
         if initial_data:
             self.setWindowTitle(f"Edit Sequence: {initial_data.name}")
-            # Deep copy
             self.current_scene_entries = [
                 SequenceSceneEntry(**entry.__dict__)
                 for entry in initial_data.scene_entries
@@ -61,19 +62,19 @@ class SequenceEditorDialog(QDialog):  # BaseEditorDialog を継承しない
         form_layout.addRow("Name:", self.name_edit)
         layout.addLayout(form_layout)
 
-        layout.addWidget(QLabel("Scenes:"))
+        layout.addWidget(QLabel("Scenes in Sequence (Drag to reorder):"))  # ラベル変更
         self.scene_list_widget = DraggableListWidget()
-        # scene_list_widget の設定 (D&D, チェックボックス表示など)
         self.scene_list_widget.setDragDropMode(
             QAbstractItemView.DragDropMode.InternalMove
         )
-
         layout.addWidget(self.scene_list_widget)
 
         btn_layout = QHBoxLayout()
-        add_scene_btn = QPushButton("＋ Add Scene")
-        remove_scene_btn = QPushButton("－ Remove Scene")
-        add_scene_btn.clicked.connect(self._request_scene_selection)
+        add_scene_btn = QPushButton("＋ Add Scene...")  # ボタンテキスト変更
+        remove_scene_btn = QPushButton("－ Remove Selected Scene")  # ボタンテキスト変更
+        # ▼▼▼ _request_scene_selection -> _open_scene_selection_dialog に変更 ▼▼▼
+        add_scene_btn.clicked.connect(self._open_scene_selection_dialog)
+        # ▲▲▲ 変更ここまで ▲▲▲
         remove_scene_btn.clicked.connect(self._remove_selected_scene)
         btn_layout.addWidget(add_scene_btn)
         btn_layout.addWidget(remove_scene_btn)
@@ -89,31 +90,40 @@ class SequenceEditorDialog(QDialog):  # BaseEditorDialog を継承しない
         layout.addWidget(self.button_box)
 
     def _populate_scene_list(self):
+        # (このメソッドは変更なし)
         self.scene_list_widget.clear()
         all_scenes = self.db_data.get("scenes", {})
         for entry in self.current_scene_entries:
             scene = all_scenes.get(entry.scene_id)
+            item_text = (
+                f"Scene ID not found: {entry.scene_id}"  # 見つからない場合の表示
+            )
             if scene:
-                item = QListWidgetItem(f"{scene.name} ({scene.id})")
-                item.setData(Qt.ItemDataRole.UserRole, entry.scene_id)
-                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                item.setCheckState(
-                    Qt.CheckState.Checked
-                    if entry.is_enabled
-                    else Qt.CheckState.Unchecked
-                )
-                self.scene_list_widget.addItem(item)
-            else:
-                # 存在しないシーンIDが含まれている場合の処理 (無視するか表示するか)
-                print(f"[WARN] Scene ID {entry.scene_id} not found in database.")
+                item_text = f"{getattr(scene, 'name', 'Unnamed')} ({entry.scene_id})"
+            item = QListWidgetItem(item_text)
+            item.setData(Qt.ItemDataRole.UserRole, entry.scene_id)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(
+                Qt.CheckState.Checked if entry.is_enabled else Qt.CheckState.Unchecked
+            )
+            self.scene_list_widget.addItem(item)
 
     @Slot()
-    def _request_scene_selection(self):
-        # MainWindow にシーン選択ダイアログの表示を依頼する (複数選択可能なリストなど)
-        # ここでは単純化のため、シグナルだけ送る
-        self.requestSceneSelection.emit(
-            self
-        )  # 自分自身を渡して、結果をコールバックしてもらう想定
+    def _open_scene_selection_dialog(self):
+        """シーン選択ダイアログを開き、選択されたシーンを追加します。"""
+        all_scenes = self.db_data.get("scenes", {})
+        if not all_scenes:
+            QMessageBox.information(
+                self, "Add Scene", "No scenes available in the database."
+            )
+            return
+
+        dialog = SceneSelectionDialog(all_scenes, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            selected_id = dialog.get_selected_scene_id()
+            if selected_id:
+                # add_selected_scenes はリストを受け取る想定なのでリストで渡す
+                self.add_selected_scenes([selected_id])
 
     # MainWindow からシーンが選択された後に呼ばれる想定のメソッド
     def add_selected_scenes(self, scene_ids: List[str]):

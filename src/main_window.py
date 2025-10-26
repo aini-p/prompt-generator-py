@@ -648,9 +648,6 @@ class MainWindow(QMainWindow):
             # --- ダイアログクラスに応じて初期化 ---
             if DialogClass == SequenceEditorDialog:  # ★ Sequence 用
                 dialog = DialogClass(item_data, self.db_data, self)
-                dialog.requestSceneSelection.connect(
-                    self._handle_request_scene_selection
-                )
             elif DialogClass == SimplePartEditorDialog:
                 dialog = DialogClass(item_data, modal_type, self.db_data, self)
             elif DialogClass in [
@@ -1181,23 +1178,6 @@ class MainWindow(QMainWindow):
             self.batch_panel.set_buttons_enabled(True)  # ボタンを再度有効化
             # 完了後、少し待ってからアイドル状態に戻すなどの処理も可
             # self.batch_panel.set_status("Idle", 0)
-
-    # --- ▲▲▲ 追加ここまで ▲▲▲ ---
-
-    # --- ▼▼▼ SequenceEditorDialog 用のスロット ▼▼▼ ---
-    @Slot(object)
-    def _handle_request_scene_selection(self, requesting_dialog: SequenceEditorDialog):
-        # ここでシーン選択ダイアログを表示し、結果をコールバックする
-        # 実装は省略 (ダミーデータを返す)
-        all_scenes = self.db_data.get("scenes", {})
-        # --- ダミー: 最初の2シーンを選択 ---
-        selected_ids = list(all_scenes.keys())[:2]
-        if selected_ids:
-            requesting_dialog.add_selected_scenes(selected_ids)
-        # --- ダミーここまで ---
-        pass
-
-    # --- ▲▲▲ 追加ここまで ▲▲▲ ---
 
 
 # --- (main 関数実行部分は変更なし) ---

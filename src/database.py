@@ -54,63 +54,81 @@ def get_connection():
     return sqlite3.connect(DB_PATH)
 
 
-# --- データベース初期化 ---
+# --- ▼▼▼ データベース初期化 を修正 ▼▼▼ ---
 def initialize_db():
     """
-    データベースファイルとテーブルを (再) 作成し、初期データを挿入します。
-    古いスキーマやデータ移行は考慮せず、常に最新のスキーマで作成します。
+    データベースファイルが存在しない場合は作成し、必要なテーブルが存在しない場合は作成します。
+    テーブルが新規に作成された場合のみ、初期データを挿入します。
     """
-    # 既存のDBファイルがあれば削除 (常に初期化するため)
-    if os.path.exists(DB_PATH):
-        print(f"[INFO] Deleting existing database file: {DB_PATH}")
-        try:
-            os.remove(DB_PATH)
-        except OSError as e:
-            print(f"[ERROR] Could not delete existing database file: {e}")
-            # エラーが発生しても続行を試みる (テーブル作成で失敗する可能性あり)
+    # ▼▼▼ ファイル削除処理を削除 ▼▼▼
+    # if os.path.exists(DB_PATH):
+    #     print(f"[INFO] Deleting existing database file: {DB_PATH}")
+    #     try:
+    #         os.remove(DB_PATH)
+    #     except OSError as e:
+    #         print(f"[ERROR] Could not delete existing database file: {e}")
+    # ▲▲▲ 削除ここまで ▲▲▲
 
     conn = get_connection()
     cursor = conn.cursor()
+    db_existed = os.path.exists(DB_PATH)  # 接続前に存在したか確認 (厳密ではないが目安)
+    tables_created_count = 0  # 新規作成されたテーブル数をカウント
+
     try:
-        print("[INFO] Creating database tables with the latest schema...")
-        # --- テーブル作成 (CREATE TABLE IF NOT EXISTS) ---
-        cursor.execute("""
-            CREATE TABLE works (
+        print("[INFO] Ensuring database tables exist...")
+        # --- テーブル作成 (CREATE TABLE IF NOT EXISTS に変更) ---
+        # ▼▼▼ IF NOT EXISTS を追加 ▼▼▼
+        created = (
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS works (
                 id TEXT PRIMARY KEY, title_jp TEXT, title_en TEXT,
                 tags TEXT, sns_tags TEXT
-            )""")
-        cursor.execute("""
-            CREATE TABLE characters (
+            )""").rowcount
+            > 0
+        )  # executeはCursorを返すのでrowcountなどで実行結果を確認する（ただしCREATE TABLEでは意味がない場合が多い）
+        # テーブル存在確認のより確実な方法
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='works'"
+        )
+        works_table_existed = cursor.fetchone() is not None
+
+        created = (
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS characters (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, work_id TEXT, tags TEXT,
                 personal_color TEXT, underwear_color TEXT
-            )""")
-        cursor.execute("""
-            CREATE TABLE actors (
-                id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
-                prompt TEXT, negative_prompt TEXT,
-                character_id TEXT,
-                base_costume_id TEXT, base_pose_id TEXT, base_expression_id TEXT
-            )""")
-        cursor.execute("""
-            CREATE TABLE cuts (
-                id TEXT PRIMARY KEY, name TEXT,
-                prompt_template TEXT, negative_template TEXT,
-                roles TEXT
-            )""")
-        cursor.execute("""
-            CREATE TABLE scenes (
-                id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
-                background_id TEXT, lighting_id TEXT, composition_id TEXT,
-                cut_id TEXT, -- ★ 最新スキーマ
-                role_directions TEXT,
-                reference_image_path TEXT, image_mode TEXT
-            )""")
-        cursor.execute("""
-            CREATE TABLE directions (
-                id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
-                prompt TEXT, negative_prompt TEXT,
-                costume_id TEXT, pose_id TEXT, expression_id TEXT
-            )""")
+            )""").rowcount
+            > 0
+        )
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='characters'"
+        )
+        characters_table_existed = cursor.fetchone() is not None
+
+        # ... (他のテーブルも同様に IF NOT EXISTS を追加) ...
+        cursor.execute("""CREATE TABLE IF NOT EXISTS actors (...)""")
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='actors'"
+        )
+        actors_table_existed = cursor.fetchone() is not None
+
+        cursor.execute("""CREATE TABLE IF NOT EXISTS cuts (...)""")
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='cuts'"
+        )
+        cuts_table_existed = cursor.fetchone() is not None
+
+        cursor.execute("""CREATE TABLE IF NOT EXISTS scenes (...)""")
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='scenes'"
+        )
+        scenes_table_existed = cursor.fetchone() is not None
+
+        cursor.execute("""CREATE TABLE IF NOT EXISTS directions (...)""")
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='directions'"
+        )
+        directions_table_existed = cursor.fetchone() is not None
 
         simple_parts_tables = [
             "costumes",
@@ -121,77 +139,119 @@ def initialize_db():
             "compositions",
             "styles",
         ]
+        simple_parts_tables_existed = {}
         for table_name in simple_parts_tables:
             extra_columns = ", color_palette TEXT" if table_name == "costumes" else ""
-            cursor.execute(f"""
-                CREATE TABLE {table_name} ( -- IF NOT EXISTS は不要 (DB削除前提のため)
+            created = (
+                cursor.execute(f"""
+                CREATE TABLE IF NOT EXISTS {table_name} (
                     id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
-                    prompt TEXT, negative_prompt TEXT
-                    {extra_columns}
-                )""")
+                    prompt TEXT, negative_prompt TEXT {extra_columns}
+                )""").rowcount
+                > 0
+            )
+            cursor.execute(
+                f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'"
+            )
+            simple_parts_tables_existed[table_name] = cursor.fetchone() is not None
 
-        cursor.execute("""
-            CREATE TABLE sd_params ( -- ★ 最新スキーマ
+        created = (
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS sd_params (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL,
                 steps INTEGER, sampler_name TEXT, cfg_scale REAL,
                 seed INTEGER, width INTEGER, height INTEGER,
                 denoising_strength REAL
-            )""")
-        cursor.execute("""
-            CREATE TABLE sequences (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                scene_entries TEXT
-            )""")
-        cursor.execute("""
-            CREATE TABLE batch_queue (
-                id TEXT PRIMARY KEY,
-                sequence_id TEXT NOT NULL,
-                actor_assignments TEXT,
-                item_order INTEGER
-            )""")
+            )""").rowcount
+            > 0
+        )
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='sd_params'"
+        )
+        sd_params_table_existed = cursor.fetchone() is not None
 
-        print("[INFO] Database tables created.")
+        created = (
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS sequences (
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, scene_entries TEXT
+            )""").rowcount
+            > 0
+        )
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='sequences'"
+        )
+        sequences_table_existed = cursor.fetchone() is not None
 
-        # --- 初期データの挿入 ---
-        print("[INFO] Inserting initial mock data...")
-        for work in initialMockDatabase.works.values():
-            save_work(work)
-        for character in initialMockDatabase.characters.values():
-            save_character(character)
-        for actor in initialMockDatabase.actors.values():
-            save_actor(actor)
-        for cut in initialMockDatabase.cuts.values():
-            save_cut(cut)
-        for scene in initialMockDatabase.scenes.values():
-            save_scene(scene)
-        for direction in initialMockDatabase.directions.values():
-            save_direction(direction)
-        for costume in initialMockDatabase.costumes.values():
-            save_costume(costume)
-        for pose in initialMockDatabase.poses.values():
-            save_pose(pose)
-        for expression in initialMockDatabase.expressions.values():
-            save_expression(expression)
-        for background in initialMockDatabase.backgrounds.values():
-            save_background(background)
-        for lighting in initialMockDatabase.lighting.values():
-            save_lighting(lighting)
-        for composition in initialMockDatabase.compositions.values():
-            save_composition(composition)
-        for style in initialMockDatabase.styles.values():
-            save_style(style)
-        for param in initialMockDatabase.sdParams.values():
-            save_sd_param(param)
-        print("[INFO] Initial mock data inserted.")
+        created = (
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS batch_queue (
+                id TEXT PRIMARY KEY, sequence_id TEXT NOT NULL,
+                actor_assignments TEXT, item_order INTEGER
+            )""").rowcount
+            > 0
+        )
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='batch_queue'"
+        )
+        batch_queue_table_existed = cursor.fetchone() is not None
+
+        # --- テーブルが存在しなかった（=新規作成された）場合のみ初期データを挿入 ---
+        # (より単純化：どれか一つでもテーブルが存在しなかったら初期データを入れる、
+        #  または、特定のテーブル（例：works）が存在しなかったら初期データを入れる)
+        # ここでは works テーブルが存在しなかった場合を基準とする
+        if not works_table_existed:
+            print(
+                "[INFO] Initializing database with mock data as 'works' table was missing..."
+            )
+            # --- 初期データの挿入 ---
+            print("[INFO] Inserting initial mock data...")
+            try:
+                for work in initialMockDatabase.works.values():
+                    save_work(work)
+                for character in initialMockDatabase.characters.values():
+                    save_character(character)
+                for actor in initialMockDatabase.actors.values():
+                    save_actor(actor)
+                for cut in initialMockDatabase.cuts.values():
+                    save_cut(cut)
+                for scene in initialMockDatabase.scenes.values():
+                    save_scene(scene)
+                for direction in initialMockDatabase.directions.values():
+                    save_direction(direction)
+                for costume in initialMockDatabase.costumes.values():
+                    save_costume(costume)
+                for pose in initialMockDatabase.poses.values():
+                    save_pose(pose)
+                for expression in initialMockDatabase.expressions.values():
+                    save_expression(expression)
+                for background in initialMockDatabase.backgrounds.values():
+                    save_background(background)
+                for lighting in initialMockDatabase.lighting.values():
+                    save_lighting(lighting)
+                for composition in initialMockDatabase.compositions.values():
+                    save_composition(composition)
+                for style in initialMockDatabase.styles.values():
+                    save_style(style)
+                for param in initialMockDatabase.sdParams.values():
+                    save_sd_param(param)
+                # Sequence や Queue の初期データは mocks.py にないので省略
+                print("[INFO] Initial mock data inserted.")
+            except Exception as insert_e:
+                print(f"[ERROR] Failed to insert initial data: {insert_e}")
+                conn.rollback()  # データ挿入に失敗したらロールバック
+                raise  # エラーを再送出して初期化失敗を知らせる
+        else:
+            print(
+                "[INFO] Database tables already exist. Skipping initial data insertion."
+            )
 
         conn.commit()
     except sqlite3.Error as e:
         print(f"データベース初期化中にエラーが発生しました: {e}")
-        conn.rollback()
+        conn.rollback()  # スキーマ作成中のエラーでもロールバック
     finally:
         conn.close()
-    print(f"データベースが初期化されました: {DB_PATH}")
+    print(f"データベースの準備が完了しました: {DB_PATH}")
 
 
 # --- Generic Load/Save/Delete Functions ---

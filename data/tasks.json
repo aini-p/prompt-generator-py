@@ -1,7 +1,7 @@
 [
   {
-    "prompt": "masterpiece, best quality, solo focus, ([R1]), simple white background, studio lighting, medium shot",
-    "negative_prompt": "worst quality, low quality, watermark, signature, multiple people, outdoors, indoors, close-up, long shot",
+    "prompt": "(1girl, beautiful, wearing a simple white shirt, standing) and  test, simple white background",
+    "negative_prompt": "outdoors, indoors",
     "steps": 20,
     "sampler_name": "Euler a",
     "cfg_scale": 7.0,
@@ -9,13 +9,13 @@
     "width": 512,
     "height": 512,
     "mode": "txt2img",
-    "filename_prefix": "unknown_work_unknown_character_デフォルトソロシーン_cut1",
+    "filename_prefix": "unknown_work_unknown_character_test_cut1",
     "source_image_path": "",
     "denoising_strength": null
   },
   {
-    "prompt": "masterpiece, best quality, ([R1]) and ([R2]), (2 people:1.2), simple white background, studio lighting, medium shot",
-    "negative_prompt": "worst quality, low quality, watermark, signature, 3 people, outdoors, indoors, close-up, long shot",
+    "prompt": "(1girl, beautiful, wearing a simple white shirt, standing) and (aaaa) test, simple white background",
+    "negative_prompt": "outdoors, indoors",
     "steps": 20,
     "sampler_name": "Euler a",
     "cfg_scale": 7.0,
@@ -23,13 +23,13 @@
     "width": 512,
     "height": 512,
     "mode": "txt2img",
-    "filename_prefix": "unknown_work_unknown_character_デフォルトペアシーン_cut2",
+    "filename_prefix": "unknown_work_unknown_character_test_cut2",
     "source_image_path": "",
     "denoising_strength": null
   },
   {
-    "prompt": "masterpiece, best quality, ([R1]) and ([R2]), (2 people:1.2), simple white background, studio lighting, medium shot",
-    "negative_prompt": "worst quality, low quality, watermark, signature, 3 people, outdoors, indoors, close-up, long shot",
+    "prompt": "(1girl, beautiful, wearing a simple white shirt, standing) and  test",
+    "negative_prompt": "",
     "steps": 20,
     "sampler_name": "Euler a",
     "cfg_scale": 7.0,
@@ -37,13 +37,13 @@
     "width": 512,
     "height": 512,
     "mode": "txt2img",
-    "filename_prefix": "unknown_work_unknown_character_デフォルトペアシーン_cut3",
+    "filename_prefix": "unknown_work_unknown_character_test2_cut3",
     "source_image_path": "",
     "denoising_strength": null
   },
   {
-    "prompt": "masterpiece, best quality, solo focus, ([R1]), simple white background, studio lighting, medium shot",
-    "negative_prompt": "worst quality, low quality, watermark, signature, multiple people, outdoors, indoors, close-up, long shot",
+    "prompt": "(1girl, beautiful, wearing a simple white shirt, standing) and (aaaa, smiling) test",
+    "negative_prompt": "",
     "steps": 20,
     "sampler_name": "Euler a",
     "cfg_scale": 7.0,
@@ -51,35 +51,7 @@
     "width": 512,
     "height": 512,
     "mode": "txt2img",
-    "filename_prefix": "unknown_work_unknown_character_デフォルトソロシーン_cut4",
-    "source_image_path": "",
-    "denoising_strength": null
-  },
-  {
-    "prompt": "masterpiece, best quality, ([R1]) and ([R2]), (2 people:1.2), simple white background, studio lighting, medium shot",
-    "negative_prompt": "worst quality, low quality, watermark, signature, 3 people, outdoors, indoors, close-up, long shot",
-    "steps": 20,
-    "sampler_name": "Euler a",
-    "cfg_scale": 7.0,
-    "seed": -1,
-    "width": 512,
-    "height": 512,
-    "mode": "txt2img",
-    "filename_prefix": "unknown_work_unknown_character_デフォルトペアシーン_cut5",
-    "source_image_path": "",
-    "denoising_strength": null
-  },
-  {
-    "prompt": "masterpiece, best quality, ([R1]) and ([R2]), (2 people:1.2), simple white background, studio lighting, medium shot",
-    "negative_prompt": "worst quality, low quality, watermark, signature, 3 people, outdoors, indoors, close-up, long shot",
-    "steps": 20,
-    "sampler_name": "Euler a",
-    "cfg_scale": 7.0,
-    "seed": -1,
-    "width": 512,
-    "height": 512,
-    "mode": "txt2img",
-    "filename_prefix": "unknown_work_unknown_character_デフォルトペアシーン_cut6",
+    "filename_prefix": "unknown_work_unknown_character_test2_cut4",
     "source_image_path": "",
     "denoising_strength": null
   }

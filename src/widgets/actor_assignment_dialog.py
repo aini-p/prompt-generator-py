@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QWidget,
 )
-from PySide6.QtCore import Slot
+from PySide6.QtCore import Slot, Qt  # ★ Qt をインポート
 from typing import Dict, List, Optional, Set, Any
 
 from ..models import Sequence, Scene, Cut, Actor, SceneRole
@@ -40,15 +40,13 @@ class ActorAssignmentDialog(QDialog):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         content_widget = QWidget()
-        self.form_layout = QFormLayout(content_widget)  # フォームレイアウトを使用
+        self.form_layout = QFormLayout(content_widget)
 
         # --- 必要な Role ID を収集 ---
         required_role_ids: Set[str] = set()
         scenes_data = self.db_data.get("scenes", {})
         cuts_data = self.db_data.get("cuts", {})
-        unique_roles_info: Dict[
-            str, List[str]
-        ] = {}  # role_id: [example_name_in_scene, ...]
+        unique_roles_info: Dict[str, List[str]] = {}
 
         for entry in self.sequence.scene_entries:
             if not entry.is_enabled:
@@ -60,10 +58,11 @@ class ActorAssignmentDialog(QDialog):
             if not cut:
                 continue
             for role in cut.roles:
+                if not role.id:
+                    continue  # IDがないRoleは無視
                 required_role_ids.add(role.id)
                 if role.id not in unique_roles_info:
                     unique_roles_info[role.id] = []
-                # 例としていくつかの名前を保持 (表示用)
                 if (
                     role.name_in_scene not in unique_roles_info[role.id]
                     and len(unique_roles_info[role.id]) < 3
@@ -75,10 +74,20 @@ class ActorAssignmentDialog(QDialog):
         sorted_actors = sorted(
             actors_data.values(), key=lambda a: getattr(a, "name", "")
         )
-        actor_names = ["-- Select Actor --"] + [
-            getattr(a, "name", "Unnamed") for a in sorted_actors
-        ]
-        actor_ids = [""] + [getattr(a, "id", None) for a in sorted_actors]
+        # ★★★ QComboBox 用のリスト (ID を itemData に設定するため変更) ★★★
+        # actor_names = ["-- Select Actor --"] + [getattr(a, "name", "Unnamed") for a in sorted_actors]
+        # actor_ids = [""] + [getattr(a, "id", None) for a in sorted_actors]
+        actor_items: List[Tuple[str, Optional[str]]] = [
+            ("-- Select Actor --", None)
+        ]  # (表示名, ID) のタプルリスト
+        actor_ids_for_check = [None]  # 初期値チェック用
+        for actor in sorted_actors:
+            actor_id = getattr(actor, "id", None)
+            actor_name = getattr(actor, "name", "Unnamed")
+            if actor_id:
+                actor_items.append((f"{actor_name} ({actor_id})", actor_id))
+                actor_ids_for_check.append(actor_id)
+        # ★★★ 変更ここまで ★★★
 
         # --- UI構築 ---
         if not required_role_ids:
@@ -87,16 +96,26 @@ class ActorAssignmentDialog(QDialog):
             sorted_role_ids = sorted(list(required_role_ids))
             for role_id in sorted_role_ids:
                 combo = QComboBox()
-                combo.addItems(actor_names)
+                # ▼▼▼ QComboBox へのアイテム追加方法を変更 ▼▼▼
+                # combo.addItems(actor_names) # <- これをやめる
+                for name, actor_id_data in actor_items:
+                    combo.addItem(
+                        name, actor_id_data
+                    )  # 第2引数に itemData (アクターID) を設定
+                # ▲▲▲ 変更ここまで ▲▲▲
 
                 # 初期値設定
-                current_actor_id = self.assignments.get(role_id, "")
-                current_index = 0
-                if current_actor_id in actor_ids:
+                current_actor_id = self.assignments.get(role_id)  # get() で None も取得
+                current_index = 0  # デフォルトは "-- Select Actor --"
+                if current_actor_id in actor_ids_for_check:
                     try:
-                        current_index = actor_ids.index(current_actor_id)
-                    except ValueError:
-                        pass  # 見つからなければ 0 (-- Select Actor --)
+                        # itemData を使ってインデックスを検索
+                        # findData は一致する最初のインデックスを返す
+                        found_index = combo.findData(current_actor_id)
+                        if found_index != -1:
+                            current_index = found_index
+                    except ValueError:  # 通常 findData では発生しない
+                        pass
                 combo.setCurrentIndex(current_index)
 
                 self.role_combos[role_id] = combo
@@ -121,21 +140,18 @@ class ActorAssignmentDialog(QDialog):
     @Slot()
     def _save_assignments(self):
         # コンボボックスから値を取得して self.assignments を更新
-        all_assigned = True
+        # all_assigned = True # 必須割り当てチェックは一旦削除
         for role_id, combo in self.role_combos.items():
+            # ▼▼▼ currentData() で itemData (アクターID) を取得 ▼▼▼
             selected_actor_id = (
                 combo.currentData()
-            )  # itemData に ID を設定しておく必要あり (要修正)
-            # ToDo: _init_ui で combo.addItem(name, id) のように itemData を設定する
+            )  # Correctly gets the actor_id (or None)
+            # ▲▲▲ 変更ここまで ▲▲▲
             if selected_actor_id:
                 self.assignments[role_id] = selected_actor_id
             elif role_id in self.assignments:
-                del self.assignments[role_id]  # 未選択なら削除
-                all_assigned = False  # 必須ではないかもしれないがフラグだけ立てる
-
-        # if not all_assigned:
-        #     # 必要なら警告を出す
-        #     pass
+                del self.assignments[role_id]  # 未選択なら割り当てを削除
+                # all_assigned = False
 
         self.accept()
 
