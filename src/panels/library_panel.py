@@ -24,6 +24,7 @@ class LibraryPanel(QWidget):
     # タイプが変更された (新しい DatabaseKey)
     libraryTypeChanged = Signal(str)
     addNewItemClicked = Signal(str, str)  # DatabaseKey -> str
+    copyItemClicked = Signal(str, object)
     deleteItemClicked = Signal(str, str)  # DatabaseKey -> str
 
     def __init__(self, parent: Optional[QWidget] = None):
@@ -64,7 +65,8 @@ class LibraryPanel(QWidget):
             ("Lighting", "lighting"),
             ("Compositions", "compositions"),
             ("Styles", "styles"),
-            ("SD Params", "sdParams"),  # ★ 追加
+            ("SD Params", "sdParams"),
+            ("Sequences", "sequences"),
         ]
         # --- ▲▲▲ 修正ここまで ▲▲▲ ---
         self.library_type_combo.addItems([name for name, key in self.library_types])
@@ -83,18 +85,31 @@ class LibraryPanel(QWidget):
 
         # オブジェクトリスト
         self.library_list_widget = QListWidget()
+        self.library_list_widget.currentItemChanged.connect(self._on_selection_changed)
         # itemDoubleClicked は MainWindow で接続
         library_layout.addWidget(self.library_list_widget)
 
-        # 操作ボタン
-        btn_layout = QHBoxLayout()
+        # 操作ボタン-
+        btn_layout_1 = QHBoxLayout()  # 1行目
         self.library_add_btn = QPushButton("＋ Add New")
         self.library_add_btn.clicked.connect(self._on_add_new_clicked)
+        # ▼▼▼ コピーボタンを追加 ▼▼▼
+        self.library_copy_btn = QPushButton("📄 Copy Selected")
+        self.library_copy_btn.clicked.connect(self._emit_copy_item)
+        self.library_copy_btn.setEnabled(False)  # 初期状態は無効
+        # ▲▲▲ 追加ここまで ▲▲▲
+        btn_layout_1.addWidget(self.library_add_btn)
+        btn_layout_1.addWidget(self.library_copy_btn)  # コピーボタンを追加
+
+        btn_layout_2 = QHBoxLayout()  # 2行目 (削除ボタン用)
         self.library_delete_btn = QPushButton("🗑️ Delete Selected")
         self.library_delete_btn.clicked.connect(self._on_delete_clicked)
-        btn_layout.addWidget(self.library_add_btn)
-        btn_layout.addWidget(self.library_delete_btn)
-        library_layout.addLayout(btn_layout)
+        self.library_delete_btn.setEnabled(False)  # 初期状態は無効
+        btn_layout_2.addWidget(self.library_delete_btn)
+        btn_layout_2.addStretch()  # 右寄せにする
+
+        library_layout.addLayout(btn_layout_1)
+        library_layout.addLayout(btn_layout_2)  # 2行目のレイアウトを追加
 
         main_layout.addWidget(library_group)
 
@@ -107,6 +122,7 @@ class LibraryPanel(QWidget):
             self.library_search_edit.clear()
             self._update_library_list()
             self.libraryTypeChanged.emit(db_key)  # シグナル発行
+            self._on_selection_changed(None)
 
     @Slot()
     def _on_add_new_clicked(self):
@@ -116,6 +132,34 @@ class LibraryPanel(QWidget):
             modal_title, db_key = self.library_types[index]
             # if db_key != "sdParams": # ← 削除
             self.addNewItemClicked.emit(db_key, modal_title)  # シグナル発行
+
+    @Slot()
+    def _emit_copy_item(self):
+        """コピーボタンが押されたら選択中のアイテムデータをシグナルで送る"""
+        selected_items = self.library_list_widget.selectedItems()
+        if selected_items and self._current_db_key:
+            item_id = selected_items[0].data(Qt.ItemDataRole.UserRole)
+            item_data = self._db_data_ref.get(self._current_db_key, {}).get(item_id)
+            if item_data:
+                self.copyItemClicked.emit(self._current_db_key, item_data)
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Copy Error",
+                    f"Could not find data for {item_id} in {self._current_db_key}.",
+                )
+
+    @Slot(QListWidgetItem, QListWidgetItem)
+    def _on_selection_changed(
+        self,
+        current: Optional[QListWidgetItem],
+        previous: Optional[QListWidgetItem] = None,
+    ):
+        """リストの選択状態が変わったらボタンの有効/無効を切り替える"""
+        is_selected = current is not None
+        can_copy_delete = is_selected and self._current_db_key is not None
+        self.library_copy_btn.setEnabled(can_copy_delete)
+        self.library_delete_btn.setEnabled(can_copy_delete)
 
     @Slot()
     def _on_delete_clicked(self):
@@ -155,10 +199,9 @@ class LibraryPanel(QWidget):
         is_search_enabled = False
         # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
-        # --- ▼▼▼ sdParams の特別扱いを削除 ▼▼▼ ---
-        # if db_key == "sdParams":
-        #    ...
-        # --- ▲▲▲ 削除ここまで ▲▲▲ ---
+        self.library_list_widget.blockSignals(True)
+        self.library_list_widget.clear()
+        self._on_selection_changed(None)  # ボタンを無効化
 
         if isinstance(items_dict, dict):  # works, characters, cuts, sdParams など
             is_add_enabled = True
@@ -197,8 +240,6 @@ class LibraryPanel(QWidget):
             )
 
         self.library_add_btn.setEnabled(is_add_enabled)
-        self.library_delete_btn.setEnabled(is_delete_enabled)
-        self.library_search_edit.setEnabled(is_search_enabled)
 
         self.library_list_widget.blockSignals(False)
         self.filter_list()  # フィルタ適用

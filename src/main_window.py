@@ -1,5 +1,6 @@
 # src/main_window.py
 import sys, os, json, time, traceback
+import copy
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -247,6 +248,7 @@ class MainWindow(QMainWindow):
             self._handle_item_double_clicked
         )
         self.library_panel.addNewItemClicked.connect(self._handle_add_new_item)
+        self.library_panel.copyItemClicked.connect(self._handle_copy_item)
         self.library_panel.deleteItemClicked.connect(self._handle_delete_item)
 
         # --- ★ Batch Panel シグナル接続 ---
@@ -272,6 +274,88 @@ class MainWindow(QMainWindow):
         self.batch_panel.queueItemsReordered.connect(
             self._handle_queue_reordered
         )  # ★ D&D
+
+    @Slot(str, object)
+    def _handle_copy_item(self, db_key_str: str, original_item_data: Any):
+        """LibraryPanelからのコピーリクエストを処理するスロット"""
+        db_key: Optional[DatabaseKey] = (
+            db_key_str if db_key_str in get_args(DatabaseKey) else None
+        )
+        if not db_key:
+            QMessageBox.critical(
+                self, "Error", f"Invalid db_key '{db_key_str}' for copy."
+            )
+            return
+
+        modal_type = self._get_modal_type_from_db_key(db_key)
+        if not modal_type:
+            QMessageBox.critical(
+                self, "Error", f"Cannot determine editor type for '{db_key}'"
+            )
+            return
+
+        try:
+            # 1. ディープコピーを作成
+            #    dataclass の場合、__dict__ を使って再生成する方が安全な場合がある
+            # copied_data = copy.deepcopy(original_item_data) # deepcopy の代わりに再生成
+            item_dict = original_item_data.__dict__.copy()  # 辞書としてコピー
+
+            # ネストされたdataclassリストもコピー (必要に応じて)
+            # 例: Costume の color_palette
+            if db_key == "costumes" and "color_palette" in item_dict:
+                item_dict["color_palette"] = [
+                    ColorPaletteItem(**cp.__dict__) for cp in item_dict["color_palette"]
+                ]
+            # 例: Cut の roles
+            elif db_key == "cuts" and "roles" in item_dict:
+                item_dict["roles"] = [
+                    SceneRole(**r.__dict__) for r in item_dict["roles"]
+                ]
+            # 例: Scene の role_directions
+            elif db_key == "scenes" and "role_directions" in item_dict:
+                item_dict["role_directions"] = [
+                    RoleDirection(**rd.__dict__) for rd in item_dict["role_directions"]
+                ]
+            # 例: Sequence の scene_entries
+            elif db_key == "sequences" and "scene_entries" in item_dict:
+                item_dict["scene_entries"] = [
+                    SequenceSceneEntry(**se.__dict__)
+                    for se in item_dict["scene_entries"]
+                ]
+
+            # 2. 新しいIDを生成
+            original_id = item_dict.get("id", "unknown")
+            new_id = f"{original_id}_copy_{int(time.time() * 1000)}"
+            # 念のため、既存IDと重複しないかチェック (大量データでなければ通常不要)
+            # while new_id in self.db_data.get(db_key, {}):
+            #     new_id = f"{original_id}_copy_{int(time.time() * 1000)}_{random.randint(100, 999)}"
+            item_dict["id"] = new_id
+
+            # 3. 名前を変更 (Work は title_jp)
+            if db_key == "works":
+                original_name = item_dict.get("title_jp", "")
+                item_dict["title_jp"] = f"{original_name} (Copy)"
+            else:
+                original_name = item_dict.get("name", "")
+                item_dict["name"] = f"{original_name} (Copy)"
+
+            # 4. コピーしたデータで dataclass インスタンスを再生成
+            copied_data = type(original_item_data)(**item_dict)
+
+            # 5. 編集ダイアログを開く
+            print(
+                f"[DEBUG] Opening editor for copied item (new ID: {new_id}) based on {original_id}"
+            )
+            self.open_edit_dialog(modal_type, copied_data)
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Copy Error",
+                f"Failed to create copy for {original_item_data.id}: {e}",
+            )
+            print(f"[ERROR] Failed to create copy: {e}")
+            traceback.print_exc()
 
     @Slot(str, str)
     def _handle_add_new_item(self, db_key_str: str, modal_title: str):
