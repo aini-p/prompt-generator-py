@@ -27,9 +27,6 @@ class PromptPanel(QWidget):
     executeGenerationClicked = Signal()
     sceneChanged = Signal(str)
     assignmentChanged = Signal(dict)
-    styleChanged = Signal(str)
-    # editSdParamsClicked = Signal() # ← 削除
-    sdParamsChanged = Signal(str)  # ★ 追加
     # --- ▲▲▲ 変更ここまで ▲▲▲ ---
 
     def __init__(self, parent: Optional[QWidget] = None):
@@ -37,15 +34,11 @@ class PromptPanel(QWidget):
         self._db_data_ref: Dict[str, Dict[str, Any]] = {}
         self._current_assignments: Dict[str, str] = {}
         self._current_scene_id: Optional[str] = None
-        self._current_style_id: Optional[str] = None
-        self._current_sd_param_id: Optional[str] = None  # ★ 追加
         self._init_ui()
 
     def set_data_reference(self, db_data: Dict[str, Dict[str, Any]]):
         self._db_data_ref = db_data
         self.update_scene_combo()
-        self._update_style_combo()
-        self._update_sd_params_combo()  # ★ 追加
 
     def set_current_scene(self, scene_id: Optional[str]):
         """MainWindow から現在のシーンIDが変更されたときに呼ばれます。"""
@@ -75,55 +68,6 @@ class PromptPanel(QWidget):
                 self.scene_combo.setCurrentIndex(-1)  # 見つからない場合は未選択に
             self.build_role_assignment_ui()
 
-    def set_current_style(self, style_id: Optional[str]):
-        """MainWindow から現在の Style ID が設定されたときに呼ばれます。"""
-        if self._current_style_id != style_id:
-            self._current_style_id = style_id
-            # コンボボックスの選択状態を更新
-            style_ids = [""] + [
-                s.id
-                for s in sorted(
-                    self._db_data_ref.get("styles", {}).values(),
-                    key=lambda s: getattr(s, "name", "").lower(),
-                )
-                if getattr(s, "id", None)  # ID があるものだけ
-            ]
-            try:
-                index = (
-                    style_ids.index(style_id) if style_id in style_ids else 0
-                )  # 未選択 or 見つからなければ 0 ("(None)")
-                self.style_combo.blockSignals(True)
-                self.style_combo.setCurrentIndex(index)
-                self.style_combo.blockSignals(False)
-            except ValueError:
-                self.style_combo.setCurrentIndex(0)  # エラー時も "(None)"
-
-    # --- ▼▼▼ set_current_sd_params を追加 ▼▼▼ ---
-    def set_current_sd_params(self, sd_param_id: Optional[str]):
-        """MainWindow から現在の SD Param ID が設定されたときに呼ばれます。"""
-        if self._current_sd_param_id != sd_param_id:
-            self._current_sd_param_id = sd_param_id
-            # コンボボックスの選択状態を更新
-            param_ids = [""] + [
-                p.id
-                for p in sorted(
-                    self._db_data_ref.get("sdParams", {}).values(),
-                    key=lambda p: getattr(p, "name", "").lower(),
-                )
-                if getattr(p, "id", None)  # ID があるものだけ
-            ]
-            try:
-                index = (
-                    param_ids.index(sd_param_id) if sd_param_id in param_ids else 0
-                )  # 未選択 or 見つからなければ 0 ("(None)")
-                self.sd_params_combo.blockSignals(True)
-                self.sd_params_combo.setCurrentIndex(index)
-                self.sd_params_combo.blockSignals(False)
-            except ValueError:
-                self.sd_params_combo.setCurrentIndex(0)  # エラー時も "(None)"
-
-    # --- ▲▲▲ 追加ここまで ▲▲▲ ---
-
     def set_assignments(self, assignments: Dict[str, str]):
         """MainWindow から初期の配役を設定します。"""
         self._current_assignments = assignments.copy()
@@ -146,28 +90,6 @@ class PromptPanel(QWidget):
         self.scene_combo.currentIndexChanged.connect(self._on_scene_changed)
         scene_layout.addWidget(self.scene_combo)
         self.prompt_gen_layout.addLayout(scene_layout)
-
-        # --- Style 選択と SD Params 選択に変更 ---
-        style_sd_layout = QHBoxLayout()
-
-        # Style 選択部分
-        style_layout = QHBoxLayout()
-        style_layout.addWidget(QLabel("Style:"))
-        self.style_combo = QComboBox()
-        self.style_combo.currentIndexChanged.connect(self._on_style_changed)
-        style_layout.addWidget(self.style_combo, 1)
-        style_sd_layout.addLayout(style_layout)
-
-        # SD Params 選択部分
-        sd_params_layout = QHBoxLayout()
-        sd_params_layout.addWidget(QLabel("SD Params:"))
-        self.sd_params_combo = QComboBox()
-        self.sd_params_combo.currentIndexChanged.connect(self._on_sd_params_changed)
-        sd_params_layout.addWidget(self.sd_params_combo, 1)
-        style_sd_layout.addLayout(sd_params_layout)  # ★ SD Params レイアウトを追加
-
-        self.prompt_gen_layout.addLayout(style_sd_layout)
-        # --- 修正ここまで ---
 
         # 役割割り当て
         self.role_assignment_widget = QWidget()
@@ -239,84 +161,6 @@ class PromptPanel(QWidget):
         )
         # コンボ更新後に役割割り当ても更新
         self.build_role_assignment_ui()
-
-    def _update_style_combo(self):
-        """Style 選択コンボボックスの内容を更新します。"""
-        print("[DEBUG] PromptPanel._update_style_combo called.")
-        self.style_combo.blockSignals(True)
-        self.style_combo.clear()
-        self.style_combo.addItem("(None)", "")  # itemData に空文字
-        style_list = sorted(
-            self._db_data_ref.get("styles", {}).values(),
-            key=lambda s: getattr(s, "name", "").lower(),
-        )
-
-        if not style_list:
-            self.style_combo.setEnabled(False)
-        else:
-            style_ids = [""]  # 先頭は "(None)"
-            for style in style_list:
-                style_id = getattr(style, "id", None)
-                style_name = getattr(style, "name", "Unnamed")
-                if style_id:
-                    self.style_combo.addItem(style_name, style_id)  # itemData に ID
-                    style_ids.append(style_id)
-
-            current_style_index = 0
-            if self._current_style_id and self._current_style_id in style_ids:
-                try:
-                    current_style_index = style_ids.index(self._current_style_id)
-                except ValueError:
-                    self._current_style_id = None  # 見つからなければリセット
-            # else: self._current_style_id = None # "(None)" が選択されている状態
-
-            self.style_combo.setCurrentIndex(current_style_index)
-            self.style_combo.setEnabled(True)
-
-        self.style_combo.blockSignals(False)
-        print(
-            f"[DEBUG] PromptPanel._update_style_combo complete. Current style: {self._current_style_id}"
-        )
-
-    # --- ▼▼▼ _update_sd_params_combo を追加 ▼▼▼ ---
-    def _update_sd_params_combo(self):
-        """SD Params 選択コンボボックスの内容を更新します。"""
-        print("[DEBUG] PromptPanel._update_sd_params_combo called.")
-        self.sd_params_combo.blockSignals(True)
-        self.sd_params_combo.clear()
-        self.sd_params_combo.addItem("(None)", "")  # itemData に空文字
-        param_list = sorted(
-            self._db_data_ref.get("sdParams", {}).values(),
-            key=lambda p: getattr(p, "name", "").lower(),
-        )
-
-        if not param_list:
-            self.sd_params_combo.setEnabled(False)
-        else:
-            param_ids = [""]  # 先頭は "(None)"
-            for param in param_list:
-                param_id = getattr(param, "id", None)
-                param_name = getattr(param, "name", "Unnamed")
-                if param_id:
-                    self.sd_params_combo.addItem(param_name, param_id)  # itemData に ID
-                    param_ids.append(param_id)
-
-            current_param_index = 0
-            if self._current_sd_param_id and self._current_sd_param_id in param_ids:
-                try:
-                    current_param_index = param_ids.index(self._current_sd_param_id)
-                except ValueError:
-                    self._current_sd_param_id = None
-
-            self.sd_params_combo.setCurrentIndex(current_param_index)
-            self.sd_params_combo.setEnabled(True)
-
-        self.sd_params_combo.blockSignals(False)
-        print(
-            f"[DEBUG] PromptPanel._update_sd_params_combo complete. Current SD Param: {self._current_sd_param_id}"
-        )
-
-    # --- ▲▲▲ 追加ここまで ▲▲▲ ---
 
     def build_role_assignment_ui(self):
         """役割割り当てUIを動的に構築します。現在のシーンに紐づく *単一のカット* の配役を使用します。"""
@@ -492,27 +336,6 @@ class PromptPanel(QWidget):
             self._current_scene_id = new_scene_id
             self.sceneChanged.emit(new_scene_id or "")
             self.build_role_assignment_ui()
-
-    @Slot(int)
-    def _on_style_changed(self, index: int):
-        """Style コンボボックスの選択が変更されたときの処理。"""
-        new_style_id = self.style_combo.itemData(index)
-        if new_style_id != self._current_style_id:
-            print(f"[DEBUG] PromptPanel: Style changed to {new_style_id}")
-            self._current_style_id = new_style_id if new_style_id else None
-            self.styleChanged.emit(new_style_id or "")
-
-    # --- ▼▼▼ _on_sd_params_changed を追加 ▼▼▼ ---
-    @Slot(int)
-    def _on_sd_params_changed(self, index: int):
-        """SD Params コンボボックスの選択が変更されたときの処理。"""
-        new_sd_param_id = self.sd_params_combo.itemData(index)
-        if new_sd_param_id != self._current_sd_param_id:
-            print(f"[DEBUG] PromptPanel: SD Params changed to {new_sd_param_id}")
-            self._current_sd_param_id = new_sd_param_id if new_sd_param_id else None
-            self.sdParamsChanged.emit(new_sd_param_id or "")
-
-    # --- ▲▲▲ 追加ここまで ▲▲▲ ---
 
     @Slot(str, str)
     def _on_actor_assigned(self, role_id: str, actor_id: str):

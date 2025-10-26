@@ -157,7 +157,6 @@ def generate_batch_prompts(
     scene_id: str,
     actor_assignments: ActorAssignments,
     db: FullDatabase,
-    style_id: Optional[str] = None,
 ) -> List[GeneratedPrompt]:
     scene = db.scenes.get(scene_id)
     if not scene:
@@ -171,6 +170,7 @@ def generate_batch_prompts(
             )
         ]
 
+    style_id = getattr(scene, "style_id", None)
     selected_style: Optional[Style] = db.styles.get(style_id) if style_id else None
     style_prompt = selected_style.prompt if selected_style else ""
     style_negative = selected_style.negative_prompt if selected_style else ""
@@ -212,7 +212,7 @@ def generate_batch_prompts(
         filter(
             None,
             [
-                style_prompt,
+                style_prompt,  # Scene から取得した Style を使用
                 cut_obj.prompt_template,
                 *[p.prompt for p in valid_common_parts],
             ],
@@ -222,7 +222,7 @@ def generate_batch_prompts(
         filter(
             None,
             [
-                style_negative,
+                style_negative,  # Scene から取得した Style を使用
                 cut_obj.negative_template,
                 *[p.negative_prompt for p in valid_common_parts],
             ],
@@ -354,46 +354,56 @@ def _sanitize_filename(name: Optional[str]) -> str:
 
 def create_image_generation_tasks(
     generated_prompts: List[GeneratedPrompt],
-    sd_params: StableDiffusionParams,
     scene: Optional[Scene],
+    db: FullDatabase,  # ★ FullDatabase を受け取る
+    # sd_params: StableDiffusionParams, # ← 削除
 ) -> List[ImageGenerationTask]:
     if not scene:
         return []
 
-    safe_scene_name = _sanitize_filename(getattr(scene, "name", "unknown_scene"))
+    # ▼▼▼ SD Params を Scene から取得 ▼▼▼
+    sd_param_id = getattr(scene, "sd_param_id", None)
+    sd_params = db.sdParams.get(sd_param_id) if sd_param_id else None
 
+    if not sd_params:
+        # フォールバック (最初のプリセット、なければデフォルト値)
+        sd_params = next(
+            iter(db.sdParams.values()),
+            StableDiffusionParams(
+                id="fallback", name="Fallback Default"
+            ),  # デフォルト値にも ID, Name がある想定
+        )
+        print(
+            f"[WARN] SD Params '{sd_param_id}' not found for scene '{scene.name}' or scene has no SD param set. Using fallback: {sd_params.name}"
+        )
+    # ▲▲▲ 修正ここまで ▲▲▲
+
+    safe_scene_name = _sanitize_filename(getattr(scene, "name", "unknown_scene"))
     tasks: List[ImageGenerationTask] = []
+
     for prompt_data in generated_prompts:
-        # --- ▼▼▼ filename_prefix の生成ロジックを変更 ▼▼▼ ---
+        # --- filename_prefix の生成ロジック (変更なし) ---
         work_title = "unknown_work"
         char_name = "unknown_character"
-        actor_info = prompt_data.firstActorInfo
-        if actor_info:
-            char: Optional[Character] = actor_info.get("character")
-            work: Optional[Work] = actor_info.get("work")
-            if char:
-                char_name = getattr(char, "name", "unknown_character")
-            if work:
-                work_title = getattr(
-                    work, "title_jp", "unknown_work"
-                )  # 日本語タイトルを使用
-
-        # 安全なファイル名部分を生成
+        # ... (firstActorInfo から work, char を取得) ...
         safe_work = _sanitize_filename(work_title)
         safe_char = _sanitize_filename(char_name)
-
-        # filename_prefix を組み立て
         filename_prefix = (
             f"{safe_work}_{safe_char}_{safe_scene_name}_cut{prompt_data.cut}"
         )
 
+        # --- mode, source_image_path, denoising_strength (変更なし) ---
         mode = scene.image_mode
         source_image_path = scene.reference_image_path
-        if not source_image_path:
+        if (
+            not source_image_path or mode == "txt2img"
+        ):  # txt2imgモードなら強制的に空にする
             mode = "txt2img"
             source_image_path = ""
+        # txt2img 以外の場合のみ denoising_strength を設定
         denoising_strength = sd_params.denoising_strength if mode != "txt2img" else None
 
+        # --- Task オブジェクト生成 (sd_params を使用) ---
         task = ImageGenerationTask(
             prompt=prompt_data.positive,
             negative_prompt=prompt_data.negative,

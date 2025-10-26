@@ -264,12 +264,14 @@ initialMockDatabase: FullDatabase = FullDatabase(
             background_id="bg_default_white",
             lighting_id="light_default_studio",
             composition_id="comp_default_medium",
-            cut_id=cut_default_solo_1.id,  # ★ Cut の ID を設定
-            role_directions=[  # これは Scene に残る
+            cut_id=cut_default_solo_1.id,
+            role_directions=[
                 RoleDirection(role_id="r1", direction_ids=["dir_default_base"])
             ],
             reference_image_path="",
             image_mode="txt2img",
+            style_id=style_default.id,  # ★ Style ID を追加
+            sd_param_id=default_sd_params.id,  # ★ SD Param ID を追加
         ),
         "scene_default_pair": Scene(
             id="scene_default_pair",
@@ -278,13 +280,15 @@ initialMockDatabase: FullDatabase = FullDatabase(
             background_id="bg_default_white",
             lighting_id="light_default_studio",
             composition_id="comp_default_medium",
-            cut_id=cut_default_pair_1.id,  # ★ Cut の ID を設定
-            role_directions=[  # これは Scene に残る
+            cut_id=cut_default_pair_1.id,
+            role_directions=[
                 RoleDirection(role_id="r1", direction_ids=["dir_default_base"]),
                 RoleDirection(role_id="r2", direction_ids=["dir_default_smile"]),
             ],
             reference_image_path="",
             image_mode="txt2img",
+            style_id=style_anime.id,  # ★ Style ID を追加
+            sd_param_id=default_sd_params.id,  # ★ SD Param ID を追加
         ),
     },
     # --- ▲▲▲ 修正ここまで ▲▲▲ ---

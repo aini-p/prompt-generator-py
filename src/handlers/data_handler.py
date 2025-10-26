@@ -44,89 +44,61 @@ class DataHandler:
     def __init__(self, main_window: "MainWindow"):
         self.main_window = main_window  # MainWindowのインスタンスを保持
 
-    def load_config(
-        self,
-    ) -> Tuple[Optional[str], Optional[str], Dict[str, str], Optional[str]]:
-        """設定ファイルから最後の Scene ID, Style ID, 配役, SD Param ID を読み込みます。"""
+    def load_config(self) -> Tuple[Optional[str], Dict[str, str]]:  # ★ 戻り値変更
+        """設定ファイルから最後の Scene ID, 配役を読み込みます。"""
         default_scene_id = None
-        default_style_id = None
         default_assignments = {}
-        default_sd_param_id = None  # ★ 追加
+        # default_style_id = None # ← 削除
+        # default_sd_param_id = None # ← 削除
+
         if not os.path.exists(_CONFIG_FILE_PATH):
             print(
                 f"[DEBUG] Config file not found: {_CONFIG_FILE_PATH}. Using defaults."
             )
-            return (
-                default_scene_id,
-                default_style_id,
-                default_assignments,
-                default_sd_param_id,
-            )
+            return default_scene_id, default_assignments  # ★ 戻り値変更
 
         try:
             with open(_CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
                 config_data = json.load(f)
-            # 型チェックを追加して安全に取得
+
             scene_id = (
                 config_data.get("last_scene_id")
                 if isinstance(config_data.get("last_scene_id"), str)
                 else default_scene_id
-            )
-            style_id = (
-                config_data.get("last_style_id")
-                if isinstance(config_data.get("last_style_id"), str)
-                else default_style_id
             )
             assignments = (
                 config_data.get("last_assignments")
                 if isinstance(config_data.get("last_assignments"), dict)
                 else default_assignments
             )
-            sd_param_id = (  # ★ 追加
-                config_data.get("last_sd_param_id")
-                if isinstance(config_data.get("last_sd_param_id"), str)
-                else default_sd_param_id
-            )
+            # style_id = ... # ← 削除
+            # sd_param_id = ... # ← 削除
 
-            print(
-                f"[DEBUG] Config loaded: scene={scene_id}, style={style_id}, sd_param={sd_param_id}, assignments={assignments}"
-            )
-            return scene_id, style_id, assignments, sd_param_id  # ★ 追加
+            print(f"[DEBUG] Config loaded: scene={scene_id}, assignments={assignments}")
+            return scene_id, assignments  # ★ 戻り値変更
         except (json.JSONDecodeError, OSError, TypeError) as e:
             print(
                 f"[ERROR] Failed to load config file {_CONFIG_FILE_PATH}: {e}. Using defaults."
             )
-            return (
-                default_scene_id,
-                default_style_id,
-                default_assignments,
-                default_sd_param_id,
-            )
+            return default_scene_id, default_assignments  # ★ 戻り値変更
 
     def save_config(
-        self,
-        scene_id: Optional[str],
-        style_id: Optional[str],
-        assignments: Dict[str, str],
-        sd_param_id: Optional[str],  # ★ 追加
-    ):
-        """現在の Scene ID, Style ID, 配役, SD Param ID を設定ファイルに保存します。"""
+        self, scene_id: Optional[str], assignments: Dict[str, str]
+    ):  # ★ 引数変更
+        """現在の Scene ID, 配役を設定ファイルに保存します。"""
         config_data = {
             "last_scene_id": scene_id,
-            "last_style_id": style_id,
             "last_assignments": assignments,
-            "last_sd_param_id": sd_param_id,  # ★ 追加
+            # "last_style_id": style_id, # ← 削除
+            # "last_sd_param_id": sd_param_id, # ← 削除
         }
         try:
-            # data ディレクトリが存在しない場合は作成
             os.makedirs(_DATA_DIR, exist_ok=True)
             with open(_CONFIG_FILE_PATH, "w", encoding="utf-8") as f:
                 json.dump(config_data, f, indent=2, ensure_ascii=False)
             print(f"[DEBUG] Config saved to {_CONFIG_FILE_PATH}")
         except (OSError, TypeError) as e:
             print(f"[ERROR] Failed to save config file {_CONFIG_FILE_PATH}: {e}")
-            # 保存失敗は警告に留め、アプリの動作は継続
-            # QMessageBox.warning(self.main_window, "Config Save Error", f"設定の保存に失敗しました: {e}")
 
     def load_all_data(
         self,

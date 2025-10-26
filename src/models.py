@@ -122,6 +122,8 @@ class Scene:
     role_directions: List[RoleDirection] = field(default_factory=list)
     reference_image_path: str = ""
     image_mode: str = "txt2img"
+    style_id: Optional[str] = None  # ★ Style ID を追加
+    sd_param_id: Optional[str] = None  # ★ SD Param ID を追加
 
 
 # --- ▼▼▼ StableDiffusionParams を修正 ▼▼▼ ---

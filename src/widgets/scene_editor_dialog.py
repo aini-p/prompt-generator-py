@@ -79,7 +79,22 @@ class SceneEditorDialog(BaseEditorDialog):
             allow_none=True,
             none_text="(なし)",
         )
-        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+        style_ref_widget = self._create_reference_editor_widget(
+            field_name="style_id",
+            current_id=getattr(self.initial_data, "style_id", None),
+            reference_db_key="styles",
+            reference_modal_type="STYLE",
+            allow_none=True,
+            none_text="(スタイルなし)",
+        )
+        sd_param_ref_widget = self._create_reference_editor_widget(
+            field_name="sd_param_id",
+            current_id=getattr(self.initial_data, "sd_param_id", None),
+            reference_db_key="sdParams",
+            reference_modal_type="SDPARAMS",
+            allow_none=True,  # パラメータ未選択も許可 (デフォルトを使う想定)
+            none_text="(パラメータなし/デフォルト)",
+        )
 
         self.ref_image_edit = QLineEdit(
             getattr(self.initial_data, "reference_image_path", "")
@@ -95,6 +110,8 @@ class SceneEditorDialog(BaseEditorDialog):
         self.form_layout.addRow("背景:", background_ref_widget)
         self.form_layout.addRow("照明:", lighting_ref_widget)
         self.form_layout.addRow("構図:", composition_ref_widget)
+        self.form_layout.addRow("スタイル:", style_ref_widget)  # ★ 追加
+        self.form_layout.addRow("SD Params:", sd_param_ref_widget)  # ★ 追加
         self.form_layout.addRow("参考画像パス:", self.ref_image_edit)
         self.form_layout.addRow("モード(参考画像):", self.image_mode_combo)
 
@@ -404,8 +421,13 @@ class SceneEditorDialog(BaseEditorDialog):
             QMessageBox.warning(self, "入力エラー", "名前は必須です。")
             return None
 
-        # --- Cut ID を取得 ---
+        # --- ID をヘルパーから取得 ---
         cut_id = self._get_widget_value("cut_id")
+        style_id = self._get_widget_value("style_id")  # ★ Style ID 取得
+        sd_param_id = self._get_widget_value("sd_param_id")  # ★ SD Param ID 取得
+        bg_id = self._get_widget_value("background_id")
+        light_id = self._get_widget_value("lighting_id")
+        comp_id = self._get_widget_value("composition_id")
 
         # --- (オプション) Cut が選択されているかチェック ---
         # if not cut_id:
@@ -461,5 +483,58 @@ class SceneEditorDialog(BaseEditorDialog):
                 if final_image_mode != "txt2img"
                 else "",
                 image_mode=final_image_mode,
+                style_id=style_id,  # ★ 追加
+                sd_param_id=sd_param_id,  # ★ 追加
             )
             return new_scene
+
+    @Slot(QWidget, str, str)
+    def update_combo_box_after_edit(
+        self, target_widget: QWidget, db_key: str, select_id: Optional[str]
+    ):
+        """ネストしたダイアログでの編集/追加後にリストやコンボボックスを更新"""
+        # カット、スタイル、SDパラメータ、または他の参照ウィジェットのコンボボックスかチェック
+        target_combo_box = None
+        for field_name, ref_info in self._reference_widgets.items():
+            if ref_info.get("combo") == target_widget:
+                target_combo_box = target_widget
+                break
+
+        if target_combo_box and (
+            db_key == "cuts"
+            or db_key == "styles"
+            or db_key == "sdParams"
+            or db_key == "backgrounds"
+            or db_key == "lighting"
+            or db_key == "compositions"
+        ):
+            print(
+                f"[DEBUG] SceneEditorDialog updating {db_key} combo box, selecting {select_id}"
+            )
+            # 基底クラスのメソッドを呼び出して ComboBox を更新
+            super().update_combo_box_after_edit(target_widget, db_key, select_id)
+            # カットが変更された場合のみ演出UIを更新
+            if db_key == "cuts":
+                self._on_cut_selection_changed(target_combo_box.currentIndex())
+
+        elif db_key == "directions":
+            # Direction が追加/編集された -> 演出UIを再構築 (変更なし)
+            print(
+                "[DEBUG] SceneEditorDialog detected Direction change. Rebuilding Direction UI."
+            )
+            self.direction_items = list(self.db_dict.get("directions", {}).items())
+            cut_combo_box = self._reference_widgets.get("cut_id", {}).get("combo")
+            selected_cut_id = (
+                cut_combo_box.currentData()
+                if isinstance(cut_combo_box, QComboBox)
+                else None
+            )
+            selected_cut = (
+                self.db_dict.get("cuts", {}).get(selected_cut_id)
+                if selected_cut_id
+                else None
+            )
+            self._update_direction_assignment_ui(selected_cut)
+        else:
+            # 他のケース（Actor編集など）は基底クラスに任せる
+            super().update_combo_box_after_edit(target_widget, db_key, select_id)

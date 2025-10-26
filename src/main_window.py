@@ -54,6 +54,7 @@ from .models import (
     Work,
     Character,
     Style,
+    StableDiffusionParams,
     Cut,
     Sequence,
     SequenceSceneEntry,
@@ -128,8 +129,6 @@ class MainWindow(QMainWindow):
         self.db_data: Dict[str, Dict[str, Any]] = {}
         self.batch_queue: List[QueueItem] = []
         self.current_scene_id: Optional[str] = None
-        self.current_style_id: Optional[str] = None
-        self.current_sd_param_id: Optional[str] = None
         self.actor_assignments: Dict[str, str] = {}
         self.generated_prompts: List[GeneratedPrompt] = []
 
@@ -141,9 +140,7 @@ class MainWindow(QMainWindow):
         self.db_data = _db_data
         self.batch_queue = _batch_queue  # ロードしたキューを保持
 
-        last_scene_id, last_style_id, last_assignments, last_sd_param_id = (
-            self.data_handler.load_config()
-        )
+        last_scene_id, last_assignments = self.data_handler.load_config()
 
         # --- 状態を初期化 ---
         # ★ ここで MainWindow の状態変数を確定させる
@@ -151,14 +148,6 @@ class MainWindow(QMainWindow):
             last_scene_id
             if last_scene_id in self.db_data.get("scenes", {})
             else initial_scene_id
-        )
-        self.current_style_id = (
-            last_style_id if last_style_id in self.db_data.get("styles", {}) else None
-        )
-        self.current_sd_param_id = (
-            last_sd_param_id
-            if last_sd_param_id in self.db_data.get("sdParams", {})
-            else next(iter(self.db_data.get("sdParams", {})), None)
         )
         self.actor_assignments = {
             role_id: actor_id
@@ -226,8 +215,6 @@ class MainWindow(QMainWindow):
 
         # --- ★ UIパネルの初期状態設定 (MainWindow の状態確定後に行う) ---
         self.prompt_panel.set_current_scene(self.current_scene_id)
-        self.prompt_panel.set_current_style(self.current_style_id)
-        self.prompt_panel.set_current_sd_params(self.current_sd_param_id)
         self.prompt_panel.set_assignments(self.actor_assignments)
         self.update_prompt_display()  # ★ 最後に表示エリアを更新
 
@@ -253,12 +240,6 @@ class MainWindow(QMainWindow):
         )
         self.prompt_panel.assignmentChanged.connect(
             self._handle_assignment_change_and_save_config
-        )
-        self.prompt_panel.styleChanged.connect(
-            self._handle_style_change_and_save_config
-        )
-        self.prompt_panel.sdParamsChanged.connect(
-            self._handle_sd_params_change_and_save_config
         )
 
         # Library Panel
@@ -342,37 +323,6 @@ class MainWindow(QMainWindow):
             self.current_sd_param_id,
         )
 
-    @Slot(str)
-    def _handle_style_change_and_save_config(self, new_style_id: str):
-        print(f"[DEBUG] MainWindow received styleChanged signal: {new_style_id}")
-        new_id_or_none = new_style_id if new_style_id else None
-        if self.current_style_id != new_id_or_none:
-            self.current_style_id = new_id_or_none
-            self.generated_prompts = []  # プロンプトプレビューをクリア
-            self.update_prompt_display()
-            self.data_handler.save_config(
-                self.current_scene_id,
-                self.current_style_id,
-                self.actor_assignments,
-                self.current_sd_param_id,
-            )
-
-    @Slot(str)
-    def _handle_sd_params_change_and_save_config(self, new_sd_param_id: str):
-        """PromptPanel から SD Params 変更の通知を受け取り、設定を保存するスロット。"""
-        print(f"[DEBUG] MainWindow received sdParamsChanged signal: {new_sd_param_id}")
-        new_id_or_none = new_sd_param_id if new_sd_param_id else None
-        if self.current_sd_param_id != new_id_or_none:
-            self.current_sd_param_id = new_id_or_none
-            self.generated_prompts = []  # 設定が変わったらプレビューはリセット
-            self.update_prompt_display()
-            self.data_handler.save_config(
-                self.current_scene_id,
-                self.current_style_id,
-                self.actor_assignments,
-                self.current_sd_param_id,
-            )
-
     def closeEvent(self, event: QCloseEvent):
         """アプリケーション終了時に設定を保存します。"""
         print("[DEBUG] MainWindow closing. Saving config...")
@@ -406,10 +356,6 @@ class MainWindow(QMainWindow):
             scenes_dict = self.db_data.get("scenes", {})
             new_scene_id = next(iter(scenes_dict), None)
             self.current_scene_id = new_scene_id
-            self.current_style_id = None
-            self.current_sd_param_id = next(
-                iter(self.db_data.get("sdParams", {})), None
-            )
             self.actor_assignments = {}  # アサインメントはリセット
             self.generated_prompts = []  # プレビューもリセット
 
@@ -494,7 +440,6 @@ class MainWindow(QMainWindow):
                 scene_id=self.current_scene_id,
                 actor_assignments=self.actor_assignments,
                 db=full_db,
-                style_id=self.current_style_id,
             )
             self.update_prompt_display()  # 結果を表示
         except Exception as e:
@@ -519,11 +464,16 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            current_sd_params = self.db_data.get("sdParams", {}).get(
-                self.current_sd_param_id
+            # ▼▼▼ SD Params を Scene から取得 ▼▼▼
+            sd_param_id = getattr(current_scene, "sd_param_id", None)
+            current_sd_params = (
+                self.db_data.get("sdParams", {}).get(sd_param_id)
+                if sd_param_id
+                else None
             )
+
             if not current_sd_params:
-                # フォールバック処理
+                # フォールバック処理 (IDが見つからないか、シーンに設定されていない場合)
                 current_sd_params = next(
                     iter(self.db_data.get("sdParams", {}).values()),
                     StableDiffusionParams(
@@ -531,19 +481,23 @@ class MainWindow(QMainWindow):
                     ),
                 )
                 print(
-                    f"[WARN] No SD Params selected or found, using fallback: {current_sd_params.name}"
+                    f"[WARN] SD Params not found for scene or globally, using fallback: {current_sd_params.name}"
                 )
+            # ▲▲▲ 修正ここまで ▲▲▲
 
+            # ▼▼▼ create_image_generation_tasks に FullDatabase を渡す ▼▼▼
+            full_db = FullDatabase(**self.db_data)
             tasks = create_image_generation_tasks(
-                self.generated_prompts,  # generate_prompts で生成されたリスト
-                current_sd_params,
-                current_scene,
+                generated_prompts=self.generated_prompts,
+                scene=current_scene,
+                db=full_db,  # ★ FullDatabase を渡す
+                # sd_params=current_sd_params, # ← 削除
             )
+            # ▲▲▲ 修正ここまで ▲▲▲
             if not tasks:
                 QMessageBox.warning(self, "Execute", "生成タスクがありません。")
                 return
 
-            # ★ バッチ実行とは別に単一実行
             success, message = run_stable_diffusion(tasks)
             if success:
                 QMessageBox.information(self, "Execute", message)
@@ -1105,30 +1059,17 @@ class MainWindow(QMainWindow):
                         scene_id=scene_id,
                         actor_assignments=queue_item.actor_assignments,
                         db=full_db,
-                        style_id=None,  # ToDo: Style も指定可能にする？
                     )
 
                     # 2. タスク生成
-                    current_sd_params = self.db_data.get("sdParams", {}).get(
-                        self.current_sd_param_id
-                    )
-                    if not current_sd_params:
-                        current_sd_params = next(
-                            iter(self.db_data.get("sdParams", {}).values()),
-                            StableDiffusionParams(
-                                id="default_fallback", name="Default Fallback"
-                            ),
-                        )
-                        print(
-                            f"[WARN] No SD Params selected, using fallback: {current_sd_params.name}"
-                        )
-
                     # cut インデックスをグローバルに
                     for i, prompt_data in enumerate(prompts_for_scene):
                         prompt_data.cut = global_prompt_index + i
 
                     tasks_for_scene = create_image_generation_tasks(
-                        prompts_for_scene, current_sd_params, scene
+                        generated_prompts=prompts_for_scene,
+                        scene=scene,  # Scene オブジェクトを渡す
+                        db=full_db,  # FullDatabase を渡す
                     )
                     all_tasks.extend(tasks_for_scene)
                     global_prompt_index += len(prompts_for_scene)
