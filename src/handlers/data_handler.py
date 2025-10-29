@@ -27,7 +27,8 @@ from ..models import (
     QueueItem,
     STORAGE_KEYS,
     DatabaseKey,
-    ColorPaletteItem,  # ★ Costume インポート用
+    ColorPaletteItem,
+    State,
 )
 
 if TYPE_CHECKING:
@@ -125,6 +126,7 @@ class DataHandler:
             db_data["styles"] = db.load_styles()
             db_data["sdParams"] = db.load_sd_params()  # ★ 辞書としてロード
             db_data["sequences"] = db.load_sequences()  # ★ Sequence 読み込み
+            db_data["states"] = db.load_states()
             batch_queue = db.load_batch_queue()  # ★ Batch Queue 読み込み
 
             print("[DEBUG] Data loaded successfully from database.")
@@ -184,6 +186,8 @@ class DataHandler:
                 db.save_sd_param(param)
             for sequence in db_data.get("sequences", {}).values():  # ★ Sequence 保存
                 db.save_sequence(sequence)
+            for state in db_data.get("states", {}).values():
+                db.save_state(state)
             # db.save_sd_params(sd_params) # ← 削除
 
             # ★ Batch Queue 保存 (一旦クリアして全件保存)
@@ -204,8 +208,7 @@ class DataHandler:
             print(f"[DEBUG] Error saving data to DB: {e}")
 
     def export_data(
-        self,
-        db_data: Dict[str, Dict[str, Any]],  # ★ sd_params 引数を削除
+        self, db_data: Dict[str, Dict[str, Any]], batch_queue: List[QueueItem]
     ):
         """現在のデータをJSONファイルにエクスポートします。"""
         print("[DEBUG] DataHandler.export_data called.")
@@ -223,11 +226,10 @@ class DataHandler:
             try:
                 export_dict = {}
                 for key, data_dict in db_data.items():
-                    # sdParams も含め、すべての dataclass ベースの辞書をエクスポート
+                    # Costume, Scene のリスト属性も __dict__ でエクスポートされる
                     export_dict[key] = {
                         item_id: item.__dict__ for item_id, item in data_dict.items()
                     }
-                # export_dict["sdParams"] = sd_params.__dict__ # ← 削除
 
                 # ネストされた dataclass リストを辞書に変換
                 if "scenes" in export_dict:
@@ -320,6 +322,7 @@ class DataHandler:
                         "styles": Style,
                         "sdParams": StableDiffusionParams,  # ★ sdParams を追加
                         "sequences": Sequence,
+                        "states": State,
                     }
 
                     for key, klass in type_map.items():
@@ -442,8 +445,10 @@ class DataHandler:
                 db.save_style(item_data)
             elif db_key == "sdParams" and isinstance(item_data, StableDiffusionParams):
                 db.save_sd_param(item_data)  # ★ 修正
-            elif db_key == "sequences" and isinstance(item_data, Sequence):  # ★ 追加
+            elif db_key == "sequences" and isinstance(item_data, Sequence):
                 db.save_sequence(item_data)
+            elif db_key == "states" and isinstance(item_data, State):
+                db.save_state(item_data)
             else:
                 print(
                     f"[DEBUG] Warning: save_single_item - Unsupported db_key '{db_key}' or incorrect data type '{type(item_data).__name__}'."
@@ -501,6 +506,14 @@ class DataHandler:
                     for i, item in enumerate(new_queue):
                         item.order = i
                     batch_queue[:] = new_queue  # リスト自体を置き換える
+            if db_key == "states":
+                for costume in db_data.get("costumes", {}).values():
+                    if hasattr(costume, "state_ids") and partId in costume.state_ids:
+                        costume.state_ids.remove(partId)
+                        # 即時DB保存は行わない (Save All で反映)
+                        print(
+                            f"[DEBUG] Removed deleted state ID {partId} from costume {costume.id}"
+                        )
 
         else:
             print(f"[DEBUG] Item {partId} not found in {db_key}, cannot delete.")

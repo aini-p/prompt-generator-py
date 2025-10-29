@@ -165,39 +165,55 @@ class ActorEditorDialog(BaseEditorDialog):
 
     # --- accept を get_data に変更 ---
     def get_data(self) -> Optional[Actor]:
-        name = self.name_edit.text().strip()
-        prompt = self.prompt_edit.toPlainText().strip()
-        character_id = self.character_combo.currentData()  # Can be None
+        try:
+            name = self._widgets["name"].text().strip()
+            if not name:
+                QMessageBox.warning(self, "入力エラー", "名前は必須です。")
+                return None
 
-        if not name or not prompt:
-            QMessageBox.warning(
-                self, "入力エラー", "名前 (Actor Name) と 基本プロンプト は必須です。"
+            # --- ▼▼▼ プルダウンリストから最新の ID を取得 ▼▼▼ ---
+            character_id = self._get_widget_value("character_id")
+            base_costume_id = self._get_widget_value("base_costume_id")
+            base_pose_id = self._get_widget_value("base_pose_id")
+            base_expression_id = self._get_widget_value("base_expression_id")
+            # --- ▲▲▲ 修正 ▲▲▲ ---
+
+            if self.initial_data:
+                updated_actor = self.initial_data
+                # _update_object_from_widgets は name, tags, prompt, negative_prompt を更新
+                if not self._update_object_from_widgets(updated_actor):
+                    print("[ERROR] _update_object_from_widgets failed.")
+                    return None
+                # --- ▼▼▼ 取得したIDをオブジェクトに設定 ▼▼▼ ---
+                updated_actor.character_id = character_id or ""
+                updated_actor.base_costume_id = base_costume_id or ""
+                updated_actor.base_pose_id = base_pose_id or ""
+                updated_actor.base_expression_id = base_expression_id or ""
+                # --- ▲▲▲ 修正 ▲▲▲ ---
+                print(f"[DEBUG] Returning updated actor: {updated_actor}")
+                return updated_actor
+            else:
+                tags_text = self._widgets["tags"].text()
+                prompt_text = self._widgets["prompt"].toPlainText().strip()
+                neg_prompt_text = self._widgets["negative_prompt"].toPlainText().strip()
+                new_actor = Actor(
+                    id=f"actor_{int(time.time())}",
+                    name=name,
+                    tags=[t.strip() for t in tags_text.split(",") if t.strip()],
+                    prompt=prompt_text,
+                    negative_prompt=neg_prompt_text,
+                    # --- ▼▼▼ 取得したIDをオブジェクトに設定 ▼▼▼ ---
+                    character_id=character_id or "",
+                    base_costume_id=base_costume_id or "",
+                    base_pose_id=base_pose_id or "",
+                    base_expression_id=base_expression_id or "",
+                    # --- ▲▲▲ 修正 ▲▲▲ ---
+                )
+                print(f"[DEBUG] Returning new actor: {new_actor}")
+                return new_actor
+        except Exception as e:
+            print(f"[ERROR] Exception in ActorEditorDialog.get_data: {e}")
+            QMessageBox.critical(
+                self, "Error", f"An error occurred while getting actor data: {e}"
             )
             return None
-        # Character ID は必須ではないとする
-
-        if self.initial_data:  # 更新
-            updated_actor = self.initial_data
-            self._update_object_from_widgets(updated_actor)
-            # character_id もヘルパー内で更新される
-            return updated_actor
-        else:  # 新規作成
-            tags_text = self.tags_edit.text()
-            neg_prompt_text = self.negative_prompt_edit.toPlainText().strip()
-            costume_id = self._get_widget_value("base_costume_id")  # ヘルパー使用
-            pose_id = self._get_widget_value("base_pose_id")  # ヘルパー使用
-            expression_id = self._get_widget_value("base_expression_id")  # ヘルパー使用
-            new_actor = Actor(
-                id=f"actor_{int(time.time())}",
-                name=name,
-                tags=[t.strip() for t in tags_text.split(",") if t.strip()],
-                prompt=prompt,
-                negative_prompt=neg_prompt_text,
-                character_id=character_id or "",  # DB保存のために None を "" に
-                base_costume_id=costume_id or "",
-                base_pose_id=pose_id or "",
-                base_expression_id=expression_id or "",
-            )
-            return new_actor
-
-    # --- 元の get_data は削除 ---

@@ -77,11 +77,14 @@ class CharacterEditorDialog(BaseEditorDialog):
             QMessageBox.warning(self, "入力エラー", "登場作品を選択してください。")
             return None
 
+        work_id = self._get_widget_value("work_id")
+
         if self.initial_data:  # 更新
             updated_char = self.initial_data
             if not self._update_object_from_widgets(updated_char):
                 return None  # 更新失敗
             # work_id もヘルパー内で更新される
+            updated_char.work_id = work_id
             return updated_char
         else:  # 新規作成
             tags_text = self.tags_edit.text()
@@ -90,7 +93,7 @@ class CharacterEditorDialog(BaseEditorDialog):
             new_char = Character(
                 id=f"char_{int(time.time())}",
                 name=name,
-                work_id=work_id,  # None でないことはチェック済み
+                work_id=work_id or "",  # None でないことはチェック済み
                 tags=[t.strip() for t in tags_text.split(",") if t.strip()],
                 personal_color=personal_color,
                 underwear_color=underwear_color,

@@ -14,9 +14,9 @@ from .models import (
     SceneRole,
     Work,
     Character,
-    Scene,
     Costume,
     Style,
+    State,
 )
 
 # UIから渡される「配役」
@@ -43,7 +43,10 @@ def getCartesianProduct(arrays: Iterable[Iterable[T]]) -> List[List[T]]:
 
 
 def generate_actor_prompt(
-    actor: Actor, directionId: str, db: FullDatabase
+    actor: Actor,
+    directionId: str,
+    scene: Scene,  # ★ Scene 引数を追加
+    db: FullDatabase,
 ) -> Dict[str, str]:
     """役者と演出から最終プロンプトを生成 (カラー置換含む)"""
     direction = db.directions.get(directionId)
@@ -69,10 +72,44 @@ def generate_actor_prompt(
         expression_id = direction.expression_id or actor.base_expression_id
         expression = db.expressions.get(expression_id) if expression_id else None
 
+    # --- ▼▼▼ Costume プロンプトに State プロンプトを追記 ▼▼▼ ---
+    costume_prompt = ""
+    costume_negative_prompt = ""
+    if costume:
+        costume_prompt = costume.prompt
+        costume_negative_prompt = costume.negative_prompt
+
+        # Scene の state_categories と Costume の state_ids から適用する State を探す
+        applicable_states: List[State] = []
+        scene_categories = set(getattr(scene, "state_categories", []))
+        if scene_categories and hasattr(costume, "state_ids"):
+            costume_state_ids = getattr(costume, "state_ids", [])
+            for state_id in costume_state_ids:
+                state = db.states.get(state_id)
+                if state and getattr(state, "category", "") in scene_categories:
+                    applicable_states.append(state)
+
+        # 適用する State のプロンプトを追記
+        if applicable_states:
+            # カテゴリなどでソートする？ここでは単純に結合
+            state_prompts = [s.prompt for s in applicable_states if s.prompt]
+            state_neg_prompts = [
+                s.negative_prompt for s in applicable_states if s.negative_prompt
+            ]
+
+            if state_prompts:
+                costume_prompt += ", " + ", ".join(state_prompts)
+            if state_neg_prompts:
+                costume_negative_prompt += ", " + ", ".join(state_neg_prompts)
+    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+
     # --- 有効なパーツリストを作成 ---
+    # ★ Costume の代わりに、State適用済みのプロンプトを持つ一時オブジェクトを使うか、
+    #    あるいは costume 変数自体を使わないようにする。
+    #    ここでは Costume のプロンプトを使わず、上で加工した文字列を使う。
     finalParts: List[Optional[PromptPartBase]] = [
-        actor,
-        costume,
+        actor,  # actor.prompt, actor.negative_prompt
+        # costume, # costume.prompt, costume.negative_prompt は使わない
         pose,
         expression,
         direction_part,
@@ -80,8 +117,10 @@ def generate_actor_prompt(
     valid_final_parts = [p for p in finalParts if p is not None]
 
     # --- プロンプト文字列を結合 (置換前) ---
-    positive_prompts_list: List[str] = []
-    negative_prompts_list: List[str] = []
+    positive_prompts_list: List[str] = [
+        costume_prompt
+    ]  # ★ State適用済み Costume プロンプトから開始
+    negative_prompts_list: List[str] = [costume_negative_prompt]  # ★
     for part in valid_final_parts:
         if part.prompt:
             positive_prompts_list.append(part.prompt)
@@ -89,9 +128,12 @@ def generate_actor_prompt(
             negative_prompts_list.append(part.negative_prompt)
 
     # --- ★ カラープレイスホルダー置換 ★ ---
-    final_positive_str = ", ".join(positive_prompts_list)
-    final_negative_str = ", ".join(negative_prompts_list)
-
+    final_positive_str = ", ".join(
+        filter(None, positive_prompts_list)
+    )  # filter(None, ...) を追加
+    final_negative_str = ", ".join(
+        filter(None, negative_prompts_list)
+    )  # filter(None, ...) を追加
     if costume and character and costume.color_palette:
         print(
             f"[DEBUG] Processing color palette for Costume: {costume.id} on Character: {character.id}"
@@ -153,10 +195,12 @@ def generate_actor_prompt(
     }
 
 
+# --- ▼▼▼ generate_batch_prompts を修正 ▼▼▼ ---
 def generate_batch_prompts(
     scene_id: str,
     actor_assignments: ActorAssignments,
     db: FullDatabase,
+    # style_id: Optional[str] = None, # ← 削除
 ) -> List[GeneratedPrompt]:
     scene = db.scenes.get(scene_id)
     if not scene:
@@ -170,10 +214,12 @@ def generate_batch_prompts(
             )
         ]
 
+    # ▼▼▼ Style を Scene から取得 ▼▼▼
     style_id = getattr(scene, "style_id", None)
     selected_style: Optional[Style] = db.styles.get(style_id) if style_id else None
     style_prompt = selected_style.prompt if selected_style else ""
     style_negative = selected_style.negative_prompt if selected_style else ""
+    # ▲▲▲ 修正ここまで ▲▲▲
 
     # --- 1. シーン共通パーツ (変更なし) ---
     common_parts: List[Optional[PromptPartBase]] = [
@@ -183,7 +229,7 @@ def generate_batch_prompts(
     ]
     valid_common_parts = [p for p in common_parts if p is not None]
 
-    # --- ▼▼▼ Cut ごとのプロンプト生成ループを追加 ▼▼▼ ---
+    # --- ▼▼▼ Cut ごとのプロンプト生成ループ (変更なし) ▼▼▼ ---
     generated_prompts_all_cuts: List[GeneratedPrompt] = []
     global_cut_index = 1  # 全カットを通したインデックス
 
@@ -195,19 +241,18 @@ def generate_batch_prompts(
         print(
             f"[WARN] Scene {scene_id} has no valid Cut selected (cut_id: {target_cut_id})."
         )
-        # Cut がない場合はエラーメッセージを返すか、空リストを返す
         return [
             GeneratedPrompt(
                 cut=0,
                 name="Error",
-                positive=f"[Error: No valid cut selected for scene {scene.name}]",
+                positive=f"[Error: No valid cut selected for scene {getattr(scene, 'name', 'N/A')}]",
                 negative="",
             )
         ]
 
     cut_name_prefix = cut_obj.name or f"Cut{global_cut_index}"
 
-    # --- 2. Cut の台本と共通パーツプロンプトを結合 (変更なし) ---
+    # --- 2. Cut の台本と共通パーツプロンプトを結合 (Style 取得部分以外変更なし) ---
     common_positive_base = ", ".join(
         filter(
             None,
@@ -244,96 +289,113 @@ def generate_batch_prompts(
                 assigned_roles.append(role)
                 if not first_actor:
                     first_actor = actor
-                    # ... (first_character, first_work の取得) ...
+                    if actor.character_id:
+                        first_character = db.characters.get(actor.character_id)
+                        if first_character and first_character.work_id:
+                            first_work = db.works.get(first_character.work_id)
                 role_dir_obj = next(
                     (rd for rd in scene.role_directions if rd.role_id == role.id), None
                 )
                 directions = role_dir_obj.direction_ids if role_dir_obj else []
+                # 演出が空でも、組み合わせのために空文字列のリストを追加
                 direction_lists.append([""] if not directions else directions)
-
-        if not assigned_roles:
-            # 配役が一人もいない Cut の場合 (ベースプロンプトを返すかスキップ)
-            generated_prompts_all_cuts.append(
-                GeneratedPrompt(
-                    cut=global_cut_index,
-                    name=f"{cut_name_prefix}: Base",
-                    positive=common_positive_base.replace(r"\[[A-Z0-9]+\]", ""),
-                    negative=common_negative_base.replace(r"\[[A-Z0-9]+\]", ""),
-                    firstActorInfo=None,  # 配役がないので None
-                )
+            else:
+                print(f"[WARN] Actor {actor_id} assigned to role {role.id} not found.")
+                # アクターが見つからない場合、このロールはスキップするかエラーにするか
+                # ここではスキップし、direction_lists にも追加しない
+        else:
+            print(
+                f"[WARN] No actor assigned to role {role.id} ({role.name_in_scene}) in cut {cut_obj.id}."
             )
-            global_cut_index += 1
-            continue  # 次の Cut へ
+            # アサインされていないロールもスキップ
 
-        # --- 4. 演出の組み合わせ（直積）を計算 ---
-        all_combinations = getCartesianProduct(direction_lists)
-        if not all_combinations or not isinstance(all_combinations, list):
-            print(f"Error: getCartesianProduct failed for cut {cut_obj.id}.")
-            # エラーを示すプロンプトを追加しても良い
-            continue  # 次の Cut へ
-
-        # --- 5. 組み合わせをループしてプロンプトを生成 ---
-        for i, combination in enumerate(all_combinations):
-            final_positive = common_positive_base
-            final_negative = common_negative_base
-            cut_variation_name_parts: List[str] = []
-
-            if not isinstance(combination, list) or len(combination) != len(
-                assigned_roles
-            ):
-                print(
-                    f"Warning: Invalid combination skipped for cut {cut_obj.id}: {combination}"
-                )
-                continue  # この組み合わせはスキップ
-
-            for j, role in enumerate(assigned_roles):
-                direction_id = combination[
-                    j
-                ]  # combination は ["dir_id1", "dir_id2", ...]
-                actor_id = actor_assignments[role.id]
-                actor = db.actors.get(actor_id)
-                if not actor:
-                    continue
-
-                actor_prompt_parts = generate_actor_prompt(actor, direction_id, db)
-
-                placeholder = f"[{role.id.upper()}]"
-                final_positive = final_positive.replace(
-                    placeholder, f"({actor_prompt_parts['positive']})"
-                )
-                final_negative = final_negative.replace(
-                    placeholder, f"({actor_prompt_parts['negative']})"
-                )
-                cut_variation_name_parts.append(actor_prompt_parts["name"])
-
-            # 未解決のシーン Role プレイスホルダー ([R3] など) を削除
-            final_positive = re.sub(r"\[R\d+\]", "", final_positive)
-            final_negative = re.sub(r"\[R\d+\]", "", final_negative)
-            # 空の括弧 () や余分なカンマを整理 (より丁寧な処理が必要な場合あり)
-            final_positive = re.sub(r"\(\s*,\s*\)", "", final_positive)
-            final_positive = re.sub(r",\s*,", ",", final_positive).strip(", ")
-            final_negative = re.sub(r"\(\s*,\s*\)", "", final_negative)
-            final_negative = re.sub(r",\s*,", ",", final_negative).strip(", ")
-
-            first_actor_info_dict = None
-            if first_character and first_work:
-                first_actor_info_dict = {
-                    "character": first_character,
-                    "work": first_work,
-                }
-
-            generated_prompts_all_cuts.append(
-                GeneratedPrompt(
-                    cut=global_cut_index,  # ★ グローバルインデックスを使用
-                    name=f"{cut_name_prefix}: {' & '.join(cut_variation_name_parts)}",
-                    positive=final_positive,
-                    negative=final_negative,
-                    firstActorInfo=first_actor_info_dict,
-                )
+    # --- 4. 組み合わせ生成の前にチェック ---
+    if not assigned_roles:
+        # 配役が一人もいない、または有効なアクターが割り当てられていない場合
+        generated_prompts_all_cuts.append(
+            GeneratedPrompt(
+                cut=global_cut_index,
+                name=f"{cut_name_prefix}: Base (No Actors)",
+                positive=re.sub(r"\[R\d+\]", "", common_positive_base).strip(", "),
+                negative=re.sub(r"\[R\d+\]", "", common_negative_base).strip(", "),
+                firstActorInfo=None,
             )
-            global_cut_index += 1  # グローバルインデックスをインクリメント
+        )
+        global_cut_index += 1
+        return generated_prompts_all_cuts  # このカットの処理は終了
+
+    # --- 5. 演出の組み合わせ（直積）を計算 (変更なし) ---
+    all_combinations = getCartesianProduct(direction_lists)
+    if not all_combinations or not isinstance(all_combinations, list):
+        print(f"Error: getCartesianProduct failed for cut {cut_obj.id}.")
+        return generated_prompts_all_cuts  # エラー発生時はこれまでのプロンプトを返す
+
+    # --- 6. 組み合わせをループしてプロンプトを生成 (変更なし) ---
+    for i, combination in enumerate(all_combinations):
+        final_positive = common_positive_base
+        final_negative = common_negative_base
+        cut_variation_name_parts: List[str] = []
+
+        if not isinstance(combination, list) or len(combination) != len(
+            assigned_roles  # direction_lists と assigned_roles の要素数は一致するはず
+        ):
+            print(
+                f"Warning: Invalid combination skipped for cut {cut_obj.id}: {combination}"
+            )
+            continue
+
+        for j, role in enumerate(assigned_roles):
+            direction_id = combination[
+                j
+            ]  # combination は ["dir_id1", "", "dir_id3", ...]
+            actor_id = actor_assignments[role.id]
+            actor = db.actors.get(actor_id)
+            if not actor:
+                continue  # アクターが見つからない場合はスキップ
+
+            actor_prompt_parts = generate_actor_prompt(actor, direction_id, scene, db)
+
+            placeholder = f"[{role.id.upper()}]"
+            # 括弧で囲むことで強度を上げる (LoRA などで役立つ場合がある)
+            final_positive = final_positive.replace(
+                placeholder, f"({actor_prompt_parts['positive']})"
+            )
+            final_negative = final_negative.replace(
+                placeholder, f"({actor_prompt_parts['negative']})"
+            )
+            cut_variation_name_parts.append(actor_prompt_parts["name"])
+
+        # 未解決のシーン Role プレイスホルダー ([R3] など) を削除
+        final_positive = re.sub(r"\[R\d+\]", "", final_positive)
+        final_negative = re.sub(r"\[R\d+\]", "", final_negative)
+        # 空の括弧 () や余分なカンマを整理
+        final_positive = re.sub(r"\(\s*,\s*\)", "", final_positive)
+        final_positive = re.sub(r",\s*,", ",", final_positive).strip(", ")
+        final_negative = re.sub(r"\(\s*,\s*\)", "", final_negative)
+        final_negative = re.sub(r",\s*,", ",", final_negative).strip(", ")
+
+        first_actor_info_dict = None
+        if first_character and first_work:
+            first_actor_info_dict = {
+                "character": first_character,
+                "work": first_work,
+            }
+
+        generated_prompts_all_cuts.append(
+            GeneratedPrompt(
+                cut=global_cut_index,  # ★ グローバルインデックスを使用
+                name=f"{cut_name_prefix}: {' & '.join(cut_variation_name_parts)}",
+                positive=final_positive,
+                negative=final_negative,
+                firstActorInfo=first_actor_info_dict,
+            )
+        )
+        global_cut_index += 1  # グローバルインデックスをインクリメント
 
     return generated_prompts_all_cuts  # 全カットの結果を返す
+
+
+# --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
 
 def _sanitize_filename(name: Optional[str]) -> str:
@@ -352,31 +414,27 @@ def _sanitize_filename(name: Optional[str]) -> str:
     return name if name else "unknown"
 
 
+# --- ▼▼▼ create_image_generation_tasks を修正 ▼▼▼ ---
 def create_image_generation_tasks(
     generated_prompts: List[GeneratedPrompt],
-    scene: Optional[Scene],
-    db: FullDatabase,  # ★ FullDatabase を受け取る
-    # sd_params: StableDiffusionParams, # ← 削除
+    cut: Optional[Cut],  # ★ Cut を受け取る
+    scene: Optional[Scene],  # ★ Scene も受け取る
+    db: FullDatabase,
 ) -> List[ImageGenerationTask]:
-    if not scene:
-        return []
+    if not cut or not scene:
+        return []  # ★ Cut と Scene をチェック
 
-    # ▼▼▼ SD Params を Scene から取得 ▼▼▼
+    # SD Params は Scene から取得 (変更なし)
     sd_param_id = getattr(scene, "sd_param_id", None)
     sd_params = db.sdParams.get(sd_param_id) if sd_param_id else None
-
     if not sd_params:
-        # フォールバック (最初のプリセット、なければデフォルト値)
         sd_params = next(
             iter(db.sdParams.values()),
-            StableDiffusionParams(
-                id="fallback", name="Fallback Default"
-            ),  # デフォルト値にも ID, Name がある想定
+            StableDiffusionParams(id="fallback", name="Fallback Default"),
         )
         print(
-            f"[WARN] SD Params '{sd_param_id}' not found for scene '{scene.name}' or scene has no SD param set. Using fallback: {sd_params.name}"
+            f"[WARN] SD Params not found for scene '{getattr(scene, 'name', 'N/A')}'. Using fallback: {sd_params.name}"
         )
-    # ▲▲▲ 修正ここまで ▲▲▲
 
     safe_scene_name = _sanitize_filename(getattr(scene, "name", "unknown_scene"))
     tasks: List[ImageGenerationTask] = []
@@ -385,25 +443,30 @@ def create_image_generation_tasks(
         # --- filename_prefix の生成ロジック (変更なし) ---
         work_title = "unknown_work"
         char_name = "unknown_character"
-        # ... (firstActorInfo から work, char を取得) ...
+        if prompt_data.firstActorInfo:
+            char = prompt_data.firstActorInfo.get("character")
+            work = prompt_data.firstActorInfo.get("work")
+            if char:
+                char_name = getattr(char, "name", char_name)
+            if work:
+                work_title = getattr(work, "title_jp", work_title)
+
         safe_work = _sanitize_filename(work_title)
         safe_char = _sanitize_filename(char_name)
+        # シーン名を含めることで、どのシーンのカットかわかりやすくする
         filename_prefix = (
             f"{safe_work}_{safe_char}_{safe_scene_name}_cut{prompt_data.cut}"
         )
 
-        # --- mode, source_image_path, denoising_strength (変更なし) ---
-        mode = scene.image_mode
-        source_image_path = scene.reference_image_path
-        if (
-            not source_image_path or mode == "txt2img"
-        ):  # txt2imgモードなら強制的に空にする
+        # --- ▼▼▼ mode, source_image_path を Cut から取得 ▼▼▼ ---
+        mode = getattr(cut, "image_mode", "txt2img")
+        source_image_path = getattr(cut, "reference_image_path", "")
+        if not source_image_path or mode == "txt2img":
             mode = "txt2img"
             source_image_path = ""
-        # txt2img 以外の場合のみ denoising_strength を設定
         denoising_strength = sd_params.denoising_strength if mode != "txt2img" else None
+        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
-        # --- Task オブジェクト生成 (sd_params を使用) ---
         task = ImageGenerationTask(
             prompt=prompt_data.positive,
             negative_prompt=prompt_data.negative,
@@ -413,9 +476,9 @@ def create_image_generation_tasks(
             seed=sd_params.seed,
             width=sd_params.width,
             height=sd_params.height,
-            mode=mode,
+            mode=mode,  # ★ Cut から取得した mode
             filename_prefix=filename_prefix,
-            source_image_path=source_image_path,
+            source_image_path=source_image_path,  # ★ Cut から取得した path
             denoising_strength=denoising_strength,
         )
         tasks.append(task)

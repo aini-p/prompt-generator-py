@@ -4,6 +4,16 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Literal, TypeAlias
 
 
+@dataclass
+class State:  # PromptPartBase を継承しない独立したクラス
+    id: str
+    name: str
+    category: str = ""  # 状態カテゴリ (例: "damaged", "wet", "casual")
+    tags: List[str] = field(default_factory=list)  # オプションのタグ
+    prompt: str = ""
+    negative_prompt: str = ""
+
+
 # --- (Work, ColorPaletteItem, Character, PromptPartBase, Costume, Pose, Expression, Background, Lighting, Composition, Style, Actor, Direction, SceneRole, Cut, RoleDirection, Scene は変更なし) ---
 @dataclass
 class Work:
@@ -42,6 +52,7 @@ class PromptPartBase:
 @dataclass
 class Costume(PromptPartBase):
     color_palette: List[ColorPaletteItem] = field(default_factory=list)
+    state_ids: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -102,6 +113,8 @@ class Cut:
     prompt_template: str = ""
     negative_template: str = ""
     roles: List[SceneRole] = field(default_factory=list)
+    reference_image_path: str = ""
+    image_mode: str = "txt2img"
 
 
 @dataclass
@@ -120,10 +133,9 @@ class Scene:
     composition_id: str = ""
     cut_id: Optional[str] = None  # ★ cut_id に変更済み
     role_directions: List[RoleDirection] = field(default_factory=list)
-    reference_image_path: str = ""
-    image_mode: str = "txt2img"
     style_id: Optional[str] = None  # ★ Style ID を追加
     sd_param_id: Optional[str] = None  # ★ SD Param ID を追加
+    state_categories: List[str] = field(default_factory=list)
 
 
 # --- ▼▼▼ StableDiffusionParams を修正 ▼▼▼ ---
@@ -211,6 +223,7 @@ class FullDatabase:
     styles: Dict[str, Style] = field(default_factory=dict)
     sdParams: Dict[str, StableDiffusionParams] = field(default_factory=dict)
     sequences: Dict[str, Sequence] = field(default_factory=dict)
+    states: Dict[str, State] = field(default_factory=dict)
 
 
 # --- ▲▲▲ 修正ここまで ▲▲▲ ---
@@ -236,7 +249,7 @@ STORAGE_KEYS: Dict[str, str] = {
     "scenes": "promptBuilder_scenes",
     "styles": "promptBuilder_styles",
     "sdParams": "promptBuilder_sdParams",
-    "sequences": "promptBuilder_sequences",
+    "states": "promptBuilder_states",
 }
 
 # --- DatabaseKey (変更なし) ---
@@ -256,4 +269,5 @@ DatabaseKey = Literal[
     "styles",
     "sdParams",
     "sequences",
+    "states",
 ]

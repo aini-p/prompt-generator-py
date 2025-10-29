@@ -11,13 +11,21 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QPushButton,
     QComboBox,
-    QFormLayout,  # QFormLayout を追加
+    QFormLayout,
+    QListWidgetItem,  # ★ 追加
+    QAbstractItemView,
+    QListWidget,
+    QWidget,
+    QHBoxLayout,
+    QPushButton,
+    QDialog,
 )
-from PySide6.QtCore import Slot
+from PySide6.QtCore import Slot, Qt
 from typing import Optional, Any, Dict, List
 
 from .base_editor_dialog import BaseEditorDialog
-from ..models import Costume, ColorPaletteItem
+from ..models import Costume, ColorPaletteItem, State
+from .state_selection_dialog import StateSelectionDialog
 
 # Character クラスの属性名と表示名の対応
 CHARACTER_COLOR_REFS = {
@@ -38,6 +46,11 @@ class CostumeEditorDialog(BaseEditorDialog):
             self.current_palette_items = [
                 ColorPaletteItem(**item.__dict__) for item in initial_data.color_palette
             ]
+        # ▼▼▼ current_state_ids を初期化 ▼▼▼
+        self.current_state_ids: List[str] = []
+        if initial_data and hasattr(initial_data, "state_ids"):
+            # Deep copy (文字列リストなので単純コピーでOK)
+            self.current_state_ids = list(initial_data.state_ids)
 
         super().__init__(initial_data, db_dict, "衣装 (Costume)", parent)
 
@@ -88,6 +101,152 @@ class CostumeEditorDialog(BaseEditorDialog):
         self.form_layout.addRow(palette_container)
         self.form_layout.addRow(add_palette_button)
         # color_palette 自体は _widgets には含めず、get_data で特別に処理する
+
+        # --- ▼▼▼ State ID リスト管理 UI を修正 ▼▼▼ ---
+        self.form_layout.addRow(QLabel("--- 状態 (States) ---"))
+        self.state_list_widget = QListWidget()
+        self.state_list_widget.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self.state_list_widget.itemDoubleClicked.connect(
+            self._handle_state_double_clicked
+        )
+        self._populate_state_list()
+
+        # --- ボタン用のウィジェットとレイアウトを作成 ---
+        state_buttons_widget = QWidget()
+        state_btn_layout = QHBoxLayout(state_buttons_widget)
+        state_btn_layout.setContentsMargins(0, 0, 0, 0)  # マージン削除
+
+        add_state_btn = QPushButton("＋ 状態を選択...")  # ボタンテキスト変更
+        # ▼▼▼ 新規作成ボタンを追加 ▼▼▼
+        add_new_state_btn = QPushButton("＋ 新規状態を作成")
+        # ▲▲▲ 追加ここまで ▲▲▲
+        remove_state_btn = QPushButton("－ 選択した状態を削除")
+
+        add_state_btn.clicked.connect(self._open_state_selection_dialog)
+        # ▼▼▼ 新規作成ボタンのシグナル接続 ▼▼▼
+        add_new_state_btn.clicked.connect(self._handle_add_new_state)
+        # ▲▲▲ 追加ここまで ▲▲▲
+        remove_state_btn.clicked.connect(self._remove_selected_state)
+
+        state_btn_layout.addWidget(add_state_btn)
+        state_btn_layout.addWidget(add_new_state_btn)  # ボタンをレイアウトに追加
+        state_btn_layout.addWidget(remove_state_btn)
+        state_btn_layout.addStretch()
+
+        self.form_layout.addRow(self.state_list_widget)
+        self.form_layout.addRow(state_buttons_widget)  # ボタン用ウィジェットを配置
+
+    @Slot()
+    def _handle_add_new_state(self):
+        """「＋ 新規状態を作成」ボタンが押されたときの処理"""
+        print("[DEBUG] Requesting editor for new STATE from CostumeEditorDialog")
+        # BaseEditorDialog の request_open_editor シグナルを発行
+        # target_widget は None (更新は update_combo_box_after_edit で処理)
+        self.request_open_editor.emit("STATE", None, None)
+
+    @Slot(QListWidgetItem)
+    def _handle_state_double_clicked(self, item: QListWidgetItem):
+        """State リストの項目がダブルクリックされたときの処理"""
+        state_id = item.data(Qt.ItemDataRole.UserRole)
+        state_data = self.db_dict.get("states", {}).get(state_id)
+        if state_data:
+            print(
+                f"[DEBUG] Requesting editor for STATE {state_id} from CostumeEditorDialog"
+            )
+            # target_widget は None (更新は update_combo_box_after_edit で処理)
+            self.request_open_editor.emit("STATE", state_data, None)
+        else:
+            QMessageBox.warning(
+                self, "Error", f"Could not find State data for ID: {state_id}"
+            )
+
+    @Slot(QWidget, str, str)
+    def update_combo_box_after_edit(
+        self, target_widget: QWidget, db_key: str, select_id: Optional[str]
+    ):
+        """ネストしたダイアログでの編集/追加後にリストやコンボボックスを更新"""
+        # ★ State が追加/編集された場合の処理を追加
+        if db_key == "states":
+            print(
+                f"[DEBUG] CostumeEditorDialog detected State change (new/edit ID: {select_id}). Repopulating list."
+            )
+            # --- ▼▼▼ State 編集後にリストを再描画 ▼▼▼ ---
+            # db_dict は MainWindow で更新されているはずなので、それを元にリストを再描画
+            self._populate_state_list()
+            # --- ▲▲▲ 追加ここまで ▲▲▲ ---
+            # StateSelectionDialog は DB から直接読むので ComboBox 更新は不要
+            pass
+        else:
+            # 他の参照ウィジェット (Costume, Pose, Expression) の更新は基底クラスに任せる
+            super().update_combo_box_after_edit(target_widget, db_key, select_id)
+
+    # --- ▼▼▼ State リスト関連メソッドを追加 ▼▼▼ ---
+    def _populate_state_list(self):
+        """State ID リストウィジェットの内容を更新"""
+        self.state_list_widget.clear()
+        all_states = self.db_dict.get("states", {})
+        # ▼▼▼ current_state_ids の順番を保持するように修正 ▼▼▼
+        current_id_order = {
+            state_id: i for i, state_id in enumerate(self.current_state_ids)
+        }
+        sorted_ids = sorted(
+            self.current_state_ids,
+            key=lambda state_id: current_id_order.get(state_id, float("inf")),
+        )
+
+        for state_id in sorted_ids:  # ★ ソート済みのリストを使用
+            state = all_states.get(state_id)
+            item_text = f"State ID not found: {state_id}"
+            if state:
+                item_text = f"{getattr(state, 'name', 'N/A')} [{getattr(state, 'category', 'N/A')}] ({state_id})"
+            item = QListWidgetItem(item_text)
+            item.setData(Qt.ItemDataRole.UserRole, state_id)
+            self.state_list_widget.addItem(item)
+
+    @Slot()
+    def _open_state_selection_dialog(self):
+        """State 選択ダイアログを開く"""
+        all_states = self.db_dict.get("states", {})
+        if not all_states:
+            QMessageBox.information(self, "Add State", "No states available.")
+            return
+
+        # 既にアサインされているIDを除外する (オプション)
+        available_states = {
+            s_id: s
+            for s_id, s in all_states.items()
+            if s_id not in self.current_state_ids
+        }
+        if not available_states:
+            QMessageBox.information(
+                self, "Add State", "All available states are already added."
+            )
+            return
+
+        # StateSelectionDialog を呼び出す (SceneSelectionDialog と同様のものを想定)
+        dialog = StateSelectionDialog(
+            available_states, self
+        )  # ★ StateSelectionDialog を使用
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            selected_id = dialog.get_selected_state_id()  # ★ メソッド名変更
+            if selected_id and selected_id not in self.current_state_ids:
+                self.current_state_ids.append(selected_id)
+                self._populate_state_list()
+                self._mark_data_changed()
+
+    @Slot()
+    def _remove_selected_state(self):
+        """選択された State ID をリストから削除"""
+        selected_items = self.state_list_widget.selectedItems()
+        if not selected_items:
+            return
+        selected_id = selected_items[0].data(Qt.ItemDataRole.UserRole)
+        if selected_id in self.current_state_ids:
+            self.current_state_ids.remove(selected_id)
+            self._populate_state_list()
+            self._mark_data_changed()
 
     # --- _add_palette_row_ui, _add_new_palette_item_ui,
     # --- _remove_palette_item_ui, _update_palette_row_labels は
@@ -264,6 +423,7 @@ class CostumeEditorDialog(BaseEditorDialog):
             self._update_object_from_widgets(updated_costume)
             # パレットはここで直接セット
             updated_costume.color_palette = new_palette_list
+            updated_costume.state_ids = self.current_state_ids
             return updated_costume
         else:  # 新規作成
             tags_text = self._widgets["tags"].text()
@@ -276,5 +436,6 @@ class CostumeEditorDialog(BaseEditorDialog):
                 prompt=prompt_text,
                 negative_prompt=neg_prompt_text,
                 color_palette=new_palette_list,
+                state_ids=self.current_state_ids,
             )
             return new_costume

@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Slot, Signal
 from typing import Optional, Any, Dict, List, TypeVar, Type
+import traceback
 
 # 型ヒント用
 T = TypeVar("T")
@@ -33,186 +34,182 @@ class BaseEditorDialog(QDialog):
     def __init__(
         self,
         initial_data: Optional[Any],
-        db_dict: Dict[str, Dict[str, Any]],
-        object_type_name: str,  # 例: "Scene", "Costume"
+        db_dict: Dict[str, Dict],
+        title_prefix: str,
         parent=None,
     ):
         super().__init__(parent)
         self.initial_data = initial_data
-        self.db_dict = db_dict  # ComboBox 生成用
-        self.object_type_name = object_type_name
-        self.saved_data: Optional[Any] = None
-        self._widgets: Dict[str, QWidget] = {}  # 各フィールドの入力ウィジェットを保持
-        self._reference_widgets: Dict[str, Dict[str, QWidget]] = {}
+        self.db_dict = db_dict  # 他のデータの参照用
+        self.title_prefix = title_prefix
+        self.saved_data: Optional[Any] = None  # 保存されたデータを保持
+        self._widgets: Dict[str, QWidget] = {}  # UIウィジェットを保持 (get_dataで使用)
+        self._reference_widgets: Dict[
+            str, Dict[str, QWidget]
+        ] = {}  # 参照ウィジェット用
+        self._data_changed = False  # データが変更されたかのフラグ
+        self._nested_editors: Dict[
+            QWidget, BaseEditorDialog
+        ] = {}  # ネストされたエディタ
 
         self.setWindowTitle(
-            f"{self.object_type_name} の編集"
-            if initial_data
-            else f"新規 {self.object_type_name} の追加"
+            f"{self.title_prefix} - {'編集' if initial_data else '新規作成'}"
         )
+        self.setMinimumWidth(500)
 
-        # メインレイアウトとフォームレイアウト
+        # Main Layout
         self.main_layout = QVBoxLayout(self)
-        # フォーム部分を入れるコンテナウィジェット (サブクラスでレイアウトを設定)
+        # フォームレイアウト用のウィジェット（サブクラスで中身を追加）
         self.form_widget = QWidget()
         self.main_layout.addWidget(self.form_widget)
 
-        # UIフィールドの構築 (サブクラスで実装)
-        self._populate_fields()
-
-        # OK/Cancelボタン
+        # Save/Cancel Buttons
         self.button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save
             | QDialogButtonBox.StandardButton.Cancel
         )
-        self.button_box.accepted.connect(
-            self._save_and_accept
-        )  # 標準の accept の前に保存処理を挟む
+        self.button_box.accepted.connect(self._save_and_accept)
         self.button_box.rejected.connect(self.reject)
         self.main_layout.addWidget(self.button_box)
 
-        # 初期データをUIに設定 (サブクラスの _populate_fields 内で行う方が良い場合もある)
-        # self._set_initial_values() # 必要に応じてサブクラスで実装・呼び出し
+        # Save ボタンを最初は無効化 (変更があったら有効化)
+        self.save_button = self.button_box.button(QDialogButtonBox.StandardButton.Save)
+        if self.save_button:
+            self.save_button.setEnabled(False)
+
+        # サブクラスでフィールドを構築
+        self._populate_fields()
+
+        # ウィジェット変更時にフラグを立てるシグナル接続
+        self._connect_change_signals()
+
+    def setup_form_layout(self) -> QFormLayout:
+        """QFormLayout をセットアップし、それを返します。"""
+        layout = QFormLayout(self.form_widget)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
+        return layout
 
     def _populate_fields(self):
-        """
-        UIフィールドを構築し、_widgets ディクショナリに登録します。
-        サブクラスで必ず実装してください。
-        """
-        raise NotImplementedError("Subclasses must implement _populate_fields")
+        """サブクラスでUI要素を作成し配置する"""
+        raise NotImplementedError("サブクラスで _populate_fields を実装してください。")
 
-    # --- ▼▼▼ QFormLayout を使うサブクラス用に form_layout をプロパティとして提供 (オプション) ▼▼▼ ---
-    # QFormLayout を使いたいサブクラスは、_populate_fields の最初にこれを呼び出す
-    def setup_form_layout(self) -> QFormLayout:
-        """self.form_widget に QFormLayout を設定し、それを返します。"""
-        if not self.form_widget.layout():  # レイアウトが未設定の場合のみ
-            layout = QFormLayout(self.form_widget)
-            layout.setContentsMargins(5, 5, 5, 5)
-            return layout
-        elif isinstance(self.form_widget.layout(), QFormLayout):
-            return self.form_widget.layout()  # 既存のものを返す
-        else:
-            # 既に別のレイアウトが設定されている場合はエラーにするか、上書きするか
-            print(
-                "Warning: setup_form_layout called but another layout already exists."
-            )
-            # 新しい QFormLayout を作って設定し直す場合:
-            # for i in reversed(range(self.form_widget.layout().count())):
-            #     widget = self.form_widget.layout().itemAt(i).widget()
-            #     if widget is not None: widget.setParent(None)
-            layout = QFormLayout(self.form_widget)
-            layout.setContentsMargins(5, 5, 5, 5)
-            return layout
-            # return None # または None を返す
+    def _connect_change_signals(self):
+        """_widgets に登録されたウィジェットの変更シグナルを _mark_data_changed に接続"""
+        for widget in self._widgets.values():
+            if isinstance(widget, QLineEdit):
+                widget.textChanged.connect(self._mark_data_changed)
+            elif isinstance(widget, QTextEdit):
+                # QTextEdit は変更のたびにシグナルが出るので注意
+                widget.textChanged.connect(self._mark_data_changed)
+            elif isinstance(widget, QComboBox):
+                widget.currentIndexChanged.connect(self._mark_data_changed)
+            # 他のウィジェットタイプ (QCheckBox, QSpinBox など) も必要に応じて追加
+
+        # --- ▼▼▼ _reference_widgets 内の QComboBox も接続 ▼▼▼ ---
+        for ref_info in self._reference_widgets.values():
+            combo_widget = ref_info.get("combo")
+            if isinstance(combo_widget, QComboBox):
+                print(
+                    f"[DEBUG] Connecting currentIndexChanged for reference combo: {ref_info}"
+                )  # デバッグ用
+                combo_widget.currentIndexChanged.connect(self._mark_data_changed)
+
+    # --- ▼▼▼ _mark_data_changed メソッドを追加 ▼▼▼ ---
+    @Slot()
+    def _mark_data_changed(self):
+        """データが変更されたことをマークし、Saveボタンを有効化"""
+        if not self._data_changed:
+            self._data_changed = True
+            print("[DEBUG] Data changed, enabling Save button.")  # デバッグ用
+            if self.save_button:
+                self.save_button.setEnabled(True)
+
+    # --- ▲▲▲ 追加 ▲▲▲ ---
+
+    def get_data(self) -> Optional[Any]:
+        """サブクラスでUIからデータを取得し、オブジェクトを返す"""
+        raise NotImplementedError("サブクラスで get_data を実装してください。")
 
     @Slot()
     def _save_and_accept(self):
-        """
-        OKボタンが押されたときの処理。get_dataを呼び出し、
-        成功すれば self.saved_data にセットして accept() する。
-        """
+        """Saveボタンが押されたときの処理"""
+        print("[DEBUG] Save button clicked.")  # デバッグ用
         try:
             data = self.get_data()
-            if data is not None:
+            if data:
                 self.saved_data = data
-                super().accept()  # データ取得・検証成功時にダイアログを閉じる
-            # get_data 内でバリデーションエラー時に None が返る想定
+                print(
+                    f"[DEBUG] get_data returned valid data: {getattr(data, 'id', 'N/A')}"
+                )  # デバッグ用
+                super().accept()  # ダイアログを閉じる
+            else:
+                # get_data 内でバリデーションエラーメッセージが表示されているはず
+                print(
+                    "[DEBUG] get_data returned None (validation failed or error). Dialog remains open."
+                )  # デバッグ用
         except Exception as e:
-            # get_data 内で予期せぬエラーが発生した場合
-            QMessageBox.critical(self, "Error", f"Failed to get data from form: {e}")
-            import traceback
-
+            QMessageBox.critical(
+                self, "エラー", f"保存処理中にエラーが発生しました: {e}"
+            )
+            print(
+                f"[ERROR] Exception during _save_and_accept -> get_data: {e}"
+            )  # デバッグ用
             traceback.print_exc()
 
-    def get_data(self) -> Optional[Any]:
-        """
-        UIからデータを取得し、検証後、新規作成または更新されたモデルオブジェクトを返します。
-        サブクラスで必ず実装してください。
-        バリデーションエラー時は None を返してください。
-        """
-        raise NotImplementedError("Subclasses must implement get_data")
-
-    # --- Helper Methods (BaseInspector から移植・調整) ---
-
-    def _get_widget_value(self, field_name: str) -> Any:
-        """ウィジェット名から値を取得 (通常ウィジェット or 参照ウィジェット)"""
-        if field_name in self._widgets:
-            widget = self._widgets[field_name]
+    def _get_widget_value(self, key: str) -> Optional[Any]:
+        """_widgets または _reference_widgets から値を取得"""
+        if key in self._widgets:
+            widget = self._widgets[key]
             if isinstance(widget, QLineEdit):
                 return widget.text().strip()
             elif isinstance(widget, QTextEdit):
                 return widget.toPlainText().strip()
-            elif isinstance(widget, QSpinBox):
-                return widget.value()
-            elif isinstance(widget, QDoubleSpinBox):
-                return widget.value()
             elif isinstance(widget, QComboBox):
-                return widget.currentData()  # 通常のComboBox
-        elif field_name in self._reference_widgets:
-            # 参照ウィジェットの場合、内部の QComboBox から値を取得
-            ref_widget_dict = self._reference_widgets[field_name]
-            combo_box = ref_widget_dict.get("combo")
-            if isinstance(combo_box, QComboBox):
-                return combo_box.currentData()
+                return (
+                    widget.currentData() or widget.currentText()
+                )  # itemDataがあればそれを優先
+            # 他のウィジェットタイプ
+        elif key in self._reference_widgets:
+            combo = self._reference_widgets[key].get("combo")
+            if isinstance(combo, QComboBox):
+                return combo.currentData()  # itemData (ID) を返す
+        print(f"[WARN] Widget/Reference not found for key: {key}")
         return None
 
     def _update_object_from_widgets(self, obj: Any) -> bool:
-        """self._widgets と self._reference_widgets の値を使ってオブジェクト属性を更新"""
-        updated = False
-        all_field_names = list(self._widgets.keys()) + list(
-            self._reference_widgets.keys()
-        )
-
+        """_widgets の内容でオブジェクトの属性を更新"""
         try:
-            for field_name in all_field_names:
-                if field_name.startswith("_"):
+            for key, widget in self._widgets.items():
+                if not hasattr(obj, key):
+                    print(f"[WARN] Object has no attribute '{key}', skipping update.")
                     continue
+                value = None
+                if isinstance(widget, QLineEdit):
+                    value = widget.text().strip()
+                    # 特殊ケース: tags
+                    if key == "tags":
+                        value = [t.strip() for t in value.split(",") if t.strip()]
+                elif isinstance(widget, QTextEdit):
+                    value = widget.toPlainText().strip()
+                elif isinstance(widget, QComboBox):
+                    # itemData があればそれを、なければテキストを
+                    value = (
+                        widget.currentData()
+                        if widget.currentData() is not None
+                        else widget.currentText()
+                    )
+                # 他のウィジェットタイプも必要に応じて追加 (QSpinBox, QCheckBox など)
 
-                original_value = getattr(obj, field_name, None)
-                target_type = (
-                    type(original_value) if original_value is not None else str
-                )  # None の場合は str と仮定
-                # Optional[str] のような複合型への対応はここでは省略
-
-                value = self._get_widget_value(field_name)  # 修正したメソッドを使用
-                processed_value = value
-
-                # --- 型変換処理 (変更なし、必要なら target_type の Optional 対応を追加) ---
                 if value is not None:
-                    if field_name == "tags" and isinstance(value, str):
-                        processed_value = [
-                            tag.strip() for tag in value.split(",") if tag.strip()
-                        ]
-                    elif original_value is None and target_type is str and value == "":
-                        processed_value = None
-                    elif not isinstance(value, target_type) and target_type not in [
-                        Any,
-                        Optional,
-                    ]:
-                        try:
-                            if target_type == int:
-                                processed_value = int(value)
-                            elif target_type == float:
-                                processed_value = float(value)
-                        except (ValueError, TypeError) as e:
-                            raise ValueError(
-                                f"Invalid value for {field_name}: '{value}' (expected {target_type.__name__})"
-                            ) from e
-                # --- 型変換ここまで ---
-
-                if processed_value != original_value:
-                    setattr(obj, field_name, processed_value)
-                    updated = True
-            return updated
-        except ValueError as ve:
-            QMessageBox.warning(self, "Validation Error", str(ve))
-            return False
+                    # 型チェックや変換が必要な場合があるかもしれない
+                    setattr(obj, key, value)
+            return True
         except Exception as e:
             QMessageBox.critical(
-                self, "Error", f"Error processing field {field_name}: {e}"
+                self, "更新エラー", f"データの更新中にエラーが発生しました: {e}"
             )
-            import traceback
-
+            print(f"[ERROR] Exception during _update_object_from_widgets: {e}")
             traceback.print_exc()
             return False
 

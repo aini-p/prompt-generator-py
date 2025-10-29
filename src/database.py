@@ -25,7 +25,8 @@ from .models import (
     ColorPaletteItem,
     Sequence,
     SequenceSceneEntry,
-    QueueItem,  # ★ 追加
+    QueueItem,
+    State,
 )
 from .utils.json_helpers import (
     list_to_json_str,
@@ -57,61 +58,79 @@ def get_connection():
 # --- データベース初期化 ---
 def initialize_db():
     """
-    データベースファイルを常に削除し、最新のスキーマで再作成して初期データを挿入します。
+    データベースファイルが存在しない場合は作成し、必要なテーブルが存在しない場合は作成します。
+    テーブルが新規に作成された場合のみ、初期データを挿入します。
     """
+    # ▼▼▼ ファイル削除処理を削除 ▼▼▼
+    # if os.path.exists(DB_PATH):
+    #     print(f"[INFO] Deleting existing database file: {DB_PATH}")
+    #     try:
+    #         os.remove(DB_PATH)
+    #     except OSError as e:
+    #         print(f"[ERROR] Could not delete existing database file: {e}")
+    #         raise
+    # ▲▲▲ 削除ここまで ▲▲▲
 
     conn = get_connection()
     cursor = conn.cursor()
+    # --- ▼▼▼ テーブル作成前に works テーブルが存在するか確認 ▼▼▼ ---
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='works'")
+    works_table_existed_before = cursor.fetchone() is not None
+    # --- ▲▲▲ 追加ここまで ▲▲▲ ---
 
     try:
-        print("[INFO] Creating database tables with the latest schema...")
-        # --- テーブル作成 (CREATE TABLE のみ) ---
+        print("[INFO] Ensuring database tables exist...")
+        # --- ▼▼▼ すべての CREATE TABLE 文に IF NOT EXISTS を追加 ▼▼▼ ---
         cursor.execute("""
-            CREATE TABLE works (
+            CREATE TABLE IF NOT EXISTS works (
                 id TEXT PRIMARY KEY, title_jp TEXT, title_en TEXT,
                 tags TEXT, sns_tags TEXT
             )""")
         cursor.execute("""
-            CREATE TABLE characters (
+            CREATE TABLE IF NOT EXISTS characters (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, work_id TEXT, tags TEXT,
                 personal_color TEXT, underwear_color TEXT
             )""")
         cursor.execute("""
-            CREATE TABLE actors (
+            CREATE TABLE IF NOT EXISTS actors (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
                 prompt TEXT, negative_prompt TEXT,
                 character_id TEXT,
                 base_costume_id TEXT, base_pose_id TEXT, base_expression_id TEXT
-            )""")  # 省略されていた部分を補完
+            )""")
         cursor.execute("""
-            CREATE TABLE cuts (
+            CREATE TABLE IF NOT EXISTS cuts (
                 id TEXT PRIMARY KEY, name TEXT,
                 prompt_template TEXT, negative_template TEXT,
-                roles TEXT
-            )""")  # 省略されていた部分を補完
-
-        # ▼▼▼ scenes テーブルスキーマを変更 ▼▼▼
+                roles TEXT,
+                reference_image_path TEXT,
+                image_mode TEXT
+            )""")
         cursor.execute("""
-            CREATE TABLE scenes (
+            CREATE TABLE IF NOT EXISTS scenes (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
                 background_id TEXT, lighting_id TEXT, composition_id TEXT,
                 cut_id TEXT,
                 role_directions TEXT,
-                reference_image_path TEXT, image_mode TEXT,
-                style_id TEXT,       -- ★ Style ID カラム追加
-                sd_param_id TEXT     -- ★ SD Param ID カラム追加
+                style_id TEXT,
+                sd_param_id TEXT,
+                state_categories TEXT
             )""")
-        # ▲▲▲ 変更ここまで ▲▲▲
-
         cursor.execute("""
-            CREATE TABLE directions (
+            CREATE TABLE IF NOT EXISTS directions (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
                 prompt TEXT, negative_prompt TEXT,
                 costume_id TEXT, pose_id TEXT, expression_id TEXT
-            )""")  # 省略されていた部分を補完
+            )""")
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS costumes (
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
+                prompt TEXT, negative_prompt TEXT,
+                color_palette TEXT,
+                state_ids TEXT
+            )""")
 
         simple_parts_tables = [
-            "costumes",
             "poses",
             "expressions",
             "backgrounds",
@@ -120,85 +139,102 @@ def initialize_db():
             "styles",
         ]
         for table_name in simple_parts_tables:
-            extra_columns = ", color_palette TEXT" if table_name == "costumes" else ""
             cursor.execute(f"""
-                CREATE TABLE {table_name} (
+                CREATE TABLE IF NOT EXISTS {table_name} (
                     id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
-                    prompt TEXT, negative_prompt TEXT {extra_columns}
+                    prompt TEXT, negative_prompt TEXT
                 )""")
 
         cursor.execute("""
-            CREATE TABLE sd_params (
+            CREATE TABLE IF NOT EXISTS states (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                category TEXT,
+                tags TEXT,
+                prompt TEXT,
+                negative_prompt TEXT
+            )""")
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS sd_params (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL,
                 steps INTEGER, sampler_name TEXT, cfg_scale REAL,
                 seed INTEGER, width INTEGER, height INTEGER,
                 denoising_strength REAL
             )""")
         cursor.execute("""
-            CREATE TABLE sequences (
+            CREATE TABLE IF NOT EXISTS sequences (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 scene_entries TEXT
-            )""")  # 省略されていた部分を補完
+            )""")
         cursor.execute("""
-            CREATE TABLE batch_queue (
+            CREATE TABLE IF NOT EXISTS batch_queue (
                 id TEXT PRIMARY KEY,
                 sequence_id TEXT NOT NULL,
                 actor_assignments TEXT,
                 item_order INTEGER
-            )""")  # 省略されていた部分を補完
+            )""")
+        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
-        print("[INFO] Database tables created.")
+        print("[INFO] Database tables ensured.")
 
-        # --- 初期データの挿入 ---
-        # ▼▼▼ mocks.py の変更に合わせて save_scene を呼び出す ▼▼▼
-        # (save_X 関数が定義されている必要あり)
-        print("[INFO] Inserting initial mock data...")
-        try:
-            for work in initialMockDatabase.works.values():
-                save_work(work)
-            for character in initialMockDatabase.characters.values():
-                save_character(character)
-            for actor in initialMockDatabase.actors.values():
-                save_actor(actor)
-            for cut in initialMockDatabase.cuts.values():
-                save_cut(cut)
-            # scenes の保存は mocks.py で style_id, sd_param_id が設定されている前提
-            for scene in initialMockDatabase.scenes.values():
-                save_scene(scene)
-            for direction in initialMockDatabase.directions.values():
-                save_direction(direction)
-            for costume in initialMockDatabase.costumes.values():
-                save_costume(costume)
-            for pose in initialMockDatabase.poses.values():
-                save_pose(pose)
-            for expression in initialMockDatabase.expressions.values():
-                save_expression(expression)
-            for background in initialMockDatabase.backgrounds.values():
-                save_background(background)
-            for lighting in initialMockDatabase.lighting.values():
-                save_lighting(lighting)
-            for composition in initialMockDatabase.compositions.values():
-                save_composition(composition)
-            for style in initialMockDatabase.styles.values():
-                save_style(style)
-            for param in initialMockDatabase.sdParams.values():
-                save_sd_param(param)
-            # Sequence や Queue の初期データは mocks.py にないので省略
-            print("[INFO] Initial mock data inserted.")
-        except Exception as insert_e:
-            print(f"[ERROR] Failed to insert initial data: {insert_e}")
-            conn.rollback()  # データ挿入に失敗したらロールバック
-            raise  # エラーを再送出して初期化失敗を知らせる
-        # ▲▲▲ 変更ここまで ▲▲▲
+        # --- ▼▼▼ works テーブルが存在しなかった場合のみ初期データを挿入 ▼▼▼ ---
+        if not works_table_existed_before:
+            print(
+                "[INFO] Initializing database with mock data as 'works' table was missing..."
+            )
+            try:
+                # --- 初期データの挿入 (save_X 関数呼び出し部分は変更なし) ---
+                for work in initialMockDatabase.works.values():
+                    save_work(work)
+                for character in initialMockDatabase.characters.values():
+                    save_character(character)
+                for actor in initialMockDatabase.actors.values():
+                    save_actor(actor)
+                for cut in initialMockDatabase.cuts.values():
+                    save_cut(cut)
+                for scene in initialMockDatabase.scenes.values():
+                    save_scene(scene)
+                for direction in initialMockDatabase.directions.values():
+                    save_direction(direction)
+                for costume in initialMockDatabase.costumes.values():
+                    save_costume(costume)
+                for pose in initialMockDatabase.poses.values():
+                    save_pose(pose)
+                for expression in initialMockDatabase.expressions.values():
+                    save_expression(expression)
+                for background in initialMockDatabase.backgrounds.values():
+                    save_background(background)
+                for lighting in initialMockDatabase.lighting.values():
+                    save_lighting(lighting)
+                for composition in initialMockDatabase.compositions.values():
+                    save_composition(composition)
+                for style in initialMockDatabase.styles.values():
+                    save_style(style)
+                for param in initialMockDatabase.sdParams.values():
+                    save_sd_param(param)
+                for state in initialMockDatabase.states.values():
+                    save_state(state)
+                print("[INFO] Initial mock data inserted.")
+            except Exception as insert_e:
+                print(f"[ERROR] Failed to insert initial data: {insert_e}")
+                conn.rollback()
+                raise
+        else:
+            print(
+                "[INFO] Database tables already exist. Skipping initial data insertion."
+            )
+        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
         conn.commit()
     except sqlite3.Error as e:
-        print(f"データベース初期化中にエラーが発生しました: {e}")
+        print(
+            f"データベース初期化中にエラーが発生しました: {e}"
+        )  # ここで table works already exists が出なくなるはず
         conn.rollback()
     finally:
         conn.close()
-    print(f"データベースが初期化されました: {DB_PATH}")
+    print(f"データベースの準備が完了しました: {DB_PATH}")
 
 
 # --- ▲▲▲ 修正ここまで ▲▲▲
@@ -260,6 +296,13 @@ def _load_items(table_name: str, class_type: Type[T]) -> Dict[str, T]:
             row_dict["role_directions"] = json_str_to_list(
                 row_dict.get("role_directions"), RoleDirection
             )
+        if class_type == Scene and "state_categories" in row_dict:
+            # json_str_to_list はプリミティブ型のリストも扱える想定
+            row_dict["state_categories"] = json_str_to_list(
+                row_dict.get("state_categories"), str
+            )
+        if class_type == Costume and "state_ids" in row_dict:
+            row_dict["state_ids"] = json_str_to_list(row_dict.get("state_ids"), str)
         if class_type == Cut and "roles" in row_dict:
             row_dict["roles"] = json_str_to_list(row_dict.get("roles"), SceneRole)
         if class_type == Costume and "color_palette" in row_dict:
@@ -368,7 +411,7 @@ def save_scene(scene: Scene):
     data = scene.__dict__.copy()
     data["tags"] = json.dumps(data.get("tags", []))
     data["role_directions"] = list_to_json_str(data.get("role_directions", []))
-    # style_id と sd_param_id は Optional[str] なのでそのまま保存
+    data["state_categories"] = list_to_json_str(data.get("state_categories", []))
     _save_item("scenes", data)
 
 
@@ -400,6 +443,7 @@ def save_costume(costume: Costume):
     data = costume.__dict__.copy()
     data["tags"] = json.dumps(data.get("tags", []))
     data["color_palette"] = dataclass_list_to_json_str(data.get("color_palette", []))
+    data["state_ids"] = list_to_json_str(data.get("state_ids", []))
     _save_item("costumes", data)
 
 
@@ -409,6 +453,20 @@ def load_costumes() -> Dict[str, Costume]:
 
 def delete_costume(costume_id: str):
     _delete_item("costumes", costume_id)
+
+
+def save_state(state: State):
+    data = state.__dict__.copy()
+    data["tags"] = json.dumps(data.get("tags", []))
+    _save_item("states", data)
+
+
+def load_states() -> Dict[str, State]:
+    return _load_items("states", State)
+
+
+def delete_state(state_id: str):
+    _delete_item("states", state_id)
 
 
 def save_pose(pose: Pose):

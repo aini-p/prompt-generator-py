@@ -1,8 +1,7 @@
 {
   "last_scene_id": "scene_default_solo",
-  "last_style_id": "style_anime",
   "last_assignments": {
-    "r1": "actor_another_a"
-  },
-  "last_sd_param_id": "sdp_default_1"
+    "r1": "actor_default_female",
+    "r2": "actor_default_male"
+  }
 }

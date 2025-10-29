@@ -93,34 +93,52 @@ class DirectionEditorDialog(BaseEditorDialog):
         # self._widgets["expression_id"] = self.expression_combo # 削除
 
     def get_data(self) -> Optional[Direction]:
-        name = self.name_edit.text().strip()
-        if not name:
-            QMessageBox.warning(self, "入力エラー", "名前は必須です。")
-            return None
+        try:
+            name = self._widgets["name"].text().strip()
+            if not name:
+                QMessageBox.warning(self, "入力エラー", "名前は必須です。")
+                return None
 
-        # costume_id などは _update_object_from_widgets で取得・設定される
+            # --- ▼▼▼ プルダウンリストから最新の ID を取得 ▼▼▼ ---
+            costume_id = self._get_widget_value("costume_id")
+            pose_id = self._get_widget_value("pose_id")
+            expression_id = self._get_widget_value("expression_id")
+            # --- ▲▲▲ 修正 ▲▲▲ ---
 
-        if self.initial_data:  # 更新
-            updated_direction = self.initial_data
-            if not self._update_object_from_widgets(updated_direction):
-                return None  # 更新失敗
-            return updated_direction
-        else:  # 新規作成
-            tags_text = self.tags_edit.text()
-            prompt_text = self.prompt_edit.toPlainText().strip()
-            neg_prompt_text = self.negative_prompt_edit.toPlainText().strip()
-            costume_id = self._get_widget_value("costume_id")  # ヘルパー使用
-            pose_id = self._get_widget_value("pose_id")  # ヘルパー使用
-            expression_id = self._get_widget_value("expression_id")  # ヘルパー使用
-
-            new_direction = Direction(
-                id=f"dir_{int(time.time())}",
-                name=name,
-                tags=[t.strip() for t in tags_text.split(",") if t.strip()],
-                prompt=prompt_text,
-                negative_prompt=neg_prompt_text,
-                costume_id=costume_id,
-                pose_id=pose_id,
-                expression_id=expression_id,
+            if self.initial_data:
+                updated_direction = self.initial_data
+                # _update_object_from_widgets は name, tags, prompt, negative_prompt を更新
+                if not self._update_object_from_widgets(updated_direction):
+                    print("[ERROR] _update_object_from_widgets failed.")
+                    return None
+                # --- ▼▼▼ 取得したIDをオブジェクトに設定 ▼▼▼ ---
+                updated_direction.costume_id = costume_id  # None の可能性あり
+                updated_direction.pose_id = pose_id  # None の可能性あり
+                updated_direction.expression_id = expression_id  # None の可能性あり
+                # --- ▲▲▲ 修正 ▲▲▲ ---
+                print(f"[DEBUG] Returning updated direction: {updated_direction}")
+                return updated_direction
+            else:
+                tags_text = self._widgets["tags"].text()
+                prompt_text = self._widgets["prompt"].toPlainText().strip()
+                neg_prompt_text = self._widgets["negative_prompt"].toPlainText().strip()
+                new_direction = Direction(
+                    id=f"dir_{int(time.time())}",
+                    name=name,
+                    tags=[t.strip() for t in tags_text.split(",") if t.strip()],
+                    prompt=prompt_text,
+                    negative_prompt=neg_prompt_text,
+                    # --- ▼▼▼ 取得したIDをオブジェクトに設定 ▼▼▼ ---
+                    costume_id=costume_id,
+                    pose_id=pose_id,
+                    expression_id=expression_id,
+                    # --- ▲▲▲ 修正 ▲▲▲ ---
+                )
+                print(f"[DEBUG] Returning new direction: {new_direction}")
+                return new_direction
+        except Exception as e:
+            print(f"[ERROR] Exception in DirectionEditorDialog.get_data: {e}")
+            QMessageBox.critical(
+                self, "Error", f"An error occurred while getting direction data: {e}"
             )
-            return new_direction
+            return None
