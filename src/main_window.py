@@ -36,7 +36,6 @@ from . import database as db
 from .models import (
     Scene,
     Actor,
-    Direction,
     PromptPartBase,
     StableDiffusionParams,  # ★ 正しいクラス名に修正
     Costume,
@@ -46,7 +45,6 @@ from .models import (
     Lighting,
     Composition,
     SceneRole,
-    RoleDirection,
     GeneratedPrompt,
     ImageGenerationTask,
     STORAGE_KEYS,
@@ -62,6 +60,8 @@ from .models import (
     ColorPaletteItem,
     State,
     AdditionalPrompt,
+    RoleAppearanceAssignment,
+    ColorPaletteItem,
 )
 from typing import (
     Dict,
@@ -86,7 +86,6 @@ from .panels.batch_panel import BatchPanel
 # --- 編集ダイアログのインポート ---
 from .widgets.actor_editor_dialog import ActorEditorDialog
 from .widgets.scene_editor_dialog import SceneEditorDialog
-from .widgets.direction_editor_dialog import DirectionEditorDialog
 from .widgets.simple_part_editor_dialog import SimplePartEditorDialog
 from .widgets.work_editor_dialog import WorkEditorDialog
 from .widgets.character_editor_dialog import CharacterEditorDialog
@@ -96,6 +95,7 @@ from .widgets.cut_editor_dialog import CutEditorDialog
 from .widgets.sequence_editor_dialog import SequenceEditorDialog
 from .widgets.actor_assignment_dialog import ActorAssignmentDialog
 from .widgets.state_editor_dialog import StateEditorDialog
+from .widgets.generic_selection_dialog import GenericSelectionDialog
 
 # ------------------------------------
 from .prompt_generator import generate_batch_prompts, create_image_generation_tasks
@@ -108,14 +108,14 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Object-Oriented Prompt Builder")
         self.setGeometry(100, 100, 1200, 800)
 
-        # --- editor_dialog_mapping を修正 ---
+        # --- ▼▼▼ editor_dialog_mapping を修正 ▼▼▼ ---
         self.editor_dialog_mapping: Dict[str, Tuple[Type[QDialog], DatabaseKey]] = {
             "WORK": (WorkEditorDialog, "works"),
             "CHARACTER": (CharacterEditorDialog, "characters"),
             "ACTOR": (ActorEditorDialog, "actors"),
             "SCENE": (SceneEditorDialog, "scenes"),
             "CUT": (CutEditorDialog, "cuts"),
-            "DIRECTION": (DirectionEditorDialog, "directions"),
+            # "DIRECTION": (DirectionEditorDialog, "directions"), # ← 削除
             "COSTUME": (CostumeEditorDialog, "costumes"),
             "POSE": (SimplePartEditorDialog, "poses"),
             "EXPRESSION": (SimplePartEditorDialog, "expressions"),
@@ -123,15 +123,14 @@ class MainWindow(QMainWindow):
             "LIGHTING": (SimplePartEditorDialog, "lighting"),
             "COMPOSITION": (SimplePartEditorDialog, "compositions"),
             "STYLE": (SimplePartEditorDialog, "styles"),
-            "SDPARAMS": (SDParamsEditorDialog, "sdParams"),
-            "SEQUENCE": (SequenceEditorDialog, "sequences"),
             "STATE": (StateEditorDialog, "states"),
             "ADDITIONAL_PROMPT": (SimplePartEditorDialog, "additional_prompts"),
+            "SDPARAMS": (SDParamsEditorDialog, "sdParams"),
+            "SEQUENCE": (SequenceEditorDialog, "sequences"),
         }
         # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
         # --- データ関連 ---
-        # ★ DataHandler 初期化の前に属性を定義しておく
         self.db_data: Dict[str, Dict[str, Any]] = {}
         self.batch_queue: List[QueueItem] = []
         self.current_scene_id: Optional[str] = None
@@ -140,36 +139,31 @@ class MainWindow(QMainWindow):
 
         self.data_handler = DataHandler(self)
 
-        # --- データと設定の読み込みを修正 ---
-        # ★ load_all_data の戻り値に合わせて修正
+        # --- データと設定の読み込み ---
         _db_data, _batch_queue, initial_scene_id = self.data_handler.load_all_data()
         self.db_data = _db_data
-        self.batch_queue = _batch_queue  # ロードしたキューを保持
+        self.batch_queue = _batch_queue
 
-        # ▼▼▼ コンフィグ読み込みを修正 ▼▼▼
         last_scene_id, last_assignments = self.data_handler.load_config()
-        # ▲▲▲ 修正ここまで ▲▲▲
 
         # --- 状態を初期化 ---
-        # ★ ここで MainWindow の状態変数を確定させる
         self.current_scene_id = (
             last_scene_id
             if last_scene_id in self.db_data.get("scenes", {})
             else initial_scene_id
         )
-        self.actor_assignments = {  # アサインメントは config からロード
+        self.actor_assignments = {
             role_id: actor_id
             for role_id, actor_id in last_assignments.items()
             if actor_id in self.db_data.get("actors", {})
         }
-        # self.generated_prompts は上で初期化済み
 
         # --- UI要素 ---
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
-        main_layout = QHBoxLayout(main_widget)  # 全体を左右に分割
+        main_layout = QHBoxLayout(main_widget)
 
-        # --- 左パネル (タブ形式に変更) ---
+        # --- 左パネル (タブ形式) ---
         left_tab_widget = QTabWidget()
         left_tab_widget.setMinimumWidth(400)
         left_tab_widget.setMaximumWidth(600)
@@ -177,58 +171,55 @@ class MainWindow(QMainWindow):
         # --- プロンプト生成タブ ---
         prompt_tab = QWidget()
         prompt_tab_layout = QVBoxLayout(prompt_tab)
-        self.data_management_panel = DataManagementPanel()  # データ管理はここに入れる
+        self.data_management_panel = DataManagementPanel()
         prompt_tab_layout.addWidget(self.data_management_panel)
-        self.prompt_panel = PromptPanel()  # ★ パネル初期化
-        self.prompt_panel.set_data_reference(self.db_data)  # ★ データ参照設定
+        self.prompt_panel = PromptPanel()
+        self.prompt_panel.set_data_reference(self.db_data)
         prompt_tab_layout.addWidget(self.prompt_panel)
         prompt_tab_layout.addStretch()
         left_tab_widget.addTab(prompt_tab, "Prompt Generation")
 
         # --- バッチ処理タブ ---
-        self.batch_panel = BatchPanel()  # ★ 新しいパネル
-        # ★ データ参照設定 (Sequence と Queue)
+        self.batch_panel = BatchPanel()
         self.batch_panel.set_data_reference(
             self.db_data.get("sequences", {}), self.batch_queue
         )
         left_tab_widget.addTab(self.batch_panel, "Batch (Sequence)")
 
         # --- ライブラリタブ ---
-        self.library_panel = LibraryPanel()  # ★ パネル初期化
-        self.library_panel.set_data_reference(self.db_data)  # ★ データ参照設定
-        self.library_panel.library_types.append(("States", "states"))  # リストに追加
-        self.library_panel.library_type_combo.addItem("States")  # コンボボックスに追加
+        self.library_panel = LibraryPanel()
+        self.library_panel.set_data_reference(self.db_data)
+        # --- ▼▼▼ LibraryPanel のタイプに Direction を除外 ▼▼▼ ---
+        # (library_panel.py 側での修正が主)
+        # library_types から Direction を削除する処理は library_panel.py で行う想定
+        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
         left_tab_widget.addTab(self.library_panel, "Library")
 
-        # --- 右パネル (プロンプト表示エリア - 変更なし) ---
+        # --- 右パネル ---
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         right_panel.setMinimumWidth(500)
-        prompt_display_group = QGroupBox(
-            "Generated Prompts (Batch or Single)"
-        )  # 名前変更
+        prompt_display_group = QGroupBox("Generated Prompts (Batch or Single)")
         prompt_display_layout = QVBoxLayout(prompt_display_group)
         self.prompt_display_area = QTextEdit()
         self.prompt_display_area.setReadOnly(True)
         prompt_display_layout.addWidget(self.prompt_display_area)
         right_layout.addWidget(prompt_display_group)
 
-        # --- 全体のレイアウト (Splitter) ---
+        # --- 全体のレイアウト ---
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.addWidget(left_tab_widget)  # 左側はタブウィジェット
+        splitter.addWidget(left_tab_widget)
         splitter.addWidget(right_panel)
         splitter.setSizes([450, 750])
         main_layout.addWidget(splitter)
 
-        # --- シグナル接続 (パネル初期化後に行う) ---
+        # --- シグナル接続 ---
         self._connect_signals()
 
-        # --- ★ UIパネルの初期状態設定 (MainWindow の状態確定後に行う) ---
-        self.prompt_panel.set_current_scene(self.current_scene_id)  # Scene のみ設定
-        self.prompt_panel.set_assignments(
-            self.actor_assignments
-        )  # アサインメントを設定
-        self.update_prompt_display()  # ★ 最後に表示エリアを更新
+        # --- UIパネルの初期状態設定 ---
+        self.prompt_panel.set_current_scene(self.current_scene_id)
+        self.prompt_panel.set_assignments(self.actor_assignments)
+        self.update_prompt_display()
 
     def _connect_signals(self):
         # Data Management Panel
@@ -330,15 +321,24 @@ class MainWindow(QMainWindow):
                     SceneRole(**r.__dict__) for r in item_dict.get("roles", [])
                 ]  # get()追加
             elif db_key == "scenes":
-                if "role_directions" in item_dict:  # get() 追加
-                    item_dict["role_directions"] = [
-                        RoleDirection(**rd.__dict__)
-                        for rd in item_dict.get("role_directions", [])
+                if "role_assignments" in item_dict:
+                    item_dict["role_assignments"] = [
+                        RoleAppearanceAssignment(  # 新しいクラスで再生成
+                            role_id=ra.get("role_id", ""),  # 辞書アクセスに変更
+                            costume_ids=list(ra.get("costume_ids", [])),
+                            pose_ids=list(ra.get("pose_ids", [])),
+                            expression_ids=list(ra.get("expression_ids", [])),
+                        )
+                        for ra in item_dict.get("role_assignments", [])
                     ]
-                if "state_categories" in item_dict:  # ★ state_categories もコピー
+                if "state_categories" in item_dict:
                     item_dict["state_categories"] = list(
                         item_dict.get("state_categories", [])
-                    )  # get() 追加
+                    )
+                if "additional_prompt_ids" in item_dict:
+                    item_dict["additional_prompt_ids"] = list(
+                        item_dict.get("additional_prompt_ids", [])
+                    )
             elif db_key == "sequences" and "scene_entries" in item_dict:
                 item_dict["scene_entries"] = [
                     SequenceSceneEntry(**se.__dict__)
@@ -530,6 +530,7 @@ class MainWindow(QMainWindow):
 
         try:
             full_db = FullDatabase(**self.db_data)
+            # ★ generate_batch_prompts は変更後のロジックを使用
             self.generated_prompts = generate_batch_prompts(
                 scene_id=self.current_scene_id,
                 actor_assignments=self.actor_assignments,
@@ -595,8 +596,8 @@ class MainWindow(QMainWindow):
             full_db = FullDatabase(**self.db_data)
             tasks = create_image_generation_tasks(
                 generated_prompts=self.generated_prompts,
-                cut=current_cut,  # ★ Cut オブジェクトを渡す
-                scene=current_scene,  # ★ Scene オブジェクトも渡す
+                cut=current_cut,
+                scene=current_scene,
                 db=full_db,
             )
             # ▲▲▲ 修正ここまで ▲▲▲

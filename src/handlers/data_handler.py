@@ -11,7 +11,6 @@ from ..models import (
     Character,
     Actor,
     Scene,
-    Direction,
     Costume,
     Pose,
     Expression,
@@ -21,7 +20,6 @@ from ..models import (
     Style,
     StableDiffusionParams,
     SceneRole,
-    RoleDirection,
     Cut,
     Sequence,
     SequenceSceneEntry,
@@ -31,6 +29,7 @@ from ..models import (
     ColorPaletteItem,
     State,
     AdditionalPrompt,
+    RoleAppearanceAssignment,
 )
 
 if TYPE_CHECKING:
@@ -119,7 +118,6 @@ class DataHandler:
             db_data["actors"] = db.load_actors()
             db_data["cuts"] = db.load_cuts()
             db_data["scenes"] = db.load_scenes()
-            db_data["directions"] = db.load_directions()
             db_data["costumes"] = db.load_costumes()
             db_data["poses"] = db.load_poses()
             db_data["expressions"] = db.load_expressions()
@@ -169,8 +167,6 @@ class DataHandler:
                 db.save_cut(cut)
             for scene in db_data.get("scenes", {}).values():
                 db.save_scene(scene)
-            for direction in db_data.get("directions", {}).values():
-                db.save_direction(direction)
             for costume in db_data.get("costumes", {}).values():
                 db.save_costume(costume)
             for pose in db_data.get("poses", {}).values():
@@ -237,8 +233,9 @@ class DataHandler:
                 # ネストされた dataclass リストを辞書に変換
                 if "scenes" in export_dict:
                     for scene_id, scene_data in export_dict["scenes"].items():
-                        scene_data["role_directions"] = [
-                            rd.__dict__ for rd in scene_data.get("role_directions", [])
+                        # role_directions -> role_assignments
+                        scene_data["role_assignments"] = [
+                            ra.__dict__ for ra in scene_data.get("role_assignments", [])
                         ]
                 if "cuts" in export_dict:
                     for cut_id, cut_data in export_dict["cuts"].items():
@@ -313,7 +310,6 @@ class DataHandler:
                         "actors": Actor,
                         "cuts": Cut,
                         "scenes": Scene,
-                        "directions": Direction,
                         "costumes": Costume,
                         "poses": Pose,
                         "expressions": Expression,
@@ -340,10 +336,13 @@ class DataHandler:
                             try:
                                 # ネストされた dataclass の復元
                                 if klass == Scene:
-                                    item_data["role_directions"] = [
-                                        RoleDirection(**rd)
-                                        for rd in item_data.get("role_directions", [])
+                                    # role_directions -> role_assignments
+                                    item_data["role_assignments"] = [
+                                        RoleAppearanceAssignment(**ra)
+                                        for ra in item_data.get("role_assignments", [])
                                     ]
+                                    # 古い role_directions があれば削除
+                                    item_data.pop("role_directions", None)
                                 elif klass == Cut:
                                     item_data["roles"] = [
                                         SceneRole(**r)
@@ -515,7 +514,19 @@ class DataHandler:
                         print(
                             f"[DEBUG] Removed deleted AP ID {partId} from scene {scene.id}"
                         )
-            # --- ▲▲▲ 追加ここまで ▲▲▲ ---
+            if db_key in ["costumes", "poses", "expressions"]:
+                id_list_name = f"{db_key}_ids"  # costumes -> costume_ids
+                for scene in db_data.get("scenes", {}).values():
+                    if hasattr(scene, "role_assignments"):
+                        for ra in scene.role_assignments:
+                            if hasattr(ra, id_list_name) and partId in getattr(
+                                ra, id_list_name
+                            ):
+                                getattr(ra, id_list_name).remove(partId)
+                                print(
+                                    f"[DEBUG] Removed deleted {db_key} ID {partId} from scene {scene.id}, role {ra.role_id}"
+                                )
+            # --- ▲▲▲ 追加 ▲▲▲ ---
 
         else:
             print(f"[DEBUG] Item {partId} not found in {db_key}, cannot delete.")

@@ -88,19 +88,6 @@
       "base_costume_id": "costume_default_shirt",
       "base_pose_id": "pose_default_standing",
       "base_expression_id": "expr_default_neutral"
-    },
-    "actor_1761720776": {
-      "id": "actor_1761720776",
-      "name": "a",
-      "tags": [
-        "a"
-      ],
-      "prompt": "a",
-      "negative_prompt": "ugly, watermark",
-      "character_id": "char_another_a",
-      "base_costume_id": "costume_1761720774",
-      "base_pose_id": "",
-      "base_expression_id": ""
     }
   },
   "cuts": {
@@ -135,6 +122,24 @@
       ],
       "reference_image_path": "path/to/reference.png",
       "image_mode": "img2img"
+    },
+    "cut_1761761643": {
+      "id": "cut_1761761643",
+      "name": "a",
+      "prompt_template": "[R1] and [R2]",
+      "negative_template": "a",
+      "roles": [
+        {
+          "id": "r1",
+          "name_in_scene": "配役 1"
+        },
+        {
+          "id": "r2",
+          "name_in_scene": "配役 2"
+        }
+      ],
+      "reference_image_path": "",
+      "image_mode": "txt2img"
     }
   },
   "scenes": {
@@ -148,17 +153,31 @@
       "lighting_id": "light_default_studio",
       "composition_id": "comp_default_medium",
       "cut_id": "cut_default_pair_1",
-      "role_directions": [
+      "role_assignments": [
         {
           "role_id": "r1",
-          "direction_ids": [
-            "dir_default_base"
+          "costume_ids": [
+            "costume_default_shirt"
+          ],
+          "pose_ids": [
+            "pose_default_standing"
+          ],
+          "expression_ids": [
+            "expr_default_neutral",
+            "expr_default_smiling"
           ]
         },
         {
           "role_id": "r2",
-          "direction_ids": [
-            "dir_default_smile"
+          "costume_ids": [
+            "costume_colored_dress",
+            "costume_default_shirt"
+          ],
+          "pose_ids": [
+            "pose_default_standing"
+          ],
+          "expression_ids": [
+            "expr_default_smiling"
           ]
         }
       ],
@@ -183,12 +202,12 @@
       "lighting_id": "",
       "composition_id": "",
       "cut_id": "cut_default_solo_1",
-      "role_directions": [
+      "role_assignments": [
         {
           "role_id": "r1",
-          "direction_ids": [
-            "dir_default_base"
-          ]
+          "costume_ids": [],
+          "pose_ids": [],
+          "expression_ids": []
         }
       ],
       "style_id": "style_default",
@@ -207,12 +226,12 @@
       "lighting_id": "light_default_studio",
       "composition_id": "comp_default_medium",
       "cut_id": "cut_default_solo_1",
-      "role_directions": [
+      "role_assignments": [
         {
           "role_id": "r1",
-          "direction_ids": [
-            "dir_default_base"
-          ]
+          "costume_ids": [],
+          "pose_ids": [],
+          "expression_ids": []
         }
       ],
       "style_id": "style_anime",
@@ -234,11 +253,19 @@
       "lighting_id": "light_default_studio",
       "composition_id": "comp_default_medium",
       "cut_id": "cut_default_solo_1",
-      "role_directions": [
+      "role_assignments": [
         {
           "role_id": "r1",
-          "direction_ids": [
-            "dir_default_base"
+          "costume_ids": [
+            "costume_default_shirt",
+            "costume_colored_dress"
+          ],
+          "pose_ids": [
+            "pose_default_standing"
+          ],
+          "expression_ids": [
+            "expr_default_neutral",
+            "expr_default_smiling"
           ]
         }
       ],
@@ -248,33 +275,45 @@
         "damaged"
       ],
       "additional_prompt_ids": [
-        "ap_quality_1",
-        "additional_prompt_1761719458"
+        "ap_quality_1"
       ]
-    }
-  },
-  "directions": {
-    "dir_default_base": {
-      "id": "dir_default_base",
-      "name": "デフォルト基本状態",
-      "tags": [],
-      "prompt": "",
-      "negative_prompt": "",
-      "costume_id": null,
-      "pose_id": null,
-      "expression_id": null
     },
-    "dir_default_smile": {
-      "id": "dir_default_smile",
-      "name": "デフォルト微笑み",
+    "scene_1761761677": {
+      "id": "scene_1761761677",
+      "name": "re",
       "tags": [
-        "smile"
+        "re"
       ],
-      "prompt": "",
-      "negative_prompt": "",
-      "costume_id": null,
-      "pose_id": null,
-      "expression_id": "expr_default_smiling"
+      "background_id": "bg_default_white",
+      "lighting_id": "light_default_studio",
+      "composition_id": "comp_default_medium",
+      "cut_id": "cut_1761761643",
+      "role_assignments": [
+        {
+          "role_id": "r1",
+          "costume_ids": [
+            "costume_colored_dress"
+          ],
+          "pose_ids": [],
+          "expression_ids": []
+        },
+        {
+          "role_id": "r2",
+          "costume_ids": [
+            "costume_default_shirt"
+          ],
+          "pose_ids": [],
+          "expression_ids": []
+        }
+      ],
+      "style_id": "style_default",
+      "sd_param_id": "sdp_default_1",
+      "state_categories": [
+        "damaged"
+      ],
+      "additional_prompt_ids": [
+        "ap_effect_1"
+      ]
     }
   },
   "costumes": {
@@ -311,24 +350,6 @@
       ],
       "state_ids": [
         "state_damaged_1"
-      ]
-    },
-    "costume_1761720774": {
-      "id": "costume_1761720774",
-      "name": "f",
-      "tags": [
-        "f"
-      ],
-      "prompt": "f",
-      "negative_prompt": "f",
-      "color_palette": [
-        {
-          "placeholder": "[C1]",
-          "color_ref": "personal_color"
-        }
-      ],
-      "state_ids": [
-        "state_1761720769"
       ]
     }
   },
@@ -447,16 +468,6 @@
       ],
       "prompt": "wearing casual clothes, hoodie, jeans",
       "negative_prompt": "uniform, dress"
-    },
-    "state_1761720769": {
-      "id": "state_1761720769",
-      "name": "g",
-      "category": "g",
-      "tags": [
-        "g"
-      ],
-      "prompt": "g",
-      "negative_prompt": "g"
     }
   },
   "additional_prompts": {
@@ -478,24 +489,6 @@
       ],
       "prompt": "chromatic aberration, lens flare",
       "negative_prompt": ""
-    },
-    "additional_prompt_1761719458": {
-      "id": "additional_prompt_1761719458",
-      "name": "a",
-      "tags": [
-        "a"
-      ],
-      "prompt": "a",
-      "negative_prompt": "a"
-    },
-    "additional_prompt_1761720725": {
-      "id": "additional_prompt_1761720725",
-      "name": "t",
-      "tags": [
-        "t"
-      ],
-      "prompt": "t",
-      "negative_prompt": "t"
     }
   },
   "batch_queue": []

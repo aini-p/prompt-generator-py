@@ -8,18 +8,17 @@ from src.models import (
     Costume,
     Pose,
     Expression,
-    Direction,
     Background,
     Lighting,
     Composition,
     Scene,
     SceneRole,
-    RoleDirection,
     Style,
     ColorPaletteItem,
     Cut,
     State,
     AdditionalPrompt,
+    RoleAppearanceAssignment,
 )
 
 ap_quality_up = AdditionalPrompt(
@@ -157,6 +156,36 @@ cut_default_pair_1 = Cut(
     image_mode="img2img",
 )
 
+pose_default_standing = Pose(
+    id="pose_default_standing", name="デフォルト立ち", prompt="standing"
+)
+expr_default_neutral = Expression(id="expr_default_neutral", name="デフォルト無表情")
+expr_default_smiling = Expression(
+    id="expr_default_smiling", name="デフォルト微笑み", prompt="smiling"
+)
+costume_default_shirt = Costume(
+    id="costume_default_shirt",
+    name="デフォルトシャツ",
+    prompt="wearing a simple white shirt",
+    state_ids=[...],
+)
+costume_colored_dress = Costume(
+    id="costume_colored_dress",
+    name="カラードレス",
+    prompt="wearing a beautiful [C1] dress, [C2] underwear",
+    state_ids=[...],
+    color_palette=[...],
+)
+bg_default_white = Background(
+    id="bg_default_white", name="デフォルト白背景", prompt="simple white background"
+)
+light_default_studio = Lighting(
+    id="light_default_studio", name="デフォルトスタジオ照明", prompt="studio lighting"
+)
+comp_default_medium = Composition(
+    id="comp_default_medium", name="デフォルトミディアムショット", prompt="medium shot"
+)
+
 # --- アプリケーション全体の初期データベース ---
 initialMockDatabase: FullDatabase = FullDatabase(
     works={
@@ -259,28 +288,6 @@ initialMockDatabase: FullDatabase = FullDatabase(
             negative_prompt="",
         ),
     },
-    directions={
-        "dir_default_base": Direction(
-            id="dir_default_base",
-            name="デフォルト基本状態",
-            tags=[],
-            prompt="",
-            negative_prompt="",
-            costume_id=None,
-            pose_id=None,
-            expression_id=None,
-        ),
-        "dir_default_smile": Direction(
-            id="dir_default_smile",
-            name="デフォルト微笑み",
-            tags=["smile"],
-            prompt="",
-            negative_prompt="",
-            costume_id=None,
-            pose_id=None,
-            expression_id="expr_default_smiling",
-        ),
-    },
     backgrounds={
         "bg_default_white": Background(
             id="bg_default_white",
@@ -317,8 +324,13 @@ initialMockDatabase: FullDatabase = FullDatabase(
             lighting_id="light_default_studio",
             composition_id="comp_default_medium",
             cut_id=cut_default_solo_1.id,
-            role_directions=[
-                RoleDirection(role_id="r1", direction_ids=["dir_default_base"])
+            role_assignments=[
+                RoleAppearanceAssignment(
+                    role_id="r1",  # Cut の Role ID
+                    costume_ids=[costume_default_shirt.id],  # 衣装IDのリスト
+                    pose_ids=[pose_default_standing.id],  # ポーズIDのリスト
+                    expression_ids=[expr_default_neutral.id],  # 表情IDのリスト
+                )
             ],
             style_id=style_default.id,
             sd_param_id=default_sd_params.id,
@@ -333,9 +345,25 @@ initialMockDatabase: FullDatabase = FullDatabase(
             lighting_id="light_default_studio",
             composition_id="comp_default_medium",
             cut_id=cut_default_pair_1.id,
-            role_directions=[
-                RoleDirection(role_id="r1", direction_ids=["dir_default_base"]),
-                RoleDirection(role_id="r2", direction_ids=["dir_default_smile"]),
+            role_assignments=[
+                RoleAppearanceAssignment(
+                    role_id="r1",
+                    costume_ids=[costume_default_shirt.id],
+                    pose_ids=[pose_default_standing.id],
+                    expression_ids=[
+                        expr_default_neutral.id,
+                        expr_default_smiling.id,
+                    ],  # 表情2パターン
+                ),
+                RoleAppearanceAssignment(
+                    role_id="r2",
+                    costume_ids=[
+                        costume_colored_dress.id,
+                        costume_default_shirt.id,
+                    ],  # 衣装2パターン
+                    pose_ids=[pose_default_standing.id],
+                    expression_ids=[expr_default_smiling.id],
+                ),
             ],
             style_id=style_anime.id,
             sd_param_id=default_sd_params.id,
@@ -347,9 +375,7 @@ initialMockDatabase: FullDatabase = FullDatabase(
             name="状態カテゴリなしシーン",
             tags=["solo"],
             cut_id=cut_default_solo_1.id,
-            role_directions=[
-                RoleDirection(role_id="r1", direction_ids=["dir_default_base"])
-            ],
+            role_assignments=[RoleAppearanceAssignment(role_id="r1")],
             style_id=style_default.id,
             sd_param_id=default_sd_params.id,
             state_categories=[],
@@ -363,9 +389,7 @@ initialMockDatabase: FullDatabase = FullDatabase(
             lighting_id="light_default_studio",
             composition_id="comp_default_medium",
             cut_id=cut_default_solo_1.id,
-            role_directions=[
-                RoleDirection(role_id="r1", direction_ids=["dir_default_base"])
-            ],
+            role_assignments=[RoleAppearanceAssignment(role_id="r1")],
             style_id=style_anime.id,
             sd_param_id=default_sd_params.id,
             state_categories=["casual"],

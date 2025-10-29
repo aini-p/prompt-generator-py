@@ -99,13 +99,6 @@ class Actor(PromptPartBase):
 
 
 @dataclass
-class Direction(PromptPartBase):
-    costume_id: Optional[str] = None
-    pose_id: Optional[str] = None
-    expression_id: Optional[str] = None
-
-
-@dataclass
 class SceneRole:
     id: str
     name_in_scene: str
@@ -123,9 +116,11 @@ class Cut:
 
 
 @dataclass
-class RoleDirection:
-    role_id: str
-    direction_ids: List[str] = field(default_factory=list)
+class RoleAppearanceAssignment:
+    role_id: str  # SceneRole.id に対応
+    costume_ids: List[str] = field(default_factory=list)
+    pose_ids: List[str] = field(default_factory=list)
+    expression_ids: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -137,7 +132,7 @@ class Scene:
     lighting_id: str = ""
     composition_id: str = ""
     cut_id: Optional[str] = None  # ★ cut_id に変更済み
-    role_directions: List[RoleDirection] = field(default_factory=list)
+    role_assignments: List[RoleAppearanceAssignment] = field(default_factory=list)
     style_id: Optional[str] = None  # ★ Style ID を追加
     sd_param_id: Optional[str] = None  # ★ SD Param ID を追加
     state_categories: List[str] = field(default_factory=list)
@@ -221,7 +216,6 @@ class FullDatabase:
     costumes: Dict[str, Costume] = field(default_factory=dict)
     poses: Dict[str, Pose] = field(default_factory=dict)
     expressions: Dict[str, Expression] = field(default_factory=dict)
-    directions: Dict[str, Direction] = field(default_factory=dict)
     backgrounds: Dict[str, Background] = field(default_factory=dict)
     lighting: Dict[str, Lighting] = field(default_factory=dict)
     compositions: Dict[str, Composition] = field(default_factory=dict)
@@ -249,7 +243,6 @@ STORAGE_KEYS: Dict[str, str] = {
     "costumes": "promptBuilder_costumes",
     "poses": "promptBuilder_poses",
     "expressions": "promptBuilder_expressions",
-    "directions": "promptBuilder_directions",
     "backgrounds": "promptBuilder_backgrounds",
     "lighting": "promptBuilder_lighting",
     "compositions": "promptBuilder_compositions",
@@ -269,7 +262,6 @@ DatabaseKey = Literal[
     "costumes",
     "poses",
     "expressions",
-    "directions",
     "backgrounds",
     "lighting",
     "compositions",

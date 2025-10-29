@@ -10,7 +10,6 @@ from .models import (
     Character,
     Actor,
     Scene,
-    Direction,
     Costume,
     Pose,
     Expression,
@@ -20,7 +19,6 @@ from .models import (
     StableDiffusionParams,
     Cut,
     SceneRole,
-    RoleDirection,
     Style,
     ColorPaletteItem,
     Sequence,
@@ -28,6 +26,7 @@ from .models import (
     QueueItem,
     State,
     AdditionalPrompt,
+    RoleAppearanceAssignment,
 )
 from .utils.json_helpers import (
     list_to_json_str,
@@ -112,16 +111,10 @@ def initialize_db():
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
                 background_id TEXT, lighting_id TEXT, composition_id TEXT,
                 cut_id TEXT,
-                role_directions TEXT,
+                role_assignments TEXT,
                 style_id TEXT,
                 sd_param_id TEXT,
                 state_categories TEXT,additional_prompt_ids TEXT
-            )""")
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS directions (
-                id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
-                prompt TEXT, negative_prompt TEXT,
-                costume_id TEXT, pose_id TEXT, expression_id TEXT
             )""")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS costumes (
@@ -197,8 +190,6 @@ def initialize_db():
                     save_cut(cut)
                 for scene in initialMockDatabase.scenes.values():
                     save_scene(scene)
-                for direction in initialMockDatabase.directions.values():
-                    save_direction(direction)
                 for costume in initialMockDatabase.costumes.values():
                     save_costume(costume)
                 for pose in initialMockDatabase.poses.values():
@@ -296,10 +287,6 @@ def _load_items(table_name: str, class_type: Type[T]) -> Dict[str, T]:
             except json.JSONDecodeError:
                 row_dict["tags"] = []
 
-        if class_type == Scene and "role_directions" in row_dict:
-            row_dict["role_directions"] = json_str_to_list(
-                row_dict.get("role_directions"), RoleDirection
-            )
         if class_type == Scene:
             if "state_categories" in row_dict:
                 row_dict["state_categories"] = json_str_to_list(
@@ -308,6 +295,10 @@ def _load_items(table_name: str, class_type: Type[T]) -> Dict[str, T]:
             if "additional_prompt_ids" in row_dict:  # ★ 追加済み
                 row_dict["additional_prompt_ids"] = json_str_to_list(
                     row_dict.get("additional_prompt_ids"), str
+                )
+            if "role_assignments" in row_dict:
+                row_dict["role_assignments"] = json_str_to_dataclass_list(
+                    row_dict.get("role_assignments"), RoleAppearanceAssignment
                 )
         if class_type == Costume and "state_ids" in row_dict:
             row_dict["state_ids"] = json_str_to_list(row_dict.get("state_ids"), str)
@@ -418,7 +409,9 @@ def delete_actor(actor_id: str):
 def save_scene(scene: Scene):
     data = scene.__dict__.copy()
     data["tags"] = json.dumps(data.get("tags", []))
-    data["role_directions"] = list_to_json_str(data.get("role_directions", []))
+    data["role_assignments"] = dataclass_list_to_json_str(
+        data.get("role_assignments", [])
+    )
     data["state_categories"] = list_to_json_str(data.get("state_categories", []))
     data["additional_prompt_ids"] = list_to_json_str(
         data.get("additional_prompt_ids", [])
@@ -446,21 +439,6 @@ def load_additional_prompts() -> Dict[str, AdditionalPrompt]:
 
 def delete_additional_prompt(ap_id: str):
     _delete_item("additional_prompts", ap_id)
-
-
-# --- Direction ---
-def save_direction(direction: Direction):
-    data = direction.__dict__.copy()
-    data["tags"] = json.dumps(data.get("tags", []))
-    _save_item("directions", data)
-
-
-def load_directions() -> Dict[str, Direction]:
-    return _load_items("directions", Direction)
-
-
-def delete_direction(direction_id: str):
-    _delete_item("directions", direction_id)
 
 
 # --- Simple Parts (Costume, Pose, Expression, Background, Lighting, Composition, Style) ---
