@@ -15,6 +15,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QHBoxLayout,
+    QSpinBox,
+    QDoubleSpinBox,
 )
 from PySide6.QtCore import Signal, Slot, Qt
 from PySide6.QtGui import QIcon  # (未使用だがインポートが残っていても問題ない)
@@ -124,6 +126,11 @@ class BaseEditorDialog(QDialog):
                 widget.textChanged.connect(self._mark_data_changed)
             elif isinstance(widget, QComboBox):
                 widget.currentIndexChanged.connect(self._mark_data_changed)
+            # --- ▼▼▼ QSpinBox と QDoubleSpinBox の valueChanged シグナルを接続 ▼▼▼ ---
+            elif isinstance(widget, QSpinBox):
+                widget.valueChanged.connect(self._mark_data_changed)  # ★ 追加
+            elif isinstance(widget, QDoubleSpinBox):
+                widget.valueChanged.connect(self._mark_data_changed)  # ★ 追加
         for ref_info in self._reference_widgets.values():
             combo_widget = ref_info.get("combo")
             if isinstance(combo_widget, QComboBox):
@@ -199,6 +206,10 @@ class BaseEditorDialog(QDialog):
                         if widget.currentData() is not None
                         else widget.currentText()
                     )
+                elif isinstance(widget, QSpinBox):
+                    value = widget.value()  # ★ 追加
+                elif isinstance(widget, QDoubleSpinBox):
+                    value = widget.value()  # ★ 追加
                 if value is not None:
                     setattr(obj, key, value)
             return True
