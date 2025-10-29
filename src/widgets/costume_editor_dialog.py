@@ -21,11 +21,11 @@ from PySide6.QtWidgets import (
     QDialog,
 )
 from PySide6.QtCore import Slot, Qt
-from typing import Optional, Any, Dict, List
+from typing import Optional, Any, Dict, List, Tuple
 
 from .base_editor_dialog import BaseEditorDialog
 from ..models import Costume, ColorPaletteItem, State
-from .state_selection_dialog import StateSelectionDialog
+from .generic_selection_dialog import GenericSelectionDialog
 
 # Character クラスの属性名と表示名の対応
 CHARACTER_COLOR_REFS = {
@@ -209,28 +209,39 @@ class CostumeEditorDialog(BaseEditorDialog):
     def _open_state_selection_dialog(self):
         """State 選択ダイアログを開く"""
         all_states = self.db_dict.get("states", {})
-        if not all_states:
-            QMessageBox.information(self, "Add State", "No states available.")
+        if not all_states:  # ... (メッセージ表示) ...
             return
-
-        # 既にアサインされているIDを除外する (オプション)
         available_states = {
             s_id: s
             for s_id, s in all_states.items()
             if s_id not in self.current_state_ids
         }
-        if not available_states:
-            QMessageBox.information(
-                self, "Add State", "All available states are already added."
-            )
+        if not available_states:  # ... (メッセージ表示) ...
             return
 
-        # StateSelectionDialog を呼び出す (SceneSelectionDialog と同様のものを想定)
-        dialog = StateSelectionDialog(
-            available_states, self
-        )  # ★ StateSelectionDialog を使用
+        # --- ▼▼▼ GenericSelectionDialog を使用 ▼▼▼ ---
+        # State オブジェクトを表示するための関数
+        def display_state(state: State) -> str:
+            return f"{getattr(state, 'name', 'N/A')} [{getattr(state, 'category', 'N/A')}] ({getattr(state, 'id', 'N/A')})"
+
+        # ソート用の関数 (カテゴリ -> 名前)
+        def sort_state_key(item: Tuple[str, State]) -> Tuple[str, str]:
+            state = item[1]
+            return (
+                getattr(state, "category", "").lower(),
+                getattr(state, "name", "").lower(),
+            )
+
+        dialog = GenericSelectionDialog(
+            items_data=available_states,
+            display_func=display_state,
+            window_title="Select State to Add",
+            filter_placeholder="Filter by name, category, or ID...",
+            sort_key_func=sort_state_key,  # ソート関数を指定
+            parent=self,
+        )
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            selected_id = dialog.get_selected_state_id()  # ★ メソッド名変更
+            selected_id = dialog.get_selected_item_id()  # ★ メソッド名変更
             if selected_id and selected_id not in self.current_state_ids:
                 self.current_state_ids.append(selected_id)
                 self._populate_state_list()

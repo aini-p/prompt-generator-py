@@ -64,6 +64,8 @@ class LibraryPanel(QWidget):
             ("Backgrounds", "backgrounds"),
             ("Lighting", "lighting"),
             ("Compositions", "compositions"),
+            ("States", "states"),
+            ("Additional Prompts", "additional_prompts"),
             ("Styles", "styles"),
             ("SD Params", "sdParams"),
             ("Sequences", "sequences"),

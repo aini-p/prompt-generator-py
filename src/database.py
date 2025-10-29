@@ -27,6 +27,7 @@ from .models import (
     SequenceSceneEntry,
     QueueItem,
     State,
+    AdditionalPrompt,
 )
 from .utils.json_helpers import (
     list_to_json_str,
@@ -114,7 +115,7 @@ def initialize_db():
                 role_directions TEXT,
                 style_id TEXT,
                 sd_param_id TEXT,
-                state_categories TEXT
+                state_categories TEXT,additional_prompt_ids TEXT
             )""")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS directions (
@@ -137,6 +138,7 @@ def initialize_db():
             "lighting",
             "compositions",
             "styles",
+            "additional_prompts",
         ]
         for table_name in simple_parts_tables:
             cursor.execute(f"""
@@ -215,6 +217,8 @@ def initialize_db():
                     save_sd_param(param)
                 for state in initialMockDatabase.states.values():
                     save_state(state)
+                for ap in initialMockDatabase.additional_prompts.values():
+                    save_additional_prompt(ap)
                 print("[INFO] Initial mock data inserted.")
             except Exception as insert_e:
                 print(f"[ERROR] Failed to insert initial data: {insert_e}")
@@ -296,11 +300,15 @@ def _load_items(table_name: str, class_type: Type[T]) -> Dict[str, T]:
             row_dict["role_directions"] = json_str_to_list(
                 row_dict.get("role_directions"), RoleDirection
             )
-        if class_type == Scene and "state_categories" in row_dict:
-            # json_str_to_list はプリミティブ型のリストも扱える想定
-            row_dict["state_categories"] = json_str_to_list(
-                row_dict.get("state_categories"), str
-            )
+        if class_type == Scene:
+            if "state_categories" in row_dict:
+                row_dict["state_categories"] = json_str_to_list(
+                    row_dict.get("state_categories"), str
+                )
+            if "additional_prompt_ids" in row_dict:  # ★ 追加済み
+                row_dict["additional_prompt_ids"] = json_str_to_list(
+                    row_dict.get("additional_prompt_ids"), str
+                )
         if class_type == Costume and "state_ids" in row_dict:
             row_dict["state_ids"] = json_str_to_list(row_dict.get("state_ids"), str)
         if class_type == Cut and "roles" in row_dict:
@@ -412,6 +420,9 @@ def save_scene(scene: Scene):
     data["tags"] = json.dumps(data.get("tags", []))
     data["role_directions"] = list_to_json_str(data.get("role_directions", []))
     data["state_categories"] = list_to_json_str(data.get("state_categories", []))
+    data["additional_prompt_ids"] = list_to_json_str(
+        data.get("additional_prompt_ids", [])
+    )  # ★ 追加済み
     _save_item("scenes", data)
 
 
@@ -421,6 +432,20 @@ def load_scenes() -> Dict[str, Scene]:
 
 def delete_scene(scene_id: str):
     _delete_item("scenes", scene_id)
+
+
+def save_additional_prompt(ap: AdditionalPrompt):
+    data = ap.__dict__.copy()
+    data["tags"] = json.dumps(data.get("tags", []))
+    _save_item("additional_prompts", data)
+
+
+def load_additional_prompts() -> Dict[str, AdditionalPrompt]:
+    return _load_items("additional_prompts", AdditionalPrompt)
+
+
+def delete_additional_prompt(ap_id: str):
+    _delete_item("additional_prompts", ap_id)
 
 
 # --- Direction ---

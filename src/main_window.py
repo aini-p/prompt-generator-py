@@ -61,6 +61,7 @@ from .models import (
     QueueItem,
     ColorPaletteItem,
     State,
+    AdditionalPrompt,
 )
 from typing import (
     Dict,
@@ -125,6 +126,7 @@ class MainWindow(QMainWindow):
             "SDPARAMS": (SDParamsEditorDialog, "sdParams"),
             "SEQUENCE": (SequenceEditorDialog, "sequences"),
             "STATE": (StateEditorDialog, "states"),
+            "ADDITIONAL_PROMPT": (SimplePartEditorDialog, "additional_prompts"),
         }
         # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
@@ -754,7 +756,8 @@ class MainWindow(QMainWindow):
                             target_class = Lighting
                         elif db_key == "compositions":
                             target_class = Composition
-
+                        elif db_key == "additional_prompts":
+                            target_class = AdditionalPrompt
                         if target_class:
                             try:
                                 saved_data = target_class(**saved_data.__dict__)

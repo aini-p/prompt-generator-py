@@ -50,6 +50,11 @@ class PromptPartBase:
 
 
 @dataclass
+class AdditionalPrompt(PromptPartBase):
+    pass  # PromptPartBase と同じ属性を持つ
+
+
+@dataclass
 class Costume(PromptPartBase):
     color_palette: List[ColorPaletteItem] = field(default_factory=list)
     state_ids: List[str] = field(default_factory=list)
@@ -136,6 +141,7 @@ class Scene:
     style_id: Optional[str] = None  # ★ Style ID を追加
     sd_param_id: Optional[str] = None  # ★ SD Param ID を追加
     state_categories: List[str] = field(default_factory=list)
+    additional_prompt_ids: List[str] = field(default_factory=list)
 
 
 # --- ▼▼▼ StableDiffusionParams を修正 ▼▼▼ ---
@@ -224,6 +230,7 @@ class FullDatabase:
     sdParams: Dict[str, StableDiffusionParams] = field(default_factory=dict)
     sequences: Dict[str, Sequence] = field(default_factory=dict)
     states: Dict[str, State] = field(default_factory=dict)
+    additional_prompts: Dict[str, AdditionalPrompt] = field(default_factory=dict)
 
 
 # --- ▲▲▲ 修正ここまで ▲▲▲ ---
@@ -250,6 +257,7 @@ STORAGE_KEYS: Dict[str, str] = {
     "styles": "promptBuilder_styles",
     "sdParams": "promptBuilder_sdParams",
     "states": "promptBuilder_states",
+    "additional_prompts": "promptBuilder_additional_prompts",
 }
 
 # --- DatabaseKey (変更なし) ---
@@ -270,4 +278,5 @@ DatabaseKey = Literal[
     "sdParams",
     "sequences",
     "states",
+    "additional_prompts",
 ]

@@ -19,10 +19,11 @@ from PySide6.QtWidgets import (
     QSplitter,
     QGroupBox,
     QAbstractItemView,
-    QInputDialog,  # ★ カテゴリ追加用にインポート
+    QInputDialog,
+    QDialog,
 )
 from PySide6.QtCore import Slot, Qt
-from typing import Optional, Dict, List, Any, Set
+from typing import Optional, Dict, List, Any, Set, Tuple
 
 from .base_editor_dialog import BaseEditorDialog
 from ..models import (
@@ -35,7 +36,9 @@ from ..models import (
     Style,
     StableDiffusionParams,
     State,
+    AdditionalPrompt,
 )
+from .generic_selection_dialog import GenericSelectionDialog
 
 
 class SceneEditorDialog(BaseEditorDialog):
@@ -44,6 +47,7 @@ class SceneEditorDialog(BaseEditorDialog):
     ):
         self.current_role_directions: List[RoleDirection] = []
         self.current_state_categories: List[str] = []
+        self.current_additional_prompt_ids: List[str] = []
         if initial_data:
             self.current_role_directions = [
                 RoleDirection(**rd.__dict__)
@@ -51,6 +55,10 @@ class SceneEditorDialog(BaseEditorDialog):
             ]
             if hasattr(initial_data, "state_categories"):
                 self.current_state_categories = list(initial_data.state_categories)
+            if hasattr(initial_data, "additional_prompt_ids"):
+                self.current_additional_prompt_ids = list(
+                    initial_data.additional_prompt_ids
+                )
 
         super().__init__(initial_data, db_dict, "シーン (Scene)", parent)
 
@@ -156,7 +164,35 @@ class SceneEditorDialog(BaseEditorDialog):
 
         self.form_layout.addRow(self.selected_categories_list)  # リストを配置
         self.form_layout.addRow(category_btn_layout)  # ボタンを配置
-        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+
+        # --- ▼▼▼ Additional Prompt UI を追加 ▼▼▼ ---
+        self.form_layout.addRow(QLabel("--- 追加プロンプト (Additional Prompts) ---"))
+        # 選択済みリスト
+        self.selected_ap_list = QListWidget()  # ★ 変数名変更
+        self.selected_ap_list.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self.selected_ap_list.itemDoubleClicked.connect(
+            self._handle_ap_double_clicked
+        )  # ★ ダブルクリック追加
+        self._populate_ap_list()  # ★ メソッド呼び出し
+
+        # ボタンレイアウト
+        ap_btn_layout = QHBoxLayout()
+        add_ap_btn = QPushButton("＋ 追加プロンプトを選択...")
+        add_new_ap_btn = QPushButton("＋ 新規作成")
+        remove_ap_btn = QPushButton("－ 選択したものを削除")
+        add_ap_btn.clicked.connect(self._add_ap_dialog)
+        add_new_ap_btn.clicked.connect(self._handle_add_new_ap)
+        remove_ap_btn.clicked.connect(self._remove_selected_ap)
+
+        ap_btn_layout.addWidget(add_ap_btn)
+        ap_btn_layout.addWidget(add_new_ap_btn)
+        ap_btn_layout.addWidget(remove_ap_btn)
+        ap_btn_layout.addStretch()
+
+        self.form_layout.addRow(self.selected_ap_list)
+        self.form_layout.addRow(ap_btn_layout)
 
         # _widgets への登録
         self._widgets["name"] = self.name_edit
@@ -170,6 +206,101 @@ class SceneEditorDialog(BaseEditorDialog):
             self.db_dict.get("cuts", {}).get(initial_cut_id) if initial_cut_id else None
         )
         self._update_direction_assignment_ui(initial_cut)
+
+    # --- ▼▼▼ Additional Prompt リスト関連メソッドを追加 ▼▼▼ ---
+    def _populate_ap_list(self):
+        """選択済みの Additional Prompt リストを更新します。"""
+        self.selected_ap_list.clear()
+        all_aps = self.db_dict.get("additional_prompts", {})
+        current_id_order = {
+            ap_id: i for i, ap_id in enumerate(self.current_additional_prompt_ids)
+        }
+        sorted_ids = sorted(
+            self.current_additional_prompt_ids,
+            key=lambda ap_id: current_id_order.get(ap_id, float("inf")),
+        )
+        for ap_id in sorted_ids:
+            ap = all_aps.get(ap_id)
+            item_text = f"AP ID not found: {ap_id}"
+            if ap:
+                item_text = f"{getattr(ap, 'name', 'N/A')} ({ap_id})"
+            item = QListWidgetItem(item_text)
+            item.setData(Qt.ItemDataRole.UserRole, ap_id)
+            self.selected_ap_list.addItem(item)
+
+    @Slot()
+    def _add_ap_dialog(self):
+        """利用可能な Additional Prompt を選択するダイアログを表示し、追加します。"""
+        all_aps = self.db_dict.get("additional_prompts", {})
+        if not all_aps:  # ... (メッセージ表示) ...
+            return
+        selectable_aps = {
+            ap_id: ap
+            for ap_id, ap in all_aps.items()
+            if ap_id not in self.current_additional_prompt_ids
+        }
+        if not selectable_aps:  # ... (メッセージ表示) ...
+            return
+
+        # --- ▼▼▼ GenericSelectionDialog を使用 ▼▼▼ ---
+        # AdditionalPrompt オブジェクトを表示するための関数
+        def display_ap(ap: AdditionalPrompt) -> str:
+            return f"{getattr(ap, 'name', 'N/A')} ({getattr(ap, 'id', 'N/A')})"
+
+        # ソート用の関数 (名前順)
+        def sort_ap_key(item: Tuple[str, AdditionalPrompt]) -> str:
+            ap = item[1]
+            return getattr(ap, "name", "").lower()
+
+        dialog = GenericSelectionDialog(
+            items_data=selectable_aps,
+            display_func=display_ap,
+            window_title="Select Additional Prompt to Add",
+            filter_placeholder="Filter by name or ID...",
+            sort_key_func=sort_ap_key,  # 名前でソート
+            parent=self,
+        )
+        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            selected_id = dialog.get_selected_item_id()  # ★ メソッド名変更
+            if selected_id and selected_id not in self.current_additional_prompt_ids:
+                self.current_additional_prompt_ids.append(selected_id)
+                self._populate_ap_list()
+                self._mark_data_changed()
+
+    @Slot()
+    def _handle_add_new_ap(self):
+        """新規 Additional Prompt 作成ダイアログを開くリクエスト"""
+        print(
+            "[DEBUG] Requesting editor for new ADDITIONAL_PROMPT from SceneEditorDialog"
+        )
+        # ★ SimplePartEditorDialog を使うためのタイプ名を決定 (例: "ADDITIONAL_PROMPT")
+        self.request_open_editor.emit("ADDITIONAL_PROMPT", None, None)
+
+    @Slot()
+    def _remove_selected_ap(self):
+        """選択済みリストで選択された Additional Prompt を削除します。"""
+        selected_items = self.selected_ap_list.selectedItems()
+        if selected_items:
+            ap_id_to_remove = selected_items[0].data(Qt.ItemDataRole.UserRole)
+            if ap_id_to_remove in self.current_additional_prompt_ids:
+                self.current_additional_prompt_ids.remove(ap_id_to_remove)
+                self._populate_ap_list()
+                self._mark_data_changed()
+
+    @Slot(QListWidgetItem)
+    def _handle_ap_double_clicked(self, item: QListWidgetItem):
+        """AP リストの項目がダブルクリックされたときの処理"""
+        ap_id = item.data(Qt.ItemDataRole.UserRole)
+        ap_data = self.db_dict.get("additional_prompts", {}).get(ap_id)
+        if ap_data:
+            print(f"[DEBUG] Requesting editor for ADDITIONAL_PROMPT {ap_id}")
+            self.request_open_editor.emit("ADDITIONAL_PROMPT", ap_data, None)
+        else:
+            QMessageBox.warning(
+                self, "Error", f"Could not find Additional Prompt data for ID: {ap_id}"
+            )
 
     # --- ▼▼▼ State Category リスト関連メソッドを修正 ▼▼▼ ---
     def _get_available_categories(self) -> List[str]:
@@ -483,6 +614,11 @@ class SceneEditorDialog(BaseEditorDialog):
                 "[DEBUG] SceneEditorDialog detected State change. Repopulating category lists."
             )
             self._populate_category_list()  # ★ メソッド名変更
+        elif db_key == "additional_prompts":
+            print(
+                "[DEBUG] SceneEditorDialog detected Additional Prompt change. Repopulating AP list."
+            )
+            self._populate_ap_list()  # AP リストを再描画
         else:
             super().update_combo_box_after_edit(target_widget, db_key, select_id)
 
@@ -500,6 +636,7 @@ class SceneEditorDialog(BaseEditorDialog):
         comp_id = self._get_widget_value("composition_id")
 
         state_categories = sorted(self.current_state_categories)
+        additional_prompt_ids = self.current_additional_prompt_ids
 
         selected_cut = self.db_dict.get("cuts", {}).get(cut_id) if cut_id else None
         valid_role_directions = []
@@ -522,6 +659,7 @@ class SceneEditorDialog(BaseEditorDialog):
             updated_scene.cut_id = cut_id  # None の可能性あり
             updated_scene.role_directions = valid_role_directions
             updated_scene.state_categories = state_categories
+            updated_scene.additional_prompt_ids = additional_prompt_ids
             # --- ▲▲▲ 修正 ▲▲▲ ---
             print(f"[DEBUG] Returning updated scene: {updated_scene}")
             return updated_scene
@@ -539,5 +677,6 @@ class SceneEditorDialog(BaseEditorDialog):
                 style_id=style_id,
                 sd_param_id=sd_param_id,
                 state_categories=state_categories,
+                additional_prompt_ids=additional_prompt_ids,
             )
             return new_scene

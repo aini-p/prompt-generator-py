@@ -229,6 +229,24 @@ def generate_batch_prompts(
     ]
     valid_common_parts = [p for p in common_parts if p is not None]
 
+    # --- ▼▼▼ 追加プロンプトを取得 ▼▼▼ ---
+    additional_pos_prompts: List[str] = []
+    additional_neg_prompts: List[str] = []
+    if hasattr(scene, "additional_prompt_ids"):
+        # シーンオブジェクトからIDリストを取得
+        for ap_id in getattr(scene, "additional_prompt_ids", []):
+            # DBからIDに対応するオブジェクトを取得
+            ap = db.additional_prompts.get(ap_id)
+            if ap:
+                # オブジェクトからプロンプト文字列を取得してリストに追加
+                if getattr(ap, "prompt", ""):
+                    additional_pos_prompts.append(ap.prompt)
+                if getattr(ap, "negative_prompt", ""):
+                    additional_neg_prompts.append(ap.negative_prompt)
+    # リストをカンマ区切りの文字列に結合
+    additional_positive_str = ", ".join(additional_pos_prompts)
+    additional_negative_str = ", ".join(additional_neg_prompts)
+
     # --- ▼▼▼ Cut ごとのプロンプト生成ループ (変更なし) ▼▼▼ ---
     generated_prompts_all_cuts: List[GeneratedPrompt] = []
     global_cut_index = 1  # 全カットを通したインデックス
@@ -260,6 +278,7 @@ def generate_batch_prompts(
                 style_prompt,  # Scene から取得した Style を使用
                 cut_obj.prompt_template,
                 *[p.prompt for p in valid_common_parts],
+                additional_positive_str,
             ],
         )
     )
@@ -270,6 +289,7 @@ def generate_batch_prompts(
                 style_negative,  # Scene から取得した Style を使用
                 cut_obj.negative_template,
                 *[p.negative_prompt for p in valid_common_parts],
+                additional_negative_str,
             ],
         )
     )

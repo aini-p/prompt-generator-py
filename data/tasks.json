@@ -1,7 +1,7 @@
 [
   {
-    "prompt": "masterpiece, best quality, ((wearing a beautiful pink dress, lace underwear, torn clothes, scratches, 1girl, beautiful, standing)) and ((wearing a simple white shirt, torn clothes, scratches, wearing casual clothes, hoodie, jeans, 1boy, handsome, standing)), (2 people:1.2), simple white background, studio lighting, medium shot",
-    "negative_prompt": "worst quality, low quality, watermark, signature, 3 people, outdoors, indoors, close-up, long shot",
+    "prompt": "anime style, illustration, high quality, masterpiece, best quality, ((wearing a simple white shirt, torn clothes, scratches, wet clothes, dripping water, wet hair, 1girl, beautiful, standing)) and ((wearing a simple white shirt, torn clothes, scratches, wet clothes, dripping water, wet hair, 1boy, handsome, standing, smiling)), (2 people:1.2), simple white background, studio lighting, medium shot, masterpiece, best quality, hires, chromatic aberration, lens flare",
+    "negative_prompt": "photorealistic, real life, worst quality, low quality, watermark, signature, 3 people, outdoors, indoors, close-up, long shot, worst quality, low quality",
     "steps": 20,
     "sampler_name": "Euler a",
     "cfg_scale": 7.0,
@@ -9,21 +9,7 @@
     "width": 512,
     "height": 512,
     "mode": "img2img",
-    "filename_prefix": "デフォルト作品_デフォルト女性キャラ_デフォルトソロシーン2_cut1",
-    "source_image_path": "path/to/reference.png",
-    "denoising_strength": 0.6
-  },
-  {
-    "prompt": "anime style, illustration, high quality, masterpiece, best quality, ((wearing a beautiful pink dress, lace underwear, torn clothes, scratches, 1girl, beautiful, standing)) and ((wearing a simple white shirt, torn clothes, scratches, wet clothes, dripping water, wet hair, 1boy, handsome, standing, smiling)), (2 people:1.2), simple white background, studio lighting, medium shot",
-    "negative_prompt": "photorealistic, real life, worst quality, low quality, watermark, signature, 3 people, outdoors, indoors, close-up, long shot",
-    "steps": 20,
-    "sampler_name": "Euler a",
-    "cfg_scale": 7.0,
-    "seed": -1,
-    "width": 512,
-    "height": 512,
-    "mode": "img2img",
-    "filename_prefix": "デフォルト作品_デフォルト女性キャラ_デフォルトペアシーン_cut2",
+    "filename_prefix": "デフォルト作品_デフォルト女性キャラ_デフォルトペアシーン_cut1",
     "source_image_path": "path/to/reference.png",
     "denoising_strength": 0.6
   }

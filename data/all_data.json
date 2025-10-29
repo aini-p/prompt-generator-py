@@ -1,0 +1,502 @@
+{
+  "works": {
+    "work_default": {
+      "id": "work_default",
+      "title_jp": "デフォルト作品",
+      "title_en": "Default Work",
+      "tags": [
+        "sample"
+      ],
+      "sns_tags": "#DefaultWork"
+    },
+    "work_another": {
+      "id": "work_another",
+      "title_jp": "別作品",
+      "title_en": "Another Work",
+      "tags": [
+        "test"
+      ],
+      "sns_tags": "#AnotherWork"
+    }
+  },
+  "characters": {
+    "char_default_male": {
+      "id": "char_default_male",
+      "name": "デフォルト男性キャラ",
+      "work_id": "work_default",
+      "tags": [
+        "protagonist"
+      ],
+      "personal_color": "blue",
+      "underwear_color": "white"
+    },
+    "char_default_female": {
+      "id": "char_default_female",
+      "name": "デフォルト女性キャラ",
+      "work_id": "work_default",
+      "tags": [
+        "heroine"
+      ],
+      "personal_color": "pink",
+      "underwear_color": "lace"
+    },
+    "char_another_a": {
+      "id": "char_another_a",
+      "name": "キャラA",
+      "work_id": "work_another",
+      "tags": [],
+      "personal_color": "green",
+      "underwear_color": "black"
+    }
+  },
+  "actors": {
+    "actor_default_male": {
+      "id": "actor_default_male",
+      "name": "デフォルト男性Actor",
+      "tags": [
+        "male"
+      ],
+      "prompt": "1boy, handsome",
+      "negative_prompt": "ugly, deformed",
+      "character_id": "char_default_male",
+      "base_costume_id": "costume_default_shirt",
+      "base_pose_id": "pose_default_standing",
+      "base_expression_id": "expr_default_neutral"
+    },
+    "actor_default_female": {
+      "id": "actor_default_female",
+      "name": "デフォルト女性Actor",
+      "tags": [
+        "female"
+      ],
+      "prompt": "1girl, beautiful",
+      "negative_prompt": "ugly, deformed",
+      "character_id": "char_default_female",
+      "base_costume_id": "costume_default_shirt",
+      "base_pose_id": "pose_default_standing",
+      "base_expression_id": "expr_default_neutral"
+    },
+    "actor_another_a": {
+      "id": "actor_another_a",
+      "name": "キャラA Actor",
+      "tags": [
+        "male"
+      ],
+      "prompt": "1boy",
+      "negative_prompt": "",
+      "character_id": "char_another_a",
+      "base_costume_id": "costume_default_shirt",
+      "base_pose_id": "pose_default_standing",
+      "base_expression_id": "expr_default_neutral"
+    },
+    "actor_1761720776": {
+      "id": "actor_1761720776",
+      "name": "a",
+      "tags": [
+        "a"
+      ],
+      "prompt": "a",
+      "negative_prompt": "ugly, watermark",
+      "character_id": "char_another_a",
+      "base_costume_id": "costume_1761720774",
+      "base_pose_id": "",
+      "base_expression_id": ""
+    }
+  },
+  "cuts": {
+    "cut_default_solo_1": {
+      "id": "cut_default_solo_1",
+      "name": "ソロカット1",
+      "prompt_template": "masterpiece, best quality, solo focus, ([R1])",
+      "negative_template": "worst quality, low quality, watermark, signature, multiple people",
+      "roles": [
+        {
+          "id": "r1",
+          "name_in_scene": "モデル"
+        }
+      ],
+      "reference_image_path": "",
+      "image_mode": "txt2img"
+    },
+    "cut_default_pair_1": {
+      "id": "cut_default_pair_1",
+      "name": "ペアカット1",
+      "prompt_template": "masterpiece, best quality, ([R1]) and ([R2]), (2 people:1.2)",
+      "negative_template": "worst quality, low quality, watermark, signature, 3 people",
+      "roles": [
+        {
+          "id": "r1",
+          "name_in_scene": "人物A"
+        },
+        {
+          "id": "r2",
+          "name_in_scene": "人物B"
+        }
+      ],
+      "reference_image_path": "path/to/reference.png",
+      "image_mode": "img2img"
+    }
+  },
+  "scenes": {
+    "scene_default_pair": {
+      "id": "scene_default_pair",
+      "name": "デフォルトペアシーン",
+      "tags": [
+        "pair"
+      ],
+      "background_id": "bg_default_white",
+      "lighting_id": "light_default_studio",
+      "composition_id": "comp_default_medium",
+      "cut_id": "cut_default_pair_1",
+      "role_directions": [
+        {
+          "role_id": "r1",
+          "direction_ids": [
+            "dir_default_base"
+          ]
+        },
+        {
+          "role_id": "r2",
+          "direction_ids": [
+            "dir_default_smile"
+          ]
+        }
+      ],
+      "style_id": "style_anime",
+      "sd_param_id": "sdp_default_1",
+      "state_categories": [
+        "wet",
+        "damaged"
+      ],
+      "additional_prompt_ids": [
+        "ap_quality_1",
+        "ap_effect_1"
+      ]
+    },
+    "scene_no_state": {
+      "id": "scene_no_state",
+      "name": "状態カテゴリなしシーン",
+      "tags": [
+        "solo"
+      ],
+      "background_id": "",
+      "lighting_id": "",
+      "composition_id": "",
+      "cut_id": "cut_default_solo_1",
+      "role_directions": [
+        {
+          "role_id": "r1",
+          "direction_ids": [
+            "dir_default_base"
+          ]
+        }
+      ],
+      "style_id": "style_default",
+      "sd_param_id": "sdp_default_1",
+      "state_categories": [],
+      "additional_prompt_ids": []
+    },
+    "scene_casual_solo": {
+      "id": "scene_casual_solo",
+      "name": "私服ソロシーン",
+      "tags": [
+        "solo",
+        "casual"
+      ],
+      "background_id": "bg_default_white",
+      "lighting_id": "light_default_studio",
+      "composition_id": "comp_default_medium",
+      "cut_id": "cut_default_solo_1",
+      "role_directions": [
+        {
+          "role_id": "r1",
+          "direction_ids": [
+            "dir_default_base"
+          ]
+        }
+      ],
+      "style_id": "style_anime",
+      "sd_param_id": "sdp_default_1",
+      "state_categories": [
+        "casual"
+      ],
+      "additional_prompt_ids": [
+        "ap_quality_1"
+      ]
+    },
+    "scene_default_solo": {
+      "id": "scene_default_solo",
+      "name": "デフォルトソロシーン",
+      "tags": [
+        "solo"
+      ],
+      "background_id": "bg_default_white",
+      "lighting_id": "light_default_studio",
+      "composition_id": "comp_default_medium",
+      "cut_id": "cut_default_solo_1",
+      "role_directions": [
+        {
+          "role_id": "r1",
+          "direction_ids": [
+            "dir_default_base"
+          ]
+        }
+      ],
+      "style_id": "style_default",
+      "sd_param_id": "sdp_default_1",
+      "state_categories": [
+        "damaged"
+      ],
+      "additional_prompt_ids": [
+        "ap_quality_1",
+        "additional_prompt_1761719458"
+      ]
+    }
+  },
+  "directions": {
+    "dir_default_base": {
+      "id": "dir_default_base",
+      "name": "デフォルト基本状態",
+      "tags": [],
+      "prompt": "",
+      "negative_prompt": "",
+      "costume_id": null,
+      "pose_id": null,
+      "expression_id": null
+    },
+    "dir_default_smile": {
+      "id": "dir_default_smile",
+      "name": "デフォルト微笑み",
+      "tags": [
+        "smile"
+      ],
+      "prompt": "",
+      "negative_prompt": "",
+      "costume_id": null,
+      "pose_id": null,
+      "expression_id": "expr_default_smiling"
+    }
+  },
+  "costumes": {
+    "costume_default_shirt": {
+      "id": "costume_default_shirt",
+      "name": "デフォルトシャツ",
+      "tags": [],
+      "prompt": "wearing a simple white shirt",
+      "negative_prompt": "",
+      "color_palette": [],
+      "state_ids": [
+        "state_damaged_1",
+        "state_wet_1",
+        "state_casual_1"
+      ]
+    },
+    "costume_colored_dress": {
+      "id": "costume_colored_dress",
+      "name": "カラードレス",
+      "tags": [
+        "dress"
+      ],
+      "prompt": "wearing a beautiful [C1] dress, [C2] underwear",
+      "negative_prompt": "",
+      "color_palette": [
+        {
+          "placeholder": "[C1]",
+          "color_ref": "personal_color"
+        },
+        {
+          "placeholder": "[C2]",
+          "color_ref": "underwear_color"
+        }
+      ],
+      "state_ids": [
+        "state_damaged_1"
+      ]
+    },
+    "costume_1761720774": {
+      "id": "costume_1761720774",
+      "name": "f",
+      "tags": [
+        "f"
+      ],
+      "prompt": "f",
+      "negative_prompt": "f",
+      "color_palette": [
+        {
+          "placeholder": "[C1]",
+          "color_ref": "personal_color"
+        }
+      ],
+      "state_ids": [
+        "state_1761720769"
+      ]
+    }
+  },
+  "poses": {
+    "pose_default_standing": {
+      "id": "pose_default_standing",
+      "name": "デフォルト立ち",
+      "tags": [],
+      "prompt": "standing",
+      "negative_prompt": ""
+    }
+  },
+  "expressions": {
+    "expr_default_neutral": {
+      "id": "expr_default_neutral",
+      "name": "デフォルト無表情",
+      "tags": [],
+      "prompt": "",
+      "negative_prompt": ""
+    },
+    "expr_default_smiling": {
+      "id": "expr_default_smiling",
+      "name": "デフォルト微笑み",
+      "tags": [],
+      "prompt": "smiling",
+      "negative_prompt": ""
+    }
+  },
+  "backgrounds": {
+    "bg_default_white": {
+      "id": "bg_default_white",
+      "name": "デフォルト白背景",
+      "tags": [],
+      "prompt": "simple white background",
+      "negative_prompt": "outdoors, indoors"
+    }
+  },
+  "lighting": {
+    "light_default_studio": {
+      "id": "light_default_studio",
+      "name": "デフォルトスタジオ照明",
+      "tags": [],
+      "prompt": "studio lighting",
+      "negative_prompt": ""
+    }
+  },
+  "compositions": {
+    "comp_default_medium": {
+      "id": "comp_default_medium",
+      "name": "デフォルトミディアムショット",
+      "tags": [],
+      "prompt": "medium shot",
+      "negative_prompt": "close-up, long shot"
+    }
+  },
+  "styles": {
+    "style_default": {
+      "id": "style_default",
+      "name": "デフォルトスタイル",
+      "tags": [],
+      "prompt": "",
+      "negative_prompt": ""
+    },
+    "style_anime": {
+      "id": "style_anime",
+      "name": "アニメ風",
+      "tags": [
+        "illustration"
+      ],
+      "prompt": "anime style, illustration, high quality",
+      "negative_prompt": "photorealistic, real life"
+    }
+  },
+  "sdParams": {
+    "sdp_default_1": {
+      "id": "sdp_default_1",
+      "name": "Default (Euler a, 512x512)",
+      "steps": 20,
+      "sampler_name": "Euler a",
+      "cfg_scale": 7.0,
+      "seed": -1,
+      "width": 512,
+      "height": 512,
+      "denoising_strength": 0.6
+    }
+  },
+  "sequences": {},
+  "states": {
+    "state_damaged_1": {
+      "id": "state_damaged_1",
+      "name": "破損状態1",
+      "category": "damaged",
+      "tags": [
+        "broken",
+        "torn"
+      ],
+      "prompt": "torn clothes, scratches",
+      "negative_prompt": ""
+    },
+    "state_wet_1": {
+      "id": "state_wet_1",
+      "name": "濡れ状態1",
+      "category": "wet",
+      "tags": [
+        "soaked"
+      ],
+      "prompt": "wet clothes, dripping water, wet hair",
+      "negative_prompt": "dry"
+    },
+    "state_casual_1": {
+      "id": "state_casual_1",
+      "name": "私服状態1",
+      "category": "casual",
+      "tags": [
+        "plain clothes"
+      ],
+      "prompt": "wearing casual clothes, hoodie, jeans",
+      "negative_prompt": "uniform, dress"
+    },
+    "state_1761720769": {
+      "id": "state_1761720769",
+      "name": "g",
+      "category": "g",
+      "tags": [
+        "g"
+      ],
+      "prompt": "g",
+      "negative_prompt": "g"
+    }
+  },
+  "additional_prompts": {
+    "ap_quality_1": {
+      "id": "ap_quality_1",
+      "name": "品質向上",
+      "tags": [
+        "quality"
+      ],
+      "prompt": "masterpiece, best quality, hires",
+      "negative_prompt": "worst quality, low quality"
+    },
+    "ap_effect_1": {
+      "id": "ap_effect_1",
+      "name": "レンズ効果",
+      "tags": [
+        "effect",
+        "camera"
+      ],
+      "prompt": "chromatic aberration, lens flare",
+      "negative_prompt": ""
+    },
+    "additional_prompt_1761719458": {
+      "id": "additional_prompt_1761719458",
+      "name": "a",
+      "tags": [
+        "a"
+      ],
+      "prompt": "a",
+      "negative_prompt": "a"
+    },
+    "additional_prompt_1761720725": {
+      "id": "additional_prompt_1761720725",
+      "name": "t",
+      "tags": [
+        "t"
+      ],
+      "prompt": "t",
+      "negative_prompt": "t"
+    }
+  },
+  "batch_queue": []
+}

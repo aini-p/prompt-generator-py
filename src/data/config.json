@@ -1,7 +1,4 @@
 {
-  "last_scene_id": "scene_default_solo",
-  "last_assignments": {
-    "r1": "actor_default_female",
-    "r2": "actor_default_male"
-  }
+  "last_scene_id": "scene_default_pair",
+  "last_assignments": {}
 }

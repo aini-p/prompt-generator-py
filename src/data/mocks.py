@@ -19,6 +19,22 @@ from src.models import (
     ColorPaletteItem,
     Cut,
     State,
+    AdditionalPrompt,
+)
+
+ap_quality_up = AdditionalPrompt(
+    id="ap_quality_1",
+    name="品質向上",
+    tags=["quality"],
+    prompt="masterpiece, best quality, hires",
+    negative_prompt="worst quality, low quality",
+)
+ap_lens_effect = AdditionalPrompt(
+    id="ap_effect_1",
+    name="レンズ効果",
+    tags=["effect", "camera"],
+    prompt="chromatic aberration, lens flare",
+    negative_prompt="",
 )
 
 state_damaged = State(
@@ -306,7 +322,8 @@ initialMockDatabase: FullDatabase = FullDatabase(
             ],
             style_id=style_default.id,
             sd_param_id=default_sd_params.id,
-            state_categories=["damaged"],  # ★ 更新
+            state_categories=["damaged"],
+            additional_prompt_ids=[ap_quality_up.id],
         ),
         "scene_default_pair": Scene(
             id="scene_default_pair",
@@ -322,7 +339,8 @@ initialMockDatabase: FullDatabase = FullDatabase(
             ],
             style_id=style_anime.id,
             sd_param_id=default_sd_params.id,
-            state_categories=["wet", "damaged"],  # ★ 更新
+            state_categories=["wet", "damaged"],
+            additional_prompt_ids=[ap_quality_up.id, ap_lens_effect.id],
         ),
         "scene_no_state": Scene(
             id="scene_no_state",
@@ -335,6 +353,7 @@ initialMockDatabase: FullDatabase = FullDatabase(
             style_id=style_default.id,
             sd_param_id=default_sd_params.id,
             state_categories=[],
+            additional_prompt_ids=[],
         ),
         "scene_casual": Scene(  # ★ casual カテゴリを持つシーン例
             id="scene_casual_solo",
@@ -349,7 +368,8 @@ initialMockDatabase: FullDatabase = FullDatabase(
             ],
             style_id=style_anime.id,
             sd_param_id=default_sd_params.id,
-            state_categories=["casual"],  # ★ casual を指定
+            state_categories=["casual"],
+            additional_prompt_ids=[ap_quality_up.id],
         ),
     },
     styles={
@@ -357,9 +377,13 @@ initialMockDatabase: FullDatabase = FullDatabase(
         style_anime.id: style_anime,
     },
     sdParams={default_sd_params.id: default_sd_params},
-    states={  # ★ 追加
+    states={
         state_damaged.id: state_damaged,
         state_wet.id: state_wet,
         state_casual_clothes.id: state_casual_clothes,
+    },
+    additional_prompts={
+        ap_quality_up.id: ap_quality_up,
+        ap_lens_effect.id: ap_lens_effect,
     },
 )

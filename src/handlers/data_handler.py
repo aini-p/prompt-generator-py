@@ -2,6 +2,7 @@
 import json
 import os
 import time
+import traceback
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 from typing import Dict, Optional, Any, Tuple, TYPE_CHECKING, List
 from .. import database as db
@@ -29,6 +30,7 @@ from ..models import (
     DatabaseKey,
     ColorPaletteItem,
     State,
+    AdditionalPrompt,
 )
 
 if TYPE_CHECKING:
@@ -103,19 +105,20 @@ class DataHandler:
 
     def load_all_data(
         self,
-    ) -> Tuple[Dict[str, Dict[str, Any]], Optional[str]]:
+    ) -> Tuple[
+        Dict[str, Dict[str, Any]], List[QueueItem], Optional[str]
+    ]:  # ★ 戻り値の型を修正
         """データベースから全てのデータをロードします。"""
         print("[DEBUG] DataHandler.load_all_data called.")
         db_data: Dict[str, Dict[str, Any]] = {}
-        # sd_params = StableDiffusionParams() # ← 削除
         batch_queue: List[QueueItem] = []
         initial_scene_id: Optional[str] = None
         try:
             db_data["works"] = db.load_works()
             db_data["characters"] = db.load_characters()
             db_data["actors"] = db.load_actors()
-            db_data["cuts"] = db.load_cuts()  # ★ Cut 読み込み
-            db_data["scenes"] = db.load_scenes()  # Scene は Cut の後に読み込む
+            db_data["cuts"] = db.load_cuts()
+            db_data["scenes"] = db.load_scenes()
             db_data["directions"] = db.load_directions()
             db_data["costumes"] = db.load_costumes()
             db_data["poses"] = db.load_poses()
@@ -124,10 +127,11 @@ class DataHandler:
             db_data["lighting"] = db.load_lighting()
             db_data["compositions"] = db.load_compositions()
             db_data["styles"] = db.load_styles()
-            db_data["sdParams"] = db.load_sd_params()  # ★ 辞書としてロード
-            db_data["sequences"] = db.load_sequences()  # ★ Sequence 読み込み
+            db_data["sdParams"] = db.load_sd_params()
+            db_data["sequences"] = db.load_sequences()
             db_data["states"] = db.load_states()
-            batch_queue = db.load_batch_queue()  # ★ Batch Queue 読み込み
+            db_data["additional_prompts"] = db.load_additional_prompts()  # ★ 追加
+            batch_queue = db.load_batch_queue()
 
             print("[DEBUG] Data loaded successfully from database.")
 
@@ -141,20 +145,20 @@ class DataHandler:
                 self.main_window, "Load Error", f"Failed to load data: {e}"
             )
             print(f"[DEBUG] DB load error: {e}")
-            db_data = {k: {} for k in STORAGE_KEYS}  # sdParams も辞書として初期化
+            db_data = {k: {} for k in STORAGE_KEYS}
             batch_queue = []
             initial_scene_id = None
 
-        return db_data, batch_queue, initial_scene_id  # ★ sd_params を返さない
+        return db_data, batch_queue, initial_scene_id  # ★ 戻り値を修正
 
     def save_all_data(
         self,
-        db_data: Dict[str, Dict[str, Any]],  # ★ sd_params 引数を削除
+        db_data: Dict[str, Dict[str, Any]],
+        batch_queue: List[QueueItem],  # ★ batch_queue を引数に追加
     ):
         """メモリ上の全データをSQLiteデータベースに保存します。"""
         print("[DEBUG] DataHandler.save_all_data called.")
         try:
-            # 各カテゴリのデータを保存
             for work in db_data.get("works", {}).values():
                 db.save_work(work)
             for character in db_data.get("characters", {}).values():
@@ -162,7 +166,7 @@ class DataHandler:
             for actor in db_data.get("actors", {}).values():
                 db.save_actor(actor)
             for cut in db_data.get("cuts", {}).values():
-                db.save_cut(cut)  # ★ Cut
+                db.save_cut(cut)
             for scene in db_data.get("scenes", {}).values():
                 db.save_scene(scene)
             for direction in db_data.get("directions", {}).values():
@@ -181,16 +185,15 @@ class DataHandler:
                 db.save_composition(composition)
             for style in db_data.get("styles", {}).values():
                 db.save_style(style)
-            # ★ sdParams もループで保存
             for param in db_data.get("sdParams", {}).values():
                 db.save_sd_param(param)
-            for sequence in db_data.get("sequences", {}).values():  # ★ Sequence 保存
+            for sequence in db_data.get("sequences", {}).values():
                 db.save_sequence(sequence)
             for state in db_data.get("states", {}).values():
                 db.save_state(state)
-            # db.save_sd_params(sd_params) # ← 削除
+            for ap in db_data.get("additional_prompts", {}).values():
+                db.save_additional_prompt(ap)  # ★ 追加
 
-            # ★ Batch Queue 保存 (一旦クリアして全件保存)
             db.clear_batch_queue()
             for item in batch_queue:
                 db.save_queue_item(item)
@@ -225,8 +228,8 @@ class DataHandler:
                 fileName += ".json"
             try:
                 export_dict = {}
+                # ★ db_data 全体をエクスポート
                 for key, data_dict in db_data.items():
-                    # Costume, Scene のリスト属性も __dict__ でエクスポートされる
                     export_dict[key] = {
                         item_id: item.__dict__ for item_id, item in data_dict.items()
                     }
@@ -234,8 +237,6 @@ class DataHandler:
                 # ネストされた dataclass リストを辞書に変換
                 if "scenes" in export_dict:
                     for scene_id, scene_data in export_dict["scenes"].items():
-                        # Scene.cuts は ID リストになったので変換不要
-                        scene_data.pop("cuts", None)  # cuts 属性はもうない
                         scene_data["role_directions"] = [
                             rd.__dict__ for rd in scene_data.get("role_directions", [])
                         ]
@@ -246,20 +247,20 @@ class DataHandler:
                         ]
                 if "costumes" in export_dict:
                     for costume_id, costume_data in export_dict["costumes"].items():
-                        # color_ref は既に文字列なのでそのまま
                         costume_data["color_palette"] = [
                             cp.__dict__ for cp in costume_data.get("color_palette", [])
                         ]
-                if "sequences" in db_data:
-                    export_dict["sequences"] = {}
-                    for seq_id, seq_data in db_data["sequences"].items():
-                        seq_dict = seq_data.__dict__.copy()
+                if (
+                    "sequences" in export_dict
+                ):  # ★ db_data から取得したので db_data["sequences"] ではなく export_dict
+                    for seq_id, seq_data in export_dict["sequences"].items():
+                        seq_dict = seq_data  # 既に __dict__ 済み
                         seq_dict["scene_entries"] = [
-                            entry.__dict__ for entry in seq_data.scene_entries
+                            entry.__dict__
+                            for entry in seq_data.get("scene_entries", [])
                         ]
-                        export_dict["sequences"][seq_id] = seq_dict
+                        # export_dict["sequences"][seq_id] = seq_dict # 辞書を上書きしない
 
-                # ★ Batch Queue もエクスポート
                 export_dict["batch_queue"] = [item.__dict__ for item in batch_queue]
 
                 with open(fileName, "w", encoding="utf-8") as f:
@@ -305,7 +306,7 @@ class DataHandler:
                         imported_data = json.load(f)
 
                     new_db_data: Dict[str, Dict[str, Any]] = {}
-                    # new_sd_params = StableDiffusionParams() # ← 削除
+                    new_batch_queue: List[QueueItem] = []
                     type_map = {
                         "works": Work,
                         "characters": Character,
@@ -320,9 +321,10 @@ class DataHandler:
                         "lighting": Lighting,
                         "compositions": Composition,
                         "styles": Style,
-                        "sdParams": StableDiffusionParams,  # ★ sdParams を追加
+                        "sdParams": StableDiffusionParams,
                         "sequences": Sequence,
                         "states": State,
+                        "additional_prompts": AdditionalPrompt,  # ★ 追加
                     }
 
                     for key, klass in type_map.items():
@@ -338,10 +340,6 @@ class DataHandler:
                             try:
                                 # ネストされた dataclass の復元
                                 if klass == Scene:
-                                    # Scene.cuts は ID リストのはず
-                                    item_data.pop(
-                                        "cuts", None
-                                    )  # 旧データの cuts リストは削除
                                     item_data["role_directions"] = [
                                         RoleDirection(**rd)
                                         for rd in item_data.get("role_directions", [])
@@ -352,12 +350,11 @@ class DataHandler:
                                         for r in item_data.get("roles", [])
                                     ]
                                 elif klass == Costume:
-                                    # color_ref は文字列として読み込まれる
                                     item_data["color_palette"] = [
                                         ColorPaletteItem(**cp)
                                         for cp in item_data.get("color_palette", [])
                                     ]
-                                if klass == Sequence:
+                                elif klass == Sequence:
                                     item_data["scene_entries"] = [
                                         SequenceSceneEntry(**entry)
                                         for entry in item_data.get("scene_entries", [])
@@ -369,28 +366,23 @@ class DataHandler:
                                     f"[DEBUG] Import Warning: Skipping item '{item_id}' in '{key}' due to error: {ex}. Data: {item_data}"
                                 )
 
-                    # ★ Batch Queue の復元
+                    # ★ Batch Queue の復元 (変更なし)
                     queue_list = imported_data.get("batch_queue", [])
                     if isinstance(queue_list, list):
                         for item_data in queue_list:
                             try:
-                                # order がなければデフォルト値を使うかエラーにする
                                 if "order" not in item_data:
                                     item_data["order"] = 0
-                                # id がなければ生成
                                 if "id" not in item_data or not item_data["id"]:
                                     item_data["id"] = (
                                         f"queue_item_{int(time.time() * 1000)}_{len(new_batch_queue)}"
                                     )
-
                                 new_batch_queue.append(QueueItem(**item_data))
                             except Exception as ex:
                                 print(
                                     f"[DEBUG] Import Warning: Skipping queue item due to error: {ex}. Data: {item_data}"
                                 )
-                    # ★ キューを order でソート
                     new_batch_queue.sort(key=lambda item: item.order)
-                    # ★ インポート後に order を再割り当て (0からの連番)
                     for i, item in enumerate(new_batch_queue):
                         item.order = i
 
@@ -449,6 +441,8 @@ class DataHandler:
                 db.save_sequence(item_data)
             elif db_key == "states" and isinstance(item_data, State):
                 db.save_state(item_data)
+            elif db_key == "additional_prompts":
+                db.save_additional_prompt(item_data)
             else:
                 print(
                     f"[DEBUG] Warning: save_single_item - Unsupported db_key '{db_key}' or incorrect data type '{type(item_data).__name__}'."
@@ -478,7 +472,6 @@ class DataHandler:
         batch_queue: List[QueueItem],
     ) -> Tuple[bool, bool]:
         """メモリ上のデータを削除します。キュー内の関連アイテムも削除します。"""
-        # ... (アイテム名取得など) ...
         print(
             f"[DEBUG] DataHandler.handle_delete_part called for db_key='{db_key}', partId='{partId}'..."
         )
@@ -491,34 +484,43 @@ class DataHandler:
             deleted_from_memory = True
             print(f"[DEBUG] Deletion from db_data complete for {partId}.")
 
-            # ★ 関連するキューアイテムの削除
             if db_key == "sequences":
                 original_queue_len = len(batch_queue)
-                # list comprehension で新しいリストを作成
                 new_queue = [item for item in batch_queue if item.sequence_id != partId]
                 if len(new_queue) < original_queue_len:
-                    # batch_queue[:] = new_queue # リスト自体を置き換える
                     queue_modified = True
                     print(
                         f"[DEBUG] Removed queue items associated with deleted sequence {partId}."
                     )
-                    # ★ order の再割り当て
                     for i, item in enumerate(new_queue):
                         item.order = i
-                    batch_queue[:] = new_queue  # リスト自体を置き換える
+                    batch_queue[:] = new_queue
+
             if db_key == "states":
                 for costume in db_data.get("costumes", {}).values():
                     if hasattr(costume, "state_ids") and partId in costume.state_ids:
                         costume.state_ids.remove(partId)
-                        # 即時DB保存は行わない (Save All で反映)
                         print(
                             f"[DEBUG] Removed deleted state ID {partId} from costume {costume.id}"
                         )
 
+            # --- ▼▼▼ Scene から Additional Prompt ID 削除 ▼▼▼ ---
+            if db_key == "additional_prompts":
+                for scene in db_data.get("scenes", {}).values():
+                    if (
+                        hasattr(scene, "additional_prompt_ids")
+                        and partId in scene.additional_prompt_ids
+                    ):
+                        scene.additional_prompt_ids.remove(partId)
+                        print(
+                            f"[DEBUG] Removed deleted AP ID {partId} from scene {scene.id}"
+                        )
+            # --- ▲▲▲ 追加ここまで ▲▲▲ ---
+
         else:
             print(f"[DEBUG] Item {partId} not found in {db_key}, cannot delete.")
 
-        return deleted_from_memory, queue_modified  # ★ 戻り値変更
+        return deleted_from_memory, queue_modified
 
     # --- ▼▼▼ キュー操作用メソッドを追加 ▼▼▼ ---
     def save_batch_queue(self, batch_queue: List[QueueItem]):
