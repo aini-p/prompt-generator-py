@@ -1,4 +1,7 @@
 {
   "last_scene_id": "scene_default_pair",
-  "last_assignments": {}
+  "last_assignments": {
+    "r1": "actor_1761762861",
+    "r2": "actor_another_a"
+  }
 }

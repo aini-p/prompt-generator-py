@@ -42,10 +42,12 @@ class ActorEditorDialog(BaseEditorDialog):
             current_character_id
         )  # ヘルパー関数
 
-        self.work_combo = self._create_combo_box(
-            current_work_id,
-            self.db_dict.get("works", {}),
-            allow_none=True,  # 未割り当ても許可
+        work_ref_widget = self._create_reference_editor_widget(
+            field_name="work_id",  # ★ work_id を指定
+            current_id=current_work_id,
+            reference_db_key="works",
+            reference_modal_type="WORK",
+            allow_none=True,  # ★ allow_none に修正
             none_text="(未割り当て)",
             display_attr="title_jp",
         )
@@ -77,7 +79,7 @@ class ActorEditorDialog(BaseEditorDialog):
         # Layout (using base class's form_layout)
         self.form_layout.addRow("名前:", self.name_edit)
         self.form_layout.addRow("タグ (カンマ区切り):", self.tags_edit)
-        self.form_layout.addRow("登場作品 (Work):", self.work_combo)
+        self.form_layout.addRow("登場作品 (Work):", work_ref_widget)
         self.form_layout.addRow("キャラクター (Character):", self.character_combo)
         self.form_layout.addRow("基本プロンプト (Positive):", self.prompt_edit)
         self.form_layout.addRow(
@@ -95,8 +97,9 @@ class ActorEditorDialog(BaseEditorDialog):
             self.character_combo
         )  # character_id は character_combo の currentData
 
-        # Connect signals
-        self.work_combo.currentIndexChanged.connect(self._on_work_changed)
+        work_combo_widget = self._reference_widgets.get("work_id", {}).get("combo")
+        if isinstance(work_combo_widget, QComboBox):
+            work_combo_widget.currentIndexChanged.connect(self._on_work_changed)
 
         # Initialize character combo
         self._update_character_combo(current_work_id, current_character_id)
@@ -120,7 +123,14 @@ class ActorEditorDialog(BaseEditorDialog):
     @Slot(int)
     def _on_work_changed(self, index: int):
         """Work コンボボックスの選択が変更されたときの処理。"""
-        selected_work_id = self.work_combo.itemData(index)
+        # --- ▼▼▼ _reference_widgets からコンボボックスを取得 ▼▼▼ ---
+        work_combo_widget = self._reference_widgets.get("work_id", {}).get("combo")
+        selected_work_id = None
+        if isinstance(work_combo_widget, QComboBox):
+            selected_work_id = work_combo_widget.itemData(
+                index
+            )  # itemData から ID を取得
+        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
         self._update_character_combo(selected_work_id, None)  # Character 選択はリセット
 
     # --- Method to update character_combo (from ActorInspector) ---
