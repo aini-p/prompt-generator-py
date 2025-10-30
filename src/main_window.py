@@ -328,10 +328,16 @@ class MainWindow(QMainWindow):
                 if "role_assignments" in item_dict:
                     item_dict["role_assignments"] = [
                         RoleAppearanceAssignment(  # 新しいクラスで再生成
-                            role_id=ra.get("role_id", ""),  # 辞書アクセスに変更
-                            costume_ids=list(ra.get("costume_ids", [])),
-                            pose_ids=list(ra.get("pose_ids", [])),
-                            expression_ids=list(ra.get("expression_ids", [])),
+                            role_id=ra.role_id,  # ★ .get() ではなく属性アクセスに変更
+                            costume_ids=list(
+                                ra.costume_ids
+                            ),  # ★ .get() ではなく属性アクセスに変更
+                            pose_ids=list(
+                                ra.pose_ids
+                            ),  # ★ .get() ではなく属性アクセスに変更
+                            expression_ids=list(
+                                ra.expression_ids
+                            ),  # ★ .get() ではなく属性アクセスに変更
                         )
                         for ra in item_dict.get("role_assignments", [])
                     ]
