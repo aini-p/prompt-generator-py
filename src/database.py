@@ -167,7 +167,8 @@ def initialize_db():
                 id TEXT PRIMARY KEY,
                 sequence_id TEXT NOT NULL,
                 actor_assignments TEXT,
-                item_order INTEGER
+                item_order INTEGER,
+                appearance_overrides TEXT DEFAULT '{}'
             )""")
         # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
@@ -604,6 +605,9 @@ def delete_sequence(sequence_id: str):
 def save_queue_item(queue_item: QueueItem):
     data = queue_item.__dict__.copy()
     data["actor_assignments"] = dict_to_json_str(data.get("actor_assignments", {}))
+    data["appearance_overrides"] = dict_to_json_str(
+        data.get("appearance_overrides", {})
+    )
     data["item_order"] = data.pop("order", 0)  # カラム名に合わせる
     _save_item("batch_queue", data)
 
@@ -645,6 +649,15 @@ def load_batch_queue() -> List[QueueItem]:
             )
         else:
             row_dict["actor_assignments"] = {}
+
+        if "appearance_overrides" in row_dict and isinstance(
+            row_dict["appearance_overrides"], str
+        ):
+            row_dict["appearance_overrides"] = json_str_to_dict(
+                row_dict["appearance_overrides"]
+            )
+        else:
+            row_dict["appearance_overrides"] = {}
 
         row_dict["order"] = row_dict.pop("item_order", 0)  # カラム名をモデルの属性名に
 

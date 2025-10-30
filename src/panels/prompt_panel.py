@@ -8,9 +8,11 @@ from PySide6.QtWidgets import (
     QPushButton,
     QGroupBox,
     QMessageBox,
+    QFormLayout,  # ★ 追加
+    QGroupBox,  # ★ 追加
 )
 from PySide6.QtCore import Qt, Signal, Slot
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from ..models import (
     Scene,
     Actor,
@@ -18,6 +20,9 @@ from ..models import (
     Cut,
     SceneRole,
     StableDiffusionParams,
+    Costume,
+    Pose,
+    Expression,
 )  # ★ SDParams をインポート
 
 
@@ -33,6 +38,8 @@ class PromptPanel(QWidget):
         super().__init__(parent)
         self._db_data_ref: Dict[str, Dict[str, Any]] = {}
         self._current_assignments: Dict[str, str] = {}
+        self._current_overrides: Dict[str, Dict[str, Optional[str]]] = {}
+        self._role_override_combos: Dict[str, Dict[str, QComboBox]] = {}
         self._current_scene_id: Optional[str] = None
         self._init_ui()
 
@@ -167,6 +174,8 @@ class PromptPanel(QWidget):
         print(
             f"[DEBUG] PromptPanel.build_role_assignment_ui called for scene ID: {self._current_scene_id}"
         )
+        self._role_override_combos.clear()
+        self._current_overrides.clear()
         layout = self.role_assignment_widget.layout()
         # --- Layout Clear ---
         if layout is None:
@@ -210,6 +219,9 @@ class PromptPanel(QWidget):
         # --- Get Roles from the single Cut ---
         selected_cut: Optional[Cut] = None
         roles_to_display: List[SceneRole] = []
+        roles_with_empty_costumes: Set[str] = set()
+        roles_with_empty_poses: Set[str] = set()
+        roles_with_empty_expressions: Set[str] = set()
 
         if current_scene:
             cut_id = getattr(current_scene, "cut_id", None)
@@ -217,6 +229,19 @@ class PromptPanel(QWidget):
                 selected_cut = self._db_data_ref.get("cuts", {}).get(cut_id)
                 if selected_cut and isinstance(selected_cut, Cut):
                     roles_to_display = getattr(selected_cut, "roles", [])
+                    scene_assignments_map = {
+                        ra.role_id: ra for ra in current_scene.role_assignments
+                    }
+                    for role in roles_to_display:
+                        if not role.id:
+                            continue
+                        role_assignment = scene_assignments_map.get(role.id)
+                        if not role_assignment or not role_assignment.costume_ids:
+                            roles_with_empty_costumes.add(role.id)
+                        if not role_assignment or not role_assignment.pose_ids:
+                            roles_with_empty_poses.add(role.id)
+                        if not role_assignment or not role_assignment.expression_ids:
+                            roles_with_empty_expressions.add(role.id)
                     print(f"[DEBUG] Using roles from Cut ID: {cut_id}")
                 else:
                     print(f"[WARN] Cut object not found or invalid for ID: {cut_id}")
@@ -243,6 +268,25 @@ class PromptPanel(QWidget):
         ]
         actor_ids = [""] + [getattr(a, "id", None) for a in actor_list]
         valid_actor_ids = [aid for aid in actor_ids if aid is not None]  # Noneを除外
+
+        def get_appearance_items(
+            db_key: str, default_label: str
+        ) -> List[Tuple[str, Optional[str]]]:
+            data = self._db_data_ref.get(db_key, {})
+            sorted_items = sorted(data.values(), key=lambda a: getattr(a, "name", ""))
+            items_list = [(f"({default_label})", "default")]  # "default" を識別子に
+            for item in sorted_items:
+                item_id = getattr(item, "id", None)
+                item_name = getattr(item, "name", "Unnamed")
+                if item_id:
+                    items_list.append((f"{item_name} ({item_id})", item_id))
+            return items_list
+
+        costume_items = get_appearance_items("costumes", "Actor Default Costume")
+        pose_items = get_appearance_items("poses", "Actor Default Pose")
+        expression_items = get_appearance_items(
+            "expressions", "Actor Default Expression"
+        )
 
         # --- Build UI for Roles ---
         if (
@@ -313,10 +357,82 @@ class PromptPanel(QWidget):
             role_layout.addWidget(combo)
             layout.addLayout(role_layout)
 
+            self._role_override_combos[role_id] = {}
+            override_form_layout = QFormLayout()
+            override_form_layout.setContentsMargins(5, 5, 5, 5)
+
+            def add_override_combo(
+                role_id: str,
+                key: str,  # "costume_id", "pose_id", ...
+                label: str,
+                items_list: List[Tuple[str, Optional[str]]],
+            ):
+                combo = QComboBox()
+                for name, item_id_data in items_list:
+                    combo.addItem(name, item_id_data)
+
+                # 初期値は "default"
+                current_override_id = self._current_overrides.get(role_id, {}).get(
+                    key, "default"
+                )
+                found_index = combo.findData(current_override_id)
+                combo.setCurrentIndex(found_index if found_index != -1 else 0)
+
+                combo.currentIndexChanged.connect(
+                    lambda index,
+                    r_id=role_id,
+                    k=key,
+                    c=combo: self._on_override_assigned(r_id, k, c.itemData(index))
+                )
+
+                override_form_layout.addRow(f"  {label}:", combo)
+                self._role_override_combos[role_id][key] = combo
+
+            if role_id in roles_with_empty_costumes:
+                add_override_combo(role_id, "costume_id", "Costume", costume_items)
+            if role_id in roles_with_empty_poses:
+                add_override_combo(role_id, "pose_id", "Pose", pose_items)
+            if role_id in roles_with_empty_expressions:
+                add_override_combo(
+                    role_id, "expression_id", "Expression", expression_items
+                )
+
+            if override_form_layout.rowCount() > 0:  # コンボが追加されたら
+                override_group = QGroupBox()
+                override_group.setLayout(override_form_layout)
+                override_group.setStyleSheet(
+                    "QGroupBox { margin-top: 0px; margin-left: 10px; border: 1px solid #ddd; padding: 2px; }"
+                )
+                layout.addWidget(override_group)  # ★ QVBoxLayout に追加
+
         layout.addStretch()
         print("[DEBUG] PromptPanel.build_role_assignment_ui complete.")
         if current_assignments_updated:
             self.assignmentChanged.emit(self._current_assignments.copy())
+
+    @Slot(str, str, str)
+    def _on_override_assigned(self, role_id: str, key: str, override_id: Optional[str]):
+        """Appearance オーバーライドの選択変更"""
+        if role_id not in self._current_overrides:
+            self._current_overrides[role_id] = {}
+
+        if override_id and override_id != "default":
+            self._current_overrides[role_id][key] = override_id
+        elif key in self._current_overrides[role_id]:
+            # "default" が選ばれたら、キーごと削除（=オーバーライドなし）
+            del self._current_overrides[role_id][key]
+            if not self._current_overrides[role_id]:  # ロールが空になったら
+                del self._current_overrides[role_id]
+
+        print(f"[DEBUG] Updated internal overrides: {self._current_overrides}")
+        # ★ オーバーライド変更時も config 保存のトリガーとする
+        self.assignmentChanged.emit(self._current_assignments.copy())
+
+    # --- ▲▲▲ 追加 ▲▲▲ ---
+
+    # --- ▼▼▼ Getter追加 ▼▼▼ ---
+    def get_current_overrides(self) -> Dict[str, Dict[str, Optional[str]]]:
+        return self._current_overrides.copy()
 
     @Slot(int)
     def _on_scene_changed(self, index: int):

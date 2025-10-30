@@ -1,7 +1,17 @@
 # src/prompt_generator.py
 import itertools
 import re
-from typing import Dict, List, Optional, Tuple, Mapping, TypeVar, Iterable, Any
+from typing import (
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Mapping,
+    TypeVar,
+    Iterable,
+    Any,
+    TypeAlias,
+)
 from .models import (
     FullDatabase,
     GeneratedPrompt,
@@ -24,6 +34,7 @@ from .models import (
 )
 
 ActorAssignments = Mapping[str, str]  # Key: role.id, Value: actor.id
+AppearanceOverrides: TypeAlias = Mapping[str, Mapping[str, Optional[str]]]
 T = TypeVar("T")
 
 # ==============================================================================
@@ -122,6 +133,7 @@ def _clean_prompt(text: str) -> str:
 def generate_batch_prompts(
     scene_id: str,
     actor_assignments: ActorAssignments,
+    appearance_overrides: AppearanceOverrides,
     db: FullDatabase,
 ) -> List[GeneratedPrompt]:
     """
@@ -198,23 +210,36 @@ def generate_batch_prompts(
             first_actor_info = {"actor": actor, "character": character, "work": work}
 
         role_assignment = scene_assignments_map.get(role.id)
+        role_overrides = appearance_overrides.get(role.id, {})
 
-        # 衣装・ポーズ・表情のIDリストを取得 (なければ Actor の基本設定)
-        costume_ids = (
-            role_assignment.costume_ids
-            if role_assignment and role_assignment.costume_ids
-            else [actor.base_costume_id]
-        )
-        pose_ids = (
-            role_assignment.pose_ids
-            if role_assignment and role_assignment.pose_ids
-            else [actor.base_pose_id]
-        )
-        expression_ids = (
-            role_assignment.expression_ids
-            if role_assignment and role_assignment.expression_ids
-            else [actor.base_expression_id]
-        )
+        # 1. Costume
+        costume_override = role_overrides.get("costume_id")
+        if costume_override:  # キューダイアログでの指定 ("costume_abc")
+            costume_ids = [costume_override]
+        elif (
+            role_assignment and role_assignment.costume_ids
+        ):  # シーンでの指定 ( [ ] 以外)
+            costume_ids = role_assignment.costume_ids
+        else:  # オーバーライドなし、かつ シーン指定が [ ] または None
+            costume_ids = [actor.base_costume_id]  # アクターのデフォルト
+
+        # 2. Pose
+        pose_override = role_overrides.get("pose_id")
+        if pose_override:
+            pose_ids = [pose_override]
+        elif role_assignment and role_assignment.pose_ids:
+            pose_ids = role_assignment.pose_ids
+        else:
+            pose_ids = [actor.base_pose_id]
+
+        # 3. Expression
+        expression_override = role_overrides.get("expression_id")
+        if expression_override:
+            expression_ids = [expression_override]
+        elif role_assignment and role_assignment.expression_ids:
+            expression_ids = role_assignment.expression_ids
+        else:
+            expression_ids = [actor.base_expression_id]
 
         # 各IDをオブジェクトに変換 (見つからない場合は None)
         costumes = [db.costumes.get(cid) for cid in costume_ids if cid]

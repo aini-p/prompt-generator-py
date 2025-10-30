@@ -202,6 +202,10 @@ class QueueItem:
     id: str  # キューアイテム自体の一意なID (例: queue_item_timestamp)
     sequence_id: str
     actor_assignments: Dict[str, str] = field(default_factory=dict)
+    # (キーが存在しない、または値が "default" の場合はオーバーライドしない)
+    appearance_overrides: Dict[str, Dict[str, Optional[str]]] = field(
+        default_factory=dict
+    )
     order: int = 0  # キュー内での順序
     # status: str = "pending" # オプション: 実行状態
 

@@ -46,53 +46,57 @@ class DataHandler:
     def __init__(self, main_window: "MainWindow"):
         self.main_window = main_window  # MainWindowのインスタンスを保持
 
-    def load_config(self) -> Tuple[Optional[str], Dict[str, str]]:  # ★ 戻り値変更
+    def load_config(
+        self,
+    ) -> Tuple[Optional[str], Dict[str, str], Dict[str, Dict[str, Optional[str]]]]:
         """設定ファイルから最後の Scene ID, 配役を読み込みます。"""
         default_scene_id = None
         default_assignments = {}
-        # default_style_id = None # ← 削除
-        # default_sd_param_id = None # ← 削除
+        default_overrides = {}  # ★ 追加
 
         if not os.path.exists(_CONFIG_FILE_PATH):
             print(
                 f"[DEBUG] Config file not found: {_CONFIG_FILE_PATH}. Using defaults."
             )
-            return default_scene_id, default_assignments  # ★ 戻り値変更
+            return default_scene_id, default_assignments, default_overrides
 
         try:
             with open(_CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
                 config_data = json.load(f)
 
-            scene_id = (
-                config_data.get("last_scene_id")
-                if isinstance(config_data.get("last_scene_id"), str)
-                else default_scene_id
-            )
-            assignments = (
-                config_data.get("last_assignments")
-                if isinstance(config_data.get("last_assignments"), dict)
-                else default_assignments
-            )
-            # style_id = ... # ← 削除
-            # sd_param_id = ... # ← 削除
+            scene_id = config_data.get("last_scene_id", default_scene_id)
+            assignments = config_data.get("last_assignments", default_assignments)
+            overrides = config_data.get("last_overrides", default_overrides)  # ★ 追加
 
-            print(f"[DEBUG] Config loaded: scene={scene_id}, assignments={assignments}")
-            return scene_id, assignments  # ★ 戻り値変更
+            # (型チェック)
+            if not isinstance(scene_id, (str, type(None))):
+                scene_id = default_scene_id
+            if not isinstance(assignments, dict):
+                assignments = default_assignments
+            if not isinstance(overrides, dict):
+                overrides = default_overrides
+
+            print(
+                f"[DEBUG] Config loaded: scene={scene_id}, assignments={assignments}, overrides={overrides}"
+            )
+            return scene_id, assignments, overrides  # ★ 戻り値変更
         except (json.JSONDecodeError, OSError, TypeError) as e:
             print(
                 f"[ERROR] Failed to load config file {_CONFIG_FILE_PATH}: {e}. Using defaults."
             )
-            return default_scene_id, default_assignments  # ★ 戻り値変更
+            return default_scene_id, default_assignments, default_overrides
 
     def save_config(
-        self, scene_id: Optional[str], assignments: Dict[str, str]
+        self,
+        scene_id: Optional[str],
+        assignments: Dict[str, str],
+        overrides: Dict[str, Dict[str, Optional[str]]],
     ):  # ★ 引数変更
         """現在の Scene ID, 配役を設定ファイルに保存します。"""
         config_data = {
             "last_scene_id": scene_id,
             "last_assignments": assignments,
-            # "last_style_id": style_id, # ← 削除
-            # "last_sd_param_id": sd_param_id, # ← 削除
+            "last_overrides": overrides,
         }
         try:
             os.makedirs(_DATA_DIR, exist_ok=True)
@@ -551,6 +555,7 @@ class DataHandler:
         self,
         sequence_id: str,
         actor_assignments: Dict[str, str],
+        appearance_overrides: Dict[str, Dict[str, Optional[str]]],  # ★ 追加
         batch_queue: List[QueueItem],
     ):
         """新しいアイテムをキューの末尾に追加し、DBに保存します。"""
@@ -559,6 +564,7 @@ class DataHandler:
             id=f"queue_item_{int(time.time() * 1000)}_{new_order}",
             sequence_id=sequence_id,
             actor_assignments=actor_assignments,
+            appearance_overrides=appearance_overrides,
             order=new_order,
         )
         batch_queue.append(new_item)
@@ -568,6 +574,7 @@ class DataHandler:
         self,
         item_id: str,
         new_assignments: Dict[str, str],
+        new_overrides: Dict[str, Dict[str, Optional[str]]],  # ★ 追加
         batch_queue: List[QueueItem],
     ):
         """指定されたキューアイテムのアクター割り当てを更新し、DBに保存します。"""
@@ -575,6 +582,7 @@ class DataHandler:
         for item in batch_queue:
             if item.id == item_id:
                 item.actor_assignments = new_assignments
+                item.appearance_overrides = new_overrides
                 item_updated = True
                 break
         if item_updated:

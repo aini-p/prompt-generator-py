@@ -135,6 +135,7 @@ class MainWindow(QMainWindow):
         self.batch_queue: List[QueueItem] = []
         self.current_scene_id: Optional[str] = None
         self.actor_assignments: Dict[str, str] = {}
+        self.appearance_overrides: Dict[str, Dict[str, Optional[str]]] = {}
         self.generated_prompts: List[GeneratedPrompt] = []
 
         self.data_handler = DataHandler(self)
@@ -143,8 +144,9 @@ class MainWindow(QMainWindow):
         _db_data, _batch_queue, initial_scene_id = self.data_handler.load_all_data()
         self.db_data = _db_data
         self.batch_queue = _batch_queue
-
-        last_scene_id, last_assignments = self.data_handler.load_config()
+        last_scene_id, last_assignments, last_overrides = (
+            self.data_handler.load_config()
+        )
 
         # --- 状態を初期化 ---
         self.current_scene_id = (
@@ -157,6 +159,7 @@ class MainWindow(QMainWindow):
             for role_id, actor_id in last_assignments.items()
             if actor_id in self.db_data.get("actors", {})
         }
+        self.appearance_overrides = last_overrides
 
         # --- UI要素 ---
         main_widget = QWidget()
@@ -219,6 +222,7 @@ class MainWindow(QMainWindow):
         # --- UIパネルの初期状態設定 ---
         self.prompt_panel.set_current_scene(self.current_scene_id)
         self.prompt_panel.set_assignments(self.actor_assignments)
+        self.prompt_panel._current_overrides = self.appearance_overrides
         self.update_prompt_display()
 
     def _connect_signals(self):
@@ -410,30 +414,41 @@ class MainWindow(QMainWindow):
         current_scene_id_before = self.current_scene_id
         self.current_scene_id = new_scene_id if new_scene_id else None
         if current_scene_id_before != self.current_scene_id:
-            self.generated_prompts = []  # プロンプトプレビューをクリア
+            self.generated_prompts = []
             self.update_prompt_display()
+            # ★ シーンが変わったらオーバーライドはリセット
+            self.appearance_overrides.clear()
+            self.prompt_panel._current_overrides = (
+                self.appearance_overrides
+            )  # パネル側も
             self.data_handler.save_config(
-                self.current_scene_id, self.actor_assignments
-            )  # ★ 引数変更
+                self.current_scene_id,
+                self.actor_assignments,
+                self.appearance_overrides,  # ★ 渡す
+            )
 
     @Slot(dict)
     def _handle_assignment_change_and_save_config(self, new_assignments: dict):
         print(f"[DEBUG] MainWindow received assignmentChanged: {new_assignments}")
         self.actor_assignments = new_assignments.copy()
-        self.generated_prompts = []  # プロンプトプレビューをクリア
+        # ★ パネルから最新のオーバーライドも取得
+        self.appearance_overrides = self.prompt_panel.get_current_overrides()
+
+        self.generated_prompts = []
         self.update_prompt_display()
         self.data_handler.save_config(
-            self.current_scene_id, self.actor_assignments
-        )  # ★ 引数変更
-
-    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+            self.current_scene_id,
+            self.actor_assignments,
+            self.appearance_overrides,  # ★ 渡す
+        )
 
     def closeEvent(self, event: QCloseEvent):
         """アプリケーション終了時に設定を保存します。"""
-        print("[DEBUG] MainWindow closing. Saving config...")
         self.data_handler.save_config(
-            self.current_scene_id, self.actor_assignments
-        )  # ★ 引数変更
+            self.current_scene_id,
+            self.actor_assignments,
+            self.appearance_overrides,  # ★ 渡す
+        )
         event.accept()
 
     @Slot()
@@ -458,6 +473,7 @@ class MainWindow(QMainWindow):
             new_scene_id = next(iter(scenes_dict), None)
             self.current_scene_id = new_scene_id
             self.actor_assignments = {}  # アサインメントはリセット
+            self.appearance_overrides = {}
             self.generated_prompts = []  # プレビューもリセット
 
             # ★ UI更新メソッドを呼ぶ前にプロンプトパネルの状態を設定
@@ -465,6 +481,7 @@ class MainWindow(QMainWindow):
             self.prompt_panel.set_assignments(
                 self.actor_assignments
             )  # リセットされたものを渡す
+            self.prompt_panel._current_overrides = self.appearance_overrides
 
             self.update_ui_after_data_change()  # UI全体更新 (リストなど)
             self.update_prompt_display()  # プロンプト表示エリア更新
@@ -530,10 +547,10 @@ class MainWindow(QMainWindow):
 
         try:
             full_db = FullDatabase(**self.db_data)
-            # ★ generate_batch_prompts は変更後のロジックを使用
             self.generated_prompts = generate_batch_prompts(
                 scene_id=self.current_scene_id,
                 actor_assignments=self.actor_assignments,
+                appearance_overrides=self.appearance_overrides,  # ★ 渡す
                 db=full_db,
             )
             self.update_prompt_display()
@@ -993,6 +1010,27 @@ class MainWindow(QMainWindow):
             )
             self.batch_panel.update_queue_list()
 
+        initial_overrides = {}
+
+        dialog = ActorAssignmentDialog(
+            sequence,
+            initial_assignments,
+            initial_overrides,  # ★ 渡す
+            self.db_data,
+            self,
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            final_assignments = dialog.get_actor_assignments()
+            final_overrides = dialog.get_appearance_overrides()  # ★ 取得
+
+            self.data_handler.add_item_to_queue(
+                sequence_id,
+                final_assignments,
+                final_overrides,  # ★ 渡す
+                self.batch_queue,
+            )
+            self.batch_panel.update_queue_list()
+
     @Slot(str)
     def _handle_edit_queue_assignments(self, queue_item_id: str):
         item_to_edit = next(
@@ -1011,12 +1049,21 @@ class MainWindow(QMainWindow):
             return
 
         dialog = ActorAssignmentDialog(
-            sequence, item_to_edit.actor_assignments, self.db_data, self
+            sequence,
+            item_to_edit.actor_assignments,
+            item_to_edit.appearance_overrides,  # ★ 既存のオーバーライドを渡す
+            self.db_data,
+            self,
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            new_assignments = dialog.get_assignments()
+            new_assignments = dialog.get_actor_assignments()
+            new_overrides = dialog.get_appearance_overrides()  # ★ 取得
+
             self.data_handler.update_queue_item_assignments(
-                queue_item_id, new_assignments, self.batch_queue
+                queue_item_id,
+                new_assignments,
+                new_overrides,  # ★ 渡す
+                self.batch_queue,
             )
             self.batch_panel.update_queue_list()
 
@@ -1117,6 +1164,7 @@ class MainWindow(QMainWindow):
                     prompts_for_scene = generate_batch_prompts(
                         scene_id=scene_id,
                         actor_assignments=queue_item.actor_assignments,
+                        appearance_overrides=queue_item.appearance_overrides,  # ★ 追加
                         db=full_db,
                     )
 
