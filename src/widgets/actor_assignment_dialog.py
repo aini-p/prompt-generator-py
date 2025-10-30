@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from PySide6.QtCore import Slot, Qt  # ★ Qt をインポート
-from typing import Dict, List, Optional, Set, Any
+from typing import Dict, List, Optional, Set, Any, Tuple
 
 from ..models import Sequence, Scene, Cut, Actor, SceneRole
 

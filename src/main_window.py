@@ -1022,34 +1022,22 @@ class MainWindow(QMainWindow):
             else:
                 initial_assignments = self.batch_queue[-1].actor_assignments.copy()
 
-        dialog = ActorAssignmentDialog(
-            sequence, initial_assignments, self.db_data, self
-        )
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            final_assignments = dialog.get_assignments()
-            self.data_handler.add_item_to_queue(
-                sequence_id, final_assignments, self.batch_queue
-            )
-            self.batch_panel.update_queue_list()
-
         initial_overrides = {}
-
         dialog = ActorAssignmentDialog(
             sequence,
             initial_assignments,
-            initial_overrides,  # ★ 渡す
-            self.db_data,
-            self,
+            initial_overrides,
+            self.db_data,  # 4番目の引数は db_data (辞書)
+            self,  # 5番目の引数は parent (self)
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            final_assignments = dialog.get_actor_assignments()
-            final_overrides = dialog.get_appearance_overrides()  # ★ 取得
+            # --- ▼▼▼ 修正箇所 ▼▼▼ ---
+            final_assignments = dialog.get_assignments()  # ★ メソッド名を修正
+            # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+            final_overrides = dialog.get_appearance_overrides()
 
             self.data_handler.add_item_to_queue(
-                sequence_id,
-                final_assignments,
-                final_overrides,  # ★ 渡す
-                self.batch_queue,
+                sequence_id, final_assignments, final_overrides, self.batch_queue
             )
             self.batch_panel.update_queue_list()
 
@@ -1073,19 +1061,18 @@ class MainWindow(QMainWindow):
         dialog = ActorAssignmentDialog(
             sequence,
             item_to_edit.actor_assignments,
-            item_to_edit.appearance_overrides,  # ★ 既存のオーバーライドを渡す
-            self.db_data,
-            self,
+            item_to_edit.appearance_overrides,
+            self.db_data,  # 4番目の引数は db_data (辞書)
+            self,  # 5番目の引数は parent (self)
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            new_assignments = dialog.get_actor_assignments()
-            new_overrides = dialog.get_appearance_overrides()  # ★ 取得
+            # --- ▼▼▼ 修正箇所 ▼▼▼ ---
+            new_assignments = dialog.get_assignments()  # ★ メソッド名を修正
+            # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+            new_overrides = dialog.get_appearance_overrides()
 
             self.data_handler.update_queue_item_assignments(
-                queue_item_id,
-                new_assignments,
-                new_overrides,  # ★ 渡す
-                self.batch_queue,
+                queue_item_id, new_assignments, new_overrides, self.batch_queue
             )
             self.batch_panel.update_queue_list()
 
