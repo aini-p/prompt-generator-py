@@ -5,6 +5,7 @@ import json
 from typing import List
 import tempfile  # Use tempfile for intermediate JSON
 from .models import ImageGenerationTask
+from dataclasses import asdict
 
 # Assume StableDiffusionClient path relative to project root
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -37,7 +38,7 @@ def run_stable_diffusion(tasks: List[ImageGenerationTask]) -> tuple[bool, str]:
         # with open でファイルを確実に閉じる
         with open(_OUTPUT_JSON_PATH, "w", encoding="utf-8") as f:
             # dataclass のリストを辞書のリストに変換して書き込み
-            tasks_dict_list = [task.__dict__ for task in tasks]
+            tasks_dict_list = [asdict(task) for task in tasks]
             json.dump(
                 tasks_dict_list, f, indent=2, ensure_ascii=False
             )  # ensure_ascii=False で日本語をそのまま出力

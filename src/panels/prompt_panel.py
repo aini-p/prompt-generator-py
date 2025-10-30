@@ -8,8 +8,9 @@ from PySide6.QtWidgets import (
     QPushButton,
     QGroupBox,
     QMessageBox,
-    QFormLayout,  # ★ 追加
-    QGroupBox,  # ★ 追加
+    QFormLayout,
+    QGroupBox,
+    QCheckBox,
 )
 from PySide6.QtCore import Qt, Signal, Slot
 from typing import Dict, List, Optional, Any, Tuple
@@ -103,6 +104,13 @@ class PromptPanel(QWidget):
         self.role_assignment_widget.setObjectName("RoleAssignmentWidgetContainer")
         self.prompt_gen_layout.addWidget(self.role_assignment_widget)
 
+        # --- ▼▼▼ デバッグチェックボックスを追加 ▼▼▼ ---
+        self.debug_mode_checkbox = QCheckBox("Debug Mode (Reduce Steps/Size)")
+        self.debug_mode_checkbox.setToolTip(
+            "If checked, reduces steps, width, and height by 30% (x0.7) when executing generation."
+        )
+        self.prompt_gen_layout.addWidget(self.debug_mode_checkbox)
+
         # ボタン
         generate_preview_btn = QPushButton("🔄 Generate Prompt Preview")
         generate_preview_btn.setStyleSheet("background-color: #ffc107;")
@@ -116,6 +124,11 @@ class PromptPanel(QWidget):
         self.prompt_gen_layout.addWidget(execute_btn)
 
         main_layout.addWidget(group)
+
+    # --- ▼▼▼ デバッグ状態取得メソッドを追加 ▼▼▼ ---
+    def is_debug_mode_enabled(self) -> bool:
+        """デバッグモードのチェックボックスの状態を返します。"""
+        return self.debug_mode_checkbox.isChecked()
 
     def update_scene_combo(self):
         """シーン選択コンボボックスの内容を更新します。"""

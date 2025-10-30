@@ -1,7 +1,8 @@
 {
-  "last_scene_id": "scene_default_pair",
+  "last_scene_id": "scene_copy_1761815008533",
   "last_assignments": {
-    "r1": "actor_1761762861",
-    "r2": "actor_another_a"
-  }
+    "r1": "actor_another_a",
+    "r2": "actor_default_female"
+  },
+  "last_overrides": {}
 }

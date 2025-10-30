@@ -1,6 +1,7 @@
 # src/main_window.py
 import sys, os, json, time, traceback
-import copy  # ★ copy モジュールをインポート
+import copy
+import math
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -628,6 +629,21 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Execute", "生成タスクがありません。")
                 return
 
+            # --- ▼▼▼ デバッグモード適用 ▼▼▼ ---
+            if self.prompt_panel.is_debug_mode_enabled():
+                print("[DEBUG] Debug mode enabled. Modifying task parameters (x0.7)...")
+                for task in tasks:
+                    task.steps = math.floor(task.steps * 0.7)
+                    task.width = math.floor(task.width * 0.7)
+                    task.height = math.floor(task.height * 0.7)
+                    # 最小値を設定（例: 1ステップ、64ピクセル）
+                    if task.steps < 1:
+                        task.steps = 1
+                    if task.width < 64:
+                        task.width = 64
+                    if task.height < 64:
+                        task.height = 64
+
             success, message = run_stable_diffusion(tasks)
             if success:
                 QMessageBox.information(self, "Execute", message)
@@ -1138,6 +1154,11 @@ class MainWindow(QMainWindow):
         global_prompt_index = 1
         cuts_data = self.db_data.get("cuts", {})  # ★ カットデータを取得
 
+        # --- ▼▼▼ デバッグモードか先に確認 ▼▼▼ ---
+        is_debug_mode = self.prompt_panel.is_debug_mode_enabled()
+        if is_debug_mode:
+            print("[DEBUG] Batch run started in DEBUG mode (x0.7).")
+
         try:
             for queue_item in self.batch_queue:
                 sequence = sequences_data.get(queue_item.sequence_id)
@@ -1183,6 +1204,20 @@ class MainWindow(QMainWindow):
                         scene=scene,  # ★ Scene も渡す
                         db=full_db,
                     )
+
+                    # --- ▼▼▼ デバッグモード適用 (バッチ用) ▼▼▼ ---
+                    if is_debug_mode:
+                        for task in tasks_for_scene:
+                            task.steps = math.floor(task.steps * 0.7)
+                            task.width = math.floor(task.width * 0.7)
+                            task.height = math.floor(task.height * 0.7)
+                            if task.steps < 1:
+                                task.steps = 1
+                            if task.width < 64:
+                                task.width = 64
+                            if task.height < 64:
+                                task.height = 64
+
                     all_tasks.extend(tasks_for_scene)
                     global_prompt_index += len(prompts_for_scene)
 
