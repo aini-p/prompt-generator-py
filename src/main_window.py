@@ -63,6 +63,7 @@ from .models import (
     AdditionalPrompt,
     RoleAppearanceAssignment,
     ColorPaletteItem,
+    BatchMetadata,
 )
 from typing import (
     Dict,
@@ -583,7 +584,6 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Execute", "シーンが選択されていません。")
             return
 
-        # ▼▼▼ Cut オブジェクトを取得 ▼▼▼
         current_cut_id = getattr(current_scene, "cut_id", None)
         current_cut: Optional[Cut] = (
             self.db_data.get("cuts", {}).get(current_cut_id) if current_cut_id else None
@@ -595,10 +595,8 @@ class MainWindow(QMainWindow):
                 f"シーン '{getattr(current_scene, 'name', 'N/A')}' に有効なカットが設定されていません。",
             )
             return
-        # ▲▲▲ 追加ここまで ▲▲▲
 
         try:
-            # SD Params は Scene から取得 (変更なし)
             sd_param_id = getattr(current_scene, "sd_param_id", None)
             current_sd_params = (
                 self.db_data.get("sdParams", {}).get(sd_param_id)
@@ -616,7 +614,6 @@ class MainWindow(QMainWindow):
                     f"[WARN] SD Params not found for scene or globally, using fallback: {current_sd_params.name}"
                 )
 
-            # ▼▼▼ create_image_generation_tasks に Cut と Scene を渡す ▼▼▼
             full_db = FullDatabase(**self.db_data)
             tasks = create_image_generation_tasks(
                 generated_prompts=self.generated_prompts,
@@ -624,26 +621,48 @@ class MainWindow(QMainWindow):
                 scene=current_scene,
                 db=full_db,
             )
-            # ▲▲▲ 修正ここまで ▲▲▲
             if not tasks:
                 QMessageBox.warning(self, "Execute", "生成タスクがありません。")
                 return
 
-            # --- ▼▼▼ デバッグモード適用 ▼▼▼ ---
-            if self.prompt_panel.is_debug_mode_enabled():
+            # --- ★ メタデータを収集 ---
+            metadata = BatchMetadata(
+                sequence_name="Test",  # 単一実行時は固定
+                scene_name=getattr(current_scene, "name", "N/A"),
+            )
+            char_names = set()
+            work_titles = set()
+            for role_id, actor_id in self.actor_assignments.items():
+                actor = self.db_data.get("actors", {}).get(actor_id)
+                if actor:
+                    char = self.db_data.get("characters", {}).get(actor.character_id)
+                    if char:
+                        char_names.add(getattr(char, "name", ""))
+                        work = self.db_data.get("works", {}).get(char.work_id)
+                        if work:
+                            work_titles.add(getattr(work, "title_jp", ""))
+            metadata.character_names = sorted(list(filter(None, char_names)))
+            metadata.work_titles = sorted(list(filter(None, work_titles)))
+
+            # --- ★ デバッグモード適用 / メタデータ注入 ---
+            is_debug_mode = self.prompt_panel.is_debug_mode_enabled()
+            if is_debug_mode:
                 print("[DEBUG] Debug mode enabled. Modifying task parameters (x0.7)...")
-                for task in tasks:
+
+            for task in tasks:
+                if is_debug_mode:
                     task.steps = math.floor(task.steps * 0.7)
                     task.width = math.floor(task.width * 0.7)
                     task.height = math.floor(task.height * 0.7)
-                    # 最小値を設定（例: 1ステップ、64ピクセル）
                     if task.steps < 1:
                         task.steps = 1
                     if task.width < 64:
                         task.width = 64
                     if task.height < 64:
                         task.height = 64
+                task.metadata = metadata  # ★ メタデータを各タスクに設定
 
+            # --- ★ run_stable_diffusion 呼び出し (引数は tasks のみ) ---
             success, message = run_stable_diffusion(tasks)
             if success:
                 QMessageBox.information(self, "Execute", message)
@@ -1135,13 +1154,11 @@ class MainWindow(QMainWindow):
         self.batch_panel.set_status("Starting batch generation...", 0)
         QApplication.processEvents()
 
-        all_tasks: List[ImageGenerationTask] = []
+        all_tasks: List[ImageGenerationTask] = []  # ★ 全タスクを集約
         full_db = FullDatabase(**self.db_data)
         processed_scenes_count = 0
         global_prompt_index = 1
-        cuts_data = self.db_data.get("cuts", {})  # ★ カットデータを取得
-
-        # --- ▼▼▼ デバッグモードか先に確認 ▼▼▼ ---
+        cuts_data = self.db_data.get("cuts", {})
         is_debug_mode = self.prompt_panel.is_debug_mode_enabled()
         if is_debug_mode:
             print("[DEBUG] Batch run started in DEBUG mode (x0.7).")
@@ -1150,12 +1167,31 @@ class MainWindow(QMainWindow):
             for queue_item in self.batch_queue:
                 sequence = sequences_data.get(queue_item.sequence_id)
                 if not sequence:
-                    continue  # ... (エラーログ) ...
+                    continue
 
                 self.batch_panel.set_status(
                     f"Processing Sequence: {getattr(sequence, 'name', 'N/A')}..."
                 )
                 QApplication.processEvents()
+
+                # --- ★ シーンごとのメタデータ収集用 ---
+                char_names_for_seq = set()
+                work_titles_for_seq = set()
+                for role_id, actor_id in queue_item.actor_assignments.items():
+                    actor = self.db_data.get("actors", {}).get(actor_id)
+                    if actor:
+                        char = self.db_data.get("characters", {}).get(
+                            actor.character_id
+                        )
+                        if char:
+                            char_names_for_seq.add(getattr(char, "name", ""))
+                            work = self.db_data.get("works", {}).get(char.work_id)
+                            if work:
+                                work_titles_for_seq.add(getattr(work, "title_jp", ""))
+
+                char_names_list = sorted(list(filter(None, char_names_for_seq)))
+                work_titles_list = sorted(list(filter(None, work_titles_for_seq)))
+                # --- ★ メタデータ収集ここまで ---
 
                 for scene_entry in sequence.scene_entries:
                     if not scene_entry.is_enabled:
@@ -1163,9 +1199,8 @@ class MainWindow(QMainWindow):
                     scene_id = scene_entry.scene_id
                     scene = scenes_data.get(scene_id)
                     if not scene:
-                        continue  # ... (エラーログ) ...
+                        continue
 
-                    # ▼▼▼ Cut オブジェクトを取得 ▼▼▼
                     cut_id = getattr(scene, "cut_id", None)
                     cut = cuts_data.get(cut_id) if cut_id else None
                     if not cut:
@@ -1173,12 +1208,11 @@ class MainWindow(QMainWindow):
                             f"[WARN] Cut '{cut_id}' not found for Scene '{getattr(scene, 'name', 'N/A')}', skipping task generation."
                         )
                         continue
-                    # ▲▲▲ 追加ここまで ▲▲▲
 
                     prompts_for_scene = generate_batch_prompts(
                         scene_id=scene_id,
                         actor_assignments=queue_item.actor_assignments,
-                        appearance_overrides=queue_item.appearance_overrides,  # ★ 追加
+                        appearance_overrides=queue_item.appearance_overrides,
                         db=full_db,
                     )
 
@@ -1187,14 +1221,25 @@ class MainWindow(QMainWindow):
 
                     tasks_for_scene = create_image_generation_tasks(
                         generated_prompts=prompts_for_scene,
-                        cut=cut,  # ★ Cut を渡す
-                        scene=scene,  # ★ Scene も渡す
+                        cut=cut,
+                        scene=scene,
                         db=full_db,
                     )
 
-                    # --- ▼▼▼ デバッグモード適用 (バッチ用) ▼▼▼ ---
-                    if is_debug_mode:
-                        for task in tasks_for_scene:
+                    if not tasks_for_scene:
+                        processed_scenes_count += 1
+                        continue
+
+                    # --- ★ シーン固有のメタデータを作成 ---
+                    metadata_for_scene = BatchMetadata(
+                        sequence_name=getattr(sequence, "name", "N/A"),
+                        scene_name=getattr(scene, "name", "N/A"),
+                        character_names=char_names_list,  # シーケンス（キューアイテム）単位
+                        work_titles=work_titles_list,  # シーケンス（キューアイテム）単位
+                    )
+
+                    for task in tasks_for_scene:
+                        if is_debug_mode:
                             task.steps = math.floor(task.steps * 0.7)
                             task.width = math.floor(task.width * 0.7)
                             task.height = math.floor(task.height * 0.7)
@@ -1204,10 +1249,10 @@ class MainWindow(QMainWindow):
                                 task.width = 64
                             if task.height < 64:
                                 task.height = 64
+                        task.metadata = metadata_for_scene  # ★ メタデータを注入
 
-                    all_tasks.extend(tasks_for_scene)
+                    all_tasks.extend(tasks_for_scene)  # ★ タスクを集約
                     global_prompt_index += len(prompts_for_scene)
-
                     processed_scenes_count += 1
                     progress = int(
                         (processed_scenes_count / total_scenes_to_process) * 95
@@ -1218,17 +1263,19 @@ class MainWindow(QMainWindow):
                     )
                     QApplication.processEvents()
 
-            # 3. バッチ実行 (変更なし)
+            # --- ★ ループ終了後、バッチ実行 ---
             if not all_tasks:
                 QMessageBox.warning(self, "Batch Run", "No tasks generated.")
-                self.batch_panel.set_buttons_enabled(True)
                 self.batch_panel.set_status("Idle", 0)
+                self.batch_panel.set_buttons_enabled(True)
                 return
 
             self.batch_panel.set_status(
                 f"Running Stable Diffusion for {len(all_tasks)} tasks...", 95
             )
             QApplication.processEvents()
+
+            # --- ★ run_stable_diffusion を1回だけ呼び出す (引数は all_tasks のみ) ---
             success, message = run_stable_diffusion(all_tasks)
 
             if success:

@@ -153,10 +153,18 @@ class StableDiffusionParams:
     denoising_strength: float = 0.6
 
 
-# --- ▲▲▲ 修正ここまで ▲▲▲ ---
+@dataclass
+class BatchMetadata:
+    """
+    tasks.json に含めるメタデータ。
+    """
+
+    sequence_name: str = ""
+    scene_name: str = ""
+    character_names: List[str] = field(default_factory=list)
+    work_titles: List[str] = field(default_factory=list)
 
 
-# --- tasks.json 用 (変更なし) ---
 @dataclass
 class ImageGenerationTask:
     prompt: str
@@ -171,6 +179,7 @@ class ImageGenerationTask:
     filename_prefix: str
     source_image_path: str
     denoising_strength: Optional[float]
+    metadata: BatchMetadata = field(default_factory=BatchMetadata)
 
 
 # --- プロンプト生成結果の型 (変更なし) ---
