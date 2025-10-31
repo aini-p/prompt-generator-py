@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QFormLayout,  # ★ QFormLayout をインポート
 )
-from PySide6.QtCore import Qt, Slot, QModelIndex, QMimeData
+from PySide6.QtCore import Qt, Slot, QModelIndex, QMimeData, QThread, Signal
 from PySide6.QtGui import QCloseEvent, QDragEnterEvent, QDropEvent, QDragMoveEvent
 from .widgets.base_editor_dialog import BaseEditorDialog
 from . import database as db
@@ -101,10 +101,12 @@ from .widgets.generic_selection_dialog import GenericSelectionDialog
 
 # ------------------------------------
 from .prompt_generator import generate_batch_prompts, create_image_generation_tasks
-from .batch_runner import run_stable_diffusion
+from .generation_worker import GenerationWorker
 
 
 class MainWindow(QMainWindow):
+    start_worker_generation = Signal(list)
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Object-Oriented Prompt Builder")
@@ -221,11 +223,41 @@ class MainWindow(QMainWindow):
         # --- シグナル接続 ---
         self._connect_signals()
 
+        # --- ▼▼▼ ワーカーとスレッドのセットアップ (UI初期化 *後*) ▼▼▼ ---
+        self.worker_thread = QThread(self)
+        self.worker = GenerationWorker()
+        self.worker.moveToThread(self.worker_thread)
+
+        # ワーカーからのシグナルをGUIスロットに接続
+        self.worker.progress_updated.connect(self.on_worker_progress)
+        self.worker.finished.connect(self.on_worker_finished)
+        self.worker.log_message.connect(self.on_worker_log)  # コンソール/デバッグ用
+
+        # ワーカーを起動するシグナルを接続
+        self.start_worker_generation.connect(self.worker.start_generation)
+
+        # スレッドを開始 (待機状態へ)
+        self.worker_thread.start()
+
         # --- UIパネルの初期状態設定 ---
         self.prompt_panel.set_current_scene(self.current_scene_id)
         self.prompt_panel.set_assignments(self.actor_assignments)
         self.prompt_panel._current_overrides = self.appearance_overrides
         self.update_prompt_display()
+
+    def closeEvent(self, event: QCloseEvent):
+        """アプリケーション終了時に設定を保存し、スレッドを停止します。"""
+        self.data_handler.save_config(
+            self.current_scene_id,
+            self.actor_assignments,
+            self.appearance_overrides,
+        )
+
+        # ワークスレッドを停止
+        self.worker_thread.quit()
+        self.worker_thread.wait(5000)  # 5秒待機
+
+        event.accept()
 
     def _connect_signals(self):
         # Data Management Panel
@@ -577,6 +609,9 @@ class MainWindow(QMainWindow):
                 self, "Execute", "先に 'Generate Prompt Preview' を実行してください。"
             )
             return
+
+        # (ボタン無効化とステータス設定はワーカー開始時に行う)
+
         current_scene: Optional[Scene] = self.db_data.get("scenes", {}).get(
             self.current_scene_id
         )
@@ -597,6 +632,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
+            # (SD Params の取得ロジックは変更なし)
             sd_param_id = getattr(current_scene, "sd_param_id", None)
             current_sd_params = (
                 self.db_data.get("sdParams", {}).get(sd_param_id)
@@ -625,9 +661,9 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Execute", "生成タスクがありません。")
                 return
 
-            # --- ★ メタデータを収集 ---
+            # (メタデータ収集ロジックは変更なし)
             metadata = BatchMetadata(
-                sequence_name="Test",  # 単一実行時は固定
+                sequence_name="Single Scene",
                 scene_name=getattr(current_scene, "name", "N/A"),
             )
             char_names = set()
@@ -644,7 +680,7 @@ class MainWindow(QMainWindow):
             metadata.character_names = sorted(list(filter(None, char_names)))
             metadata.work_titles = sorted(list(filter(None, work_titles)))
 
-            # --- ★ デバッグモード適用 / メタデータ注入 ---
+            # (デバッグモード適用 / メタデータ注入ロジックは変更なし)
             is_debug_mode = self.prompt_panel.is_debug_mode_enabled()
             if is_debug_mode:
                 print("[DEBUG] Debug mode enabled. Modifying task parameters (x0.7)...")
@@ -660,20 +696,24 @@ class MainWindow(QMainWindow):
                         task.width = 64
                     if task.height < 64:
                         task.height = 64
-                task.metadata = metadata  # ★ メタデータを各タスクに設定
+                task.metadata = metadata
 
-            # --- ★ run_stable_diffusion 呼び出し (引数は tasks のみ) ---
-            success, message = run_stable_diffusion(tasks)
-            if success:
-                QMessageBox.information(self, "Execute", message)
-            else:
-                QMessageBox.critical(self, "Execution Error", message)
+            # --- ★ ワーカーにタスクを渡して実行開始 ---
+            self.batch_panel.set_buttons_enabled(False)
+            self.prompt_panel.execute_btn.setEnabled(
+                False
+            )  # プロンプトパネルのボタンも
+            self.batch_panel.set_status("Starting single generation...", 0)
+            self.start_worker_generation.emit(tasks)  # ★ シグナルを発行
+
         except Exception as e:
             QMessageBox.critical(
                 self, "Execution Error", f"予期せぬエラーが発生しました: {e}"
             )
             print(f"[DEBUG] Execution error: {e}")
             traceback.print_exc()
+            self.batch_panel.set_buttons_enabled(True)  # エラー時はボタンを戻す
+            self.prompt_panel.execute_btn.setEnabled(True)
 
     def update_prompt_display(self):
         """プロンプト表示エリアを更新します。"""
@@ -1134,6 +1174,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Batch Run", "Batch queue is empty.")
             return
 
+        # (total_scenes_to_process の計算は変更なし)
         total_scenes_to_process = 0
         sequences_data = self.db_data.get("sequences", {})
         scenes_data = self.db_data.get("scenes", {})
@@ -1143,7 +1184,6 @@ class MainWindow(QMainWindow):
                 total_scenes_to_process += sum(
                     1 for entry in sequence.scene_entries if entry.is_enabled
                 )
-
         if total_scenes_to_process == 0:
             QMessageBox.warning(
                 self, "Batch Run", "No enabled scenes found in the queue."
@@ -1151,10 +1191,11 @@ class MainWindow(QMainWindow):
             return
 
         self.batch_panel.set_buttons_enabled(False)
+        self.prompt_panel.execute_btn.setEnabled(False)  # プロンプトパネルのボタンも
         self.batch_panel.set_status("Starting batch generation...", 0)
         QApplication.processEvents()
 
-        all_tasks: List[ImageGenerationTask] = []  # ★ 全タスクを集約
+        all_tasks: List[ImageGenerationTask] = []
         full_db = FullDatabase(**self.db_data)
         processed_scenes_count = 0
         global_prompt_index = 1
@@ -1164,6 +1205,7 @@ class MainWindow(QMainWindow):
             print("[DEBUG] Batch run started in DEBUG mode (x0.7).")
 
         try:
+            # (タスクとメタデータの集約ループは変更なし)
             for queue_item in self.batch_queue:
                 sequence = sequences_data.get(queue_item.sequence_id)
                 if not sequence:
@@ -1174,7 +1216,6 @@ class MainWindow(QMainWindow):
                 )
                 QApplication.processEvents()
 
-                # --- ★ シーンごとのメタデータ収集用 ---
                 char_names_for_seq = set()
                 work_titles_for_seq = set()
                 for role_id, actor_id in queue_item.actor_assignments.items():
@@ -1191,7 +1232,6 @@ class MainWindow(QMainWindow):
 
                 char_names_list = sorted(list(filter(None, char_names_for_seq)))
                 work_titles_list = sorted(list(filter(None, work_titles_for_seq)))
-                # --- ★ メタデータ収集ここまで ---
 
                 for scene_entry in sequence.scene_entries:
                     if not scene_entry.is_enabled:
@@ -1230,12 +1270,11 @@ class MainWindow(QMainWindow):
                         processed_scenes_count += 1
                         continue
 
-                    # --- ★ シーン固有のメタデータを作成 ---
                     metadata_for_scene = BatchMetadata(
                         sequence_name=getattr(sequence, "name", "N/A"),
                         scene_name=getattr(scene, "name", "N/A"),
-                        character_names=char_names_list,  # シーケンス（キューアイテム）単位
-                        work_titles=work_titles_list,  # シーケンス（キューアイテム）単位
+                        character_names=char_names_list,
+                        work_titles=work_titles_list,
                     )
 
                     for task in tasks_for_scene:
@@ -1249,9 +1288,9 @@ class MainWindow(QMainWindow):
                                 task.width = 64
                             if task.height < 64:
                                 task.height = 64
-                        task.metadata = metadata_for_scene  # ★ メタデータを注入
+                        task.metadata = metadata_for_scene
 
-                    all_tasks.extend(tasks_for_scene)  # ★ タスクを集約
+                    all_tasks.extend(tasks_for_scene)
                     global_prompt_index += len(prompts_for_scene)
                     processed_scenes_count += 1
                     progress = int(
@@ -1268,6 +1307,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Batch Run", "No tasks generated.")
                 self.batch_panel.set_status("Idle", 0)
                 self.batch_panel.set_buttons_enabled(True)
+                self.prompt_panel.execute_btn.setEnabled(True)
                 return
 
             self.batch_panel.set_status(
@@ -1275,15 +1315,8 @@ class MainWindow(QMainWindow):
             )
             QApplication.processEvents()
 
-            # --- ★ run_stable_diffusion を1回だけ呼び出す (引数は all_tasks のみ) ---
-            success, message = run_stable_diffusion(all_tasks)
-
-            if success:
-                QMessageBox.information(self, "Batch Run Complete", message)
-                self.batch_panel.set_status("Batch completed.", 100)
-            else:
-                QMessageBox.critical(self, "Batch Run Error", message)
-                self.batch_panel.set_status(f"Error: {message}", 0)
+            # --- ★ ワーカーにタスクを渡して実行開始 ---
+            self.start_worker_generation.emit(all_tasks)  # ★ シグナルを発行
 
         except Exception as e:
             QMessageBox.critical(
@@ -1292,8 +1325,35 @@ class MainWindow(QMainWindow):
             print(f"[ERROR] Batch execution failed: {e}")
             traceback.print_exc()
             self.batch_panel.set_status(f"Error: {e}", 0)
-        finally:
             self.batch_panel.set_buttons_enabled(True)
+            self.prompt_panel.execute_btn.setEnabled(True)
+
+    @Slot(int, int, str)
+    def on_worker_progress(self, total: int, current: int, message: str):
+        """ワーカーからの進捗シグナルを処理します"""
+        if total > 0:
+            self.batch_panel.progress_bar.setMaximum(total)
+            self.batch_panel.progress_bar.setValue(current)
+        self.batch_panel.status_label.setText(f"Status: {message}")
+
+    @Slot(bool, str)
+    def on_worker_finished(self, success: bool, message: str):
+        """ワーカーの終了シグナルを処理します"""
+        self.batch_panel.set_buttons_enabled(True)
+        self.prompt_panel.execute_btn.setEnabled(True)  # プロンプトパネルのボタンも
+
+        if success:
+            QMessageBox.information(self, "Generation Complete", message)
+            self.batch_panel.set_status("Generation completed.", 100)
+        else:
+            QMessageBox.critical(self, "Generation Error", message)
+            self.batch_panel.set_status(f"Error: {message}", 0)
+
+    @Slot(str)
+    def on_worker_log(self, message: str):
+        """ワーカーからの生ログをコンソールに出力します"""
+        # print() はGUIスレッドからでも安全
+        print(f"[Worker] {message}")
 
 
 # --- (main 関数実行部分は変更なし) ---

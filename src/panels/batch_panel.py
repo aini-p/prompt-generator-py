@@ -166,13 +166,31 @@ class BatchPanel(QWidget):
         self.status_label.setText(f"Status: {text}")
         if progress is not None:
             self.progress_bar.setValue(progress)
-        else:
-            self.progress_bar.setValue(0)  # アイドル時などは0にリセット
+        # 実行完了時以外は 0 にリセットしない (ワーカーが細かい粒度で更新するため)
+        if progress == 100 or progress == 0:
+            self.progress_bar.setValue(progress)
+
+    @Slot(str)
+    def set_status_text(self, text: str):
+        """ワーカーからの生ログを受け取り、ステータスラベルに表示する"""
+        # 特定のキーワードが含まれていない限り、Status: を上書きしない
+        # (GenImage.py が "Status:" という単語を出力しない前提)
+        if "Status:" not in text:
+            self.status_label.setText(text)
+        # コンソールには常に出力
+        # print(f"[Panel Log] {text}") # MainWindow 側で print しているので不要かも
 
     def set_buttons_enabled(self, enabled: bool):
         # 実行中にボタンを無効化するなどの制御用
         self.run_batch_btn.setEnabled(enabled)
         # 他のボタンも必要に応じて制御
+        # (例: enabled でない間は他のボタンも無効にする)
+        self.sequence_list.setEnabled(enabled)
+        self.queue_list.setEnabled(enabled)
+        # ... (add_seq_btn や edit_assign_btn なども無効化) ...
+        for button in self.findChildren(QPushButton):
+            if button != self.run_batch_btn:  # 実行ボタン自体以外
+                button.setEnabled(enabled)
 
     # --- シグナル発行用スロット ---
     @Slot(QListWidgetItem)
