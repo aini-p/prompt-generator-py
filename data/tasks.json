@@ -9,62 +9,12 @@
     "width": 1024,
     "height": 512,
     "mode": "txt2img",
-    "filename_prefix": "デフォルト作品_デフォルト女性キャラ_re_cut1",
+    "filename_prefix": "デフォルト作品_デフォルト女性キャラ_re_(Copy)_cut1",
     "source_image_path": "",
     "denoising_strength": null,
     "metadata": {
-      "sequence_name": "実験",
-      "scene_name": "re",
-      "character_names": [
-        "デフォルト女性キャラ",
-        "デフォルト男性キャラ"
-      ],
-      "work_titles": [
-        "デフォルト作品"
-      ]
-    }
-  },
-  {
-    "prompt": "(1girl, beautiful, wearing a simple white shirt, standing, torn clothes, scratches) and (1boy, handsome, wearing a simple white shirt, standing, torn clothes, scratches), standing, simple white background, studio lighting, medium shot, chromatic aberration, lens flare",
-    "negative_prompt": "a, outdoors, indoors, close-up, long shot",
-    "steps": 20,
-    "sampler_name": "Euler a",
-    "cfg_scale": 7.0,
-    "seed": -1,
-    "width": 1024,
-    "height": 512,
-    "mode": "txt2img",
-    "filename_prefix": "デフォルト作品_デフォルト女性キャラ_re_cut2",
-    "source_image_path": "",
-    "denoising_strength": null,
-    "metadata": {
-      "sequence_name": "実験",
-      "scene_name": "re",
-      "character_names": [
-        "デフォルト女性キャラ",
-        "デフォルト男性キャラ"
-      ],
-      "work_titles": [
-        "デフォルト作品"
-      ]
-    }
-  },
-  {
-    "prompt": "(1girl, beautiful, wearing a simple white shirt, standing) and (1boy, handsome, wearing a simple white shirt, standing), standing",
-    "negative_prompt": "a",
-    "steps": 20,
-    "sampler_name": "Euler a",
-    "cfg_scale": 7.0,
-    "seed": -1,
-    "width": 512,
-    "height": 512,
-    "mode": "txt2img",
-    "filename_prefix": "デフォルト作品_デフォルト女性キャラ_test_cut3",
-    "source_image_path": "",
-    "denoising_strength": null,
-    "metadata": {
-      "sequence_name": "実験",
-      "scene_name": "test",
+      "sequence_name": "Single Scene",
+      "scene_name": "re (Copy)",
       "character_names": [
         "デフォルト女性キャラ",
         "デフォルト男性キャラ"

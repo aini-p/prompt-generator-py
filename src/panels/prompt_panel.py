@@ -116,13 +116,14 @@ class PromptPanel(QWidget):
         generate_preview_btn.setStyleSheet("background-color: #ffc107;")
         generate_preview_btn.clicked.connect(self.generatePromptsClicked)
 
-        execute_btn = QPushButton("🚀 Execute Image Generation (Run Batch)")
-        execute_btn.setStyleSheet("background-color: #28a745; color: white;")
-        execute_btn.clicked.connect(self.executeGenerationClicked)
+        self.execute_btn = QPushButton(
+            "🚀 Execute Image Generation (Run Batch)"
+        )  # 1. 'self.' を追加
+        self.execute_btn.setStyleSheet("background-color: #28a745; color: white;")
+        self.execute_btn.clicked.connect(self.executeGenerationClicked)
 
         self.prompt_gen_layout.addWidget(generate_preview_btn)
-        self.prompt_gen_layout.addWidget(execute_btn)
-
+        self.prompt_gen_layout.addWidget(self.execute_btn)  # 2. 'self.' を追加
         main_layout.addWidget(group)
 
     # --- ▼▼▼ デバッグ状態取得メソッドを追加 ▼▼▼ ---
