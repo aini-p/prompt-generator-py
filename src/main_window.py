@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QTabWidget,
     QProgressBar,
-    QFormLayout,  # ★ QFormLayout をインポート
+    QFormLayout,
 )
 from PySide6.QtCore import Qt, Slot, QModelIndex, QMimeData, QThread, Signal
 from PySide6.QtGui import QCloseEvent, QDragEnterEvent, QDropEvent, QDragMoveEvent
@@ -38,7 +38,7 @@ from .models import (
     Scene,
     Actor,
     PromptPartBase,
-    StableDiffusionParams,  # ★ 正しいクラス名に修正
+    StableDiffusionParams,
     Costume,
     Pose,
     Expression,
@@ -54,7 +54,7 @@ from .models import (
     Work,
     Character,
     Style,
-    Cut,  # ★ Cut をインポート
+    Cut,
     Sequence,
     SequenceSceneEntry,
     QueueItem,
@@ -62,7 +62,6 @@ from .models import (
     State,
     AdditionalPrompt,
     RoleAppearanceAssignment,
-    ColorPaletteItem,
     BatchMetadata,
 )
 from typing import (
@@ -105,21 +104,21 @@ from .generation_worker import GenerationWorker
 
 
 class MainWindow(QMainWindow):
-    start_worker_generation = Signal(list)
+    # --- ▼▼▼ ワーカー起動用のシグナルを変更 (str を追加) ▼▼▼ ---
+    start_worker_generation = Signal(list, str)
+    # --- ▲▲▲ 変更ここまで ▲▲▲ ---
 
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Object-Oriented Prompt Builder")
         self.setGeometry(100, 100, 1200, 800)
 
-        # --- ▼▼▼ editor_dialog_mapping を修正 ▼▼▼ ---
         self.editor_dialog_mapping: Dict[str, Tuple[Type[QDialog], DatabaseKey]] = {
             "WORK": (WorkEditorDialog, "works"),
             "CHARACTER": (CharacterEditorDialog, "characters"),
             "ACTOR": (ActorEditorDialog, "actors"),
             "SCENE": (SceneEditorDialog, "scenes"),
             "CUT": (CutEditorDialog, "cuts"),
-            # "DIRECTION": (DirectionEditorDialog, "directions"), # ← 削除
             "COSTUME": (CostumeEditorDialog, "costumes"),
             "POSE": (SimplePartEditorDialog, "poses"),
             "EXPRESSION": (SimplePartEditorDialog, "expressions"),
@@ -132,7 +131,6 @@ class MainWindow(QMainWindow):
             "SDPARAMS": (SDParamsEditorDialog, "sdParams"),
             "SEQUENCE": (SequenceEditorDialog, "sequences"),
         }
-        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
         # --- データ関連 ---
         self.db_data: Dict[str, Dict[str, Any]] = {}
@@ -141,16 +139,21 @@ class MainWindow(QMainWindow):
         self.actor_assignments: Dict[str, str] = {}
         self.appearance_overrides: Dict[str, Dict[str, Optional[str]]] = {}
         self.generated_prompts: List[GeneratedPrompt] = []
+        self.image_output_base_dir: str = "data/output_images"  # ★ デフォルト値
 
         self.data_handler = DataHandler(self)
 
-        # --- データと設定の読み込み ---
+        # --- ▼▼▼ データと設定の読み込み (戻り値の受け取りを変更) ▼▼▼ ---
         _db_data, _batch_queue, initial_scene_id = self.data_handler.load_all_data()
         self.db_data = _db_data
         self.batch_queue = _batch_queue
-        last_scene_id, last_assignments, last_overrides = (
-            self.data_handler.load_config()
-        )
+        (
+            last_scene_id,
+            last_assignments,
+            last_overrides,
+            self.image_output_base_dir,  # ★ ここで読み込む
+        ) = self.data_handler.load_config()
+        # --- ▲▲▲ 変更ここまで ▲▲▲ ---
 
         # --- 状態を初期化 ---
         self.current_scene_id = (
@@ -170,12 +173,10 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(main_widget)
         main_layout = QHBoxLayout(main_widget)
 
-        # --- 左パネル (タブ形式) ---
         left_tab_widget = QTabWidget()
         left_tab_widget.setMinimumWidth(400)
         left_tab_widget.setMaximumWidth(600)
 
-        # --- プロンプト生成タブ ---
         prompt_tab = QWidget()
         prompt_tab_layout = QVBoxLayout(prompt_tab)
         self.data_management_panel = DataManagementPanel()
@@ -186,23 +187,16 @@ class MainWindow(QMainWindow):
         prompt_tab_layout.addStretch()
         left_tab_widget.addTab(prompt_tab, "Prompt Generation")
 
-        # --- バッチ処理タブ ---
         self.batch_panel = BatchPanel()
         self.batch_panel.set_data_reference(
             self.db_data.get("sequences", {}), self.batch_queue
         )
         left_tab_widget.addTab(self.batch_panel, "Batch (Sequence)")
 
-        # --- ライブラリタブ ---
         self.library_panel = LibraryPanel()
         self.library_panel.set_data_reference(self.db_data)
-        # --- ▼▼▼ LibraryPanel のタイプに Direction を除外 ▼▼▼ ---
-        # (library_panel.py 側での修正が主)
-        # library_types から Direction を削除する処理は library_panel.py で行う想定
-        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
         left_tab_widget.addTab(self.library_panel, "Library")
 
-        # --- 右パネル ---
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         right_panel.setMinimumWidth(500)
@@ -213,7 +207,6 @@ class MainWindow(QMainWindow):
         prompt_display_layout.addWidget(self.prompt_display_area)
         right_layout.addWidget(prompt_display_group)
 
-        # --- 全体のレイアウト ---
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(left_tab_widget)
         splitter.addWidget(right_panel)
@@ -223,20 +216,17 @@ class MainWindow(QMainWindow):
         # --- シグナル接続 ---
         self._connect_signals()
 
-        # --- ▼▼▼ ワーカーとスレッドのセットアップ (UI初期化 *後*) ▼▼▼ ---
+        # --- ワーカーとスレッドのセットアップ ---
         self.worker_thread = QThread(self)
         self.worker = GenerationWorker()
         self.worker.moveToThread(self.worker_thread)
 
-        # ワーカーからのシグナルをGUIスロットに接続
         self.worker.progress_updated.connect(self.on_worker_progress)
         self.worker.finished.connect(self.on_worker_finished)
-        self.worker.log_message.connect(self.on_worker_log)  # コンソール/デバッグ用
+        self.worker.log_message.connect(self.on_worker_log)
 
-        # ワーカーを起動するシグナルを接続
         self.start_worker_generation.connect(self.worker.start_generation)
 
-        # スレッドを開始 (待機状態へ)
         self.worker_thread.start()
 
         # --- UIパネルの初期状態設定 ---
@@ -245,31 +235,13 @@ class MainWindow(QMainWindow):
         self.prompt_panel._current_overrides = self.appearance_overrides
         self.update_prompt_display()
 
-    def closeEvent(self, event: QCloseEvent):
-        """アプリケーション終了時に設定を保存し、スレッドを停止します。"""
-        self.data_handler.save_config(
-            self.current_scene_id,
-            self.actor_assignments,
-            self.appearance_overrides,
-        )
-
-        # ワークスレッドを停止
-        self.worker_thread.quit()
-        self.worker_thread.wait(5000)  # 5秒待機
-
-        event.accept()
-
     def _connect_signals(self):
         # Data Management Panel
         self.data_management_panel.saveClicked.connect(
-            lambda: self.data_handler.save_all_data(
-                self.db_data, self.batch_queue
-            )  # ★ キューも渡す
+            lambda: self.data_handler.save_all_data(self.db_data, self.batch_queue)
         )
         self.data_management_panel.exportClicked.connect(
-            lambda: self.data_handler.export_data(
-                self.db_data, self.batch_queue
-            )  # ★ キューも渡す
+            lambda: self.data_handler.export_data(self.db_data, self.batch_queue)
         )
         self.data_management_panel.importClicked.connect(self._handle_import)
 
@@ -288,12 +260,10 @@ class MainWindow(QMainWindow):
             self._handle_item_double_clicked
         )
         self.library_panel.addNewItemClicked.connect(self._handle_add_new_item)
-        self.library_panel.copyItemClicked.connect(
-            self._handle_copy_item
-        )  # ★ コピーシグナル接続
+        self.library_panel.copyItemClicked.connect(self._handle_copy_item)
         self.library_panel.deleteItemClicked.connect(self._handle_delete_item)
 
-        # --- ★ Batch Panel シグナル接続 ---
+        # Batch Panel
         self.batch_panel.addSequenceClicked.connect(
             lambda: self.open_edit_dialog("SEQUENCE", None)
         )
@@ -307,20 +277,12 @@ class MainWindow(QMainWindow):
         )
         self.batch_panel.removeQueueItemClicked.connect(self._handle_remove_from_queue)
         self.batch_panel.clearQueueClicked.connect(self._handle_clear_queue)
-        self.batch_panel.runBatchClicked.connect(
-            self.execute_batch_generation
-        )  # ★ 新しいメソッド
-        self.batch_panel.sequencesReordered.connect(
-            self._handle_sequences_reordered
-        )  # ★ D&D
-        self.batch_panel.queueItemsReordered.connect(
-            self._handle_queue_reordered
-        )  # ★ D&D
+        self.batch_panel.runBatchClicked.connect(self.execute_batch_generation)
+        self.batch_panel.sequencesReordered.connect(self._handle_sequences_reordered)
+        self.batch_panel.queueItemsReordered.connect(self._handle_queue_reordered)
 
-    # --- ▼▼▼ コピー処理用スロットを追加 ▼▼▼ ---
     @Slot(str, object)
     def _handle_copy_item(self, db_key_str: str, original_item_data: Any):
-        """LibraryPanelからのコピーリクエストを処理するスロット"""
         db_key: Optional[DatabaseKey] = (
             db_key_str if db_key_str in get_args(DatabaseKey) else None
         )
@@ -338,40 +300,28 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            # 1. ディープコピーを作成 (辞書経由で再生成)
             item_dict = original_item_data.__dict__.copy()
 
-            # ネストされたdataclassリストもコピー
             if db_key == "costumes":
-                if "color_palette" in item_dict:  # get() 追加
+                if "color_palette" in item_dict:
                     item_dict["color_palette"] = [
                         ColorPaletteItem(**cp.__dict__)
                         for cp in item_dict.get("color_palette", [])
                     ]
-                if (
-                    "state_ids" in item_dict
-                ):  # ★ state_ids もコピー (文字列リストなので単純コピーでOK)
-                    item_dict["state_ids"] = list(
-                        item_dict.get("state_ids", [])
-                    )  # get() 追加
+                if "state_ids" in item_dict:
+                    item_dict["state_ids"] = list(item_dict.get("state_ids", []))
             elif db_key == "cuts" and "roles" in item_dict:
                 item_dict["roles"] = [
                     SceneRole(**r.__dict__) for r in item_dict.get("roles", [])
-                ]  # get()追加
+                ]
             elif db_key == "scenes":
                 if "role_assignments" in item_dict:
                     item_dict["role_assignments"] = [
-                        RoleAppearanceAssignment(  # 新しいクラスで再生成
-                            role_id=ra.role_id,  # ★ .get() ではなく属性アクセスに変更
-                            costume_ids=list(
-                                ra.costume_ids
-                            ),  # ★ .get() ではなく属性アクセスに変更
-                            pose_ids=list(
-                                ra.pose_ids
-                            ),  # ★ .get() ではなく属性アクセスに変更
-                            expression_ids=list(
-                                ra.expression_ids
-                            ),  # ★ .get() ではなく属性アクセスに変更
+                        RoleAppearanceAssignment(
+                            role_id=ra.role_id,
+                            costume_ids=list(ra.costume_ids),
+                            pose_ids=list(ra.pose_ids),
+                            expression_ids=list(ra.expression_ids),
                         )
                         for ra in item_dict.get("role_assignments", [])
                     ]
@@ -387,17 +337,13 @@ class MainWindow(QMainWindow):
                 item_dict["scene_entries"] = [
                     SequenceSceneEntry(**se.__dict__)
                     for se in item_dict.get("scene_entries", [])
-                ]  # get()追加
+                ]
 
-            # 2. 新しいIDを生成
             original_id = item_dict.get("id", "unknown")
-            new_id_base = (
-                db_key[:-1] if db_key.endswith("s") else db_key
-            )  # 例: "scene", "work"
-            new_id = f"{new_id_base}_copy_{int(time.time() * 1000)}"  # より汎用的なID
+            new_id_base = db_key[:-1] if db_key.endswith("s") else db_key
+            new_id = f"{new_id_base}_copy_{int(time.time() * 1000)}"
             item_dict["id"] = new_id
 
-            # 3. 名前を変更 (Work は title_jp)
             if db_key == "works":
                 original_name = item_dict.get("title_jp", "")
                 item_dict["title_jp"] = f"{original_name} (Copy)"
@@ -405,10 +351,8 @@ class MainWindow(QMainWindow):
                 original_name = item_dict.get("name", "")
                 item_dict["name"] = f"{original_name} (Copy)"
 
-            # 4. コピーしたデータで dataclass インスタンスを再生成
             copied_data = type(original_item_data)(**item_dict)
 
-            # 5. 編集ダイアログを開く
             print(
                 f"[DEBUG] Opening editor for copied item (new ID: {new_id}) based on {original_id}"
             )
@@ -423,12 +367,8 @@ class MainWindow(QMainWindow):
             print(f"[ERROR] Failed to create copy: {e}")
             traceback.print_exc()
 
-    # --- ▲▲▲ 追加ここまで ▲▲▲ ---
-
     @Slot(str, str)
     def _handle_add_new_item(self, db_key_str: str, modal_title: str):
-        """LibraryPanel の Add New ボタンに対応するスロット。"""
-        # ★ DatabaseKey 型への変換を追加
         db_key: Optional[DatabaseKey] = (
             db_key_str if db_key_str in get_args(DatabaseKey) else None
         )
@@ -447,7 +387,7 @@ class MainWindow(QMainWindow):
                 f"[DEBUG] Error: Cannot determine modal_type for db_key '{db_key_str}'"
             )
 
-    # --- ▼▼▼ 設定保存系スロットを修正 ▼▼▼ ---
+    # --- ▼▼▼ 設定保存系スロットを修正 (save_config に引数を追加) ▼▼▼ ---
     @Slot(str)
     def _handle_scene_change_and_save_config(self, new_scene_id: str):
         print(f"[DEBUG] MainWindow received sceneChanged signal: {new_scene_id}")
@@ -456,55 +396,55 @@ class MainWindow(QMainWindow):
         if current_scene_id_before != self.current_scene_id:
             self.generated_prompts = []
             self.update_prompt_display()
-            # ★ シーンが変わったらオーバーライドはリセット
             self.appearance_overrides.clear()
-            self.prompt_panel._current_overrides = (
-                self.appearance_overrides
-            )  # パネル側も
+            self.prompt_panel._current_overrides = self.appearance_overrides
             self.data_handler.save_config(
                 self.current_scene_id,
                 self.actor_assignments,
-                self.appearance_overrides,  # ★ 渡す
+                self.appearance_overrides,
+                self.image_output_base_dir,  # ★ 追加
             )
 
     @Slot(dict)
     def _handle_assignment_change_and_save_config(self, new_assignments: dict):
         print(f"[DEBUG] MainWindow received assignmentChanged: {new_assignments}")
         self.actor_assignments = new_assignments.copy()
-        # ★ パネルから最新のオーバーライドも取得
         self.appearance_overrides = self.prompt_panel.get_current_overrides()
-
         self.generated_prompts = []
         self.update_prompt_display()
         self.data_handler.save_config(
             self.current_scene_id,
             self.actor_assignments,
-            self.appearance_overrides,  # ★ 渡す
+            self.appearance_overrides,
+            self.image_output_base_dir,  # ★ 追加
         )
 
     def closeEvent(self, event: QCloseEvent):
-        """アプリケーション終了時に設定を保存します。"""
+        """アプリケーション終了時に設定を保存し、スレッドを停止します。"""
         self.data_handler.save_config(
             self.current_scene_id,
             self.actor_assignments,
-            self.appearance_overrides,  # ★ 渡す
+            self.appearance_overrides,
+            self.image_output_base_dir,  # ★ 追加
         )
+
+        self.worker_thread.quit()
+        self.worker_thread.wait(5000)
+
         event.accept()
+
+    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
     @Slot()
     def _handle_import(self):
-        """インポートボタンが押されたときの処理。"""
-        # ★ 戻り値が変わった
         import_result = self.data_handler.import_data()
         if import_result:
             imported_db_data, imported_batch_queue = import_result
             self.db_data = imported_db_data
-            self.batch_queue = imported_batch_queue  # ★ キューも更新
+            self.batch_queue = imported_batch_queue
 
-            # --- UI と状態の更新 ---
             self.library_panel.set_data_reference(self.db_data)
             self.prompt_panel.set_data_reference(self.db_data)
-            # ★ Batch Panel も更新
             self.batch_panel.set_data_reference(
                 self.db_data.get("sequences", {}), self.batch_queue
             )
@@ -512,26 +452,21 @@ class MainWindow(QMainWindow):
             scenes_dict = self.db_data.get("scenes", {})
             new_scene_id = next(iter(scenes_dict), None)
             self.current_scene_id = new_scene_id
-            self.actor_assignments = {}  # アサインメントはリセット
+            self.actor_assignments = {}
             self.appearance_overrides = {}
-            self.generated_prompts = []  # プレビューもリセット
+            self.generated_prompts = []
 
-            # ★ UI更新メソッドを呼ぶ前にプロンプトパネルの状態を設定
             self.prompt_panel.set_current_scene(self.current_scene_id)
-            self.prompt_panel.set_assignments(
-                self.actor_assignments
-            )  # リセットされたものを渡す
+            self.prompt_panel.set_assignments(self.actor_assignments)
             self.prompt_panel._current_overrides = self.appearance_overrides
 
-            self.update_ui_after_data_change()  # UI全体更新 (リストなど)
-            self.update_prompt_display()  # プロンプト表示エリア更新
+            self.update_ui_after_data_change()
+            self.update_prompt_display()
 
     @Slot(QListWidgetItem)
     def _handle_item_double_clicked(self, item: QListWidgetItem):
-        """LibraryPanel のリスト項目がダブルクリックされたときの処理。"""
         if not item:
             return
-        # ★ _current_db_key が None の可能性を考慮
         db_key_str = self.library_panel._current_db_key
         db_key: Optional[DatabaseKey] = (
             db_key_str if db_key_str in get_args(DatabaseKey) else None
@@ -563,7 +498,7 @@ class MainWindow(QMainWindow):
                 self, "Error", f"Invalid db_key '{db_key_str}' for deletion."
             )
             return
-        self.delete_item(db_key, item_id)  # ★ delete_item メソッドを呼び出す
+        self.delete_item(db_key, item_id)
 
     @Slot(str, object, QWidget)
     def _handle_open_nested_editor(
@@ -579,7 +514,6 @@ class MainWindow(QMainWindow):
     # --- コアロジックメソッド ---
     @Slot()
     def generate_prompts(self):
-        """プロンプト生成を実行します (単一シーン用)。"""
         current_scene = self.db_data.get("scenes", {}).get(self.current_scene_id)
         if not current_scene:
             QMessageBox.warning(self, "Generate", "Please select a scene first.")
@@ -590,7 +524,7 @@ class MainWindow(QMainWindow):
             self.generated_prompts = generate_batch_prompts(
                 scene_id=self.current_scene_id,
                 actor_assignments=self.actor_assignments,
-                appearance_overrides=self.appearance_overrides,  # ★ 渡す
+                appearance_overrides=self.appearance_overrides,
                 db=full_db,
             )
             self.update_prompt_display()
@@ -601,6 +535,7 @@ class MainWindow(QMainWindow):
             print(f"[DEBUG] Prompt generation error: {e}")
             traceback.print_exc()
 
+    # --- ▼▼▼ execute_generation を修正 (start_worker_generation の呼び出し) ▼▼▼ ---
     @Slot()
     def execute_generation(self):
         """画像生成を実行します (単一シーン用)。"""
@@ -609,8 +544,6 @@ class MainWindow(QMainWindow):
                 self, "Execute", "先に 'Generate Prompt Preview' を実行してください。"
             )
             return
-
-        # (ボタン無効化とステータス設定はワーカー開始時に行う)
 
         current_scene: Optional[Scene] = self.db_data.get("scenes", {}).get(
             self.current_scene_id
@@ -632,7 +565,6 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            # (SD Params の取得ロジックは変更なし)
             sd_param_id = getattr(current_scene, "sd_param_id", None)
             current_sd_params = (
                 self.db_data.get("sdParams", {}).get(sd_param_id)
@@ -661,7 +593,6 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Execute", "生成タスクがありません。")
                 return
 
-            # (メタデータ収集ロジックは変更なし)
             metadata = BatchMetadata(
                 sequence_name="Single Scene",
                 scene_name=getattr(current_scene, "name", "N/A"),
@@ -680,7 +611,6 @@ class MainWindow(QMainWindow):
             metadata.character_names = sorted(list(filter(None, char_names)))
             metadata.work_titles = sorted(list(filter(None, work_titles)))
 
-            # (デバッグモード適用 / メタデータ注入ロジックは変更なし)
             is_debug_mode = self.prompt_panel.is_debug_mode_enabled()
             if is_debug_mode:
                 print("[DEBUG] Debug mode enabled. Modifying task parameters (x0.7)...")
@@ -698,13 +628,12 @@ class MainWindow(QMainWindow):
                         task.height = 64
                 task.metadata = metadata
 
-            # --- ★ ワーカーにタスクを渡して実行開始 ---
             self.batch_panel.set_buttons_enabled(False)
-            self.prompt_panel.execute_btn.setEnabled(
-                False
-            )  # プロンプトパネルのボタンも
+            self.prompt_panel.execute_btn.setEnabled(False)
             self.batch_panel.set_status("Starting single generation...", 0)
-            self.start_worker_generation.emit(tasks)  # ★ シグナルを発行
+            self.start_worker_generation.emit(
+                tasks, self.image_output_base_dir
+            )  # ★ 引数変更
 
         except Exception as e:
             QMessageBox.critical(
@@ -712,11 +641,12 @@ class MainWindow(QMainWindow):
             )
             print(f"[DEBUG] Execution error: {e}")
             traceback.print_exc()
-            self.batch_panel.set_buttons_enabled(True)  # エラー時はボタンを戻す
+            self.batch_panel.set_buttons_enabled(True)
             self.prompt_panel.execute_btn.setEnabled(True)
 
+    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+
     def update_prompt_display(self):
-        """プロンプト表示エリアを更新します。"""
         print("[DEBUG] update_prompt_display called.")
         if not self.generated_prompts:
             self.prompt_display_area.setPlainText(
@@ -737,32 +667,26 @@ class MainWindow(QMainWindow):
         print("[DEBUG] Prompt display area updated.")
 
     def update_ui_after_data_change(self):
-        """データ変更（インポート、新規追加、削除など）後にUI全体を更新します。キューも更新します。"""
         print("[DEBUG] update_ui_after_data_change called.")
-        # --- LibraryPanel 更新 ---
         current_list_selection_id = None
         current_item = self.library_panel.library_list_widget.currentItem()
         if current_item:
             current_list_selection_id = current_item.data(Qt.ItemDataRole.UserRole)
         current_type_index = self.library_panel.library_type_combo.currentIndex()
 
-        self.library_panel.set_data_reference(self.db_data)  # データ参照更新
+        self.library_panel.set_data_reference(self.db_data)
 
         if current_type_index >= 0:
             self.library_panel.library_type_combo.blockSignals(True)
             self.library_panel.library_type_combo.setCurrentIndex(current_type_index)
             self.library_panel.library_type_combo.blockSignals(False)
-            self.library_panel.update_list()  # リスト内容更新
+            self.library_panel.update_list()
 
         if current_list_selection_id:
-            self.library_panel.select_item_by_id(current_list_selection_id)  # 選択復元
+            self.library_panel.select_item_by_id(current_list_selection_id)
 
-        # --- PromptPanel 更新 ---
-        self.prompt_panel.set_data_reference(
-            self.db_data
-        )  # データ参照更新 (コンボボックス更新のため)
+        self.prompt_panel.set_data_reference(self.db_data)
 
-        # --- ★ Batch Panel のデータ参照も更新 ---
         self.batch_panel.set_data_reference(
             self.db_data.get("sequences", {}), self.batch_queue
         )
@@ -775,7 +699,6 @@ class MainWindow(QMainWindow):
         item_data: Optional[Any],
         target_widget_to_update: Optional[QWidget] = None,
     ):
-        """編集ダイアログを開きます (新規作成・編集兼用)。"""
         dialog_info = self.editor_dialog_mapping.get(modal_type)
         if not dialog_info:
             QMessageBox.warning(self, "Error", f"Invalid editor type: {modal_type}")
@@ -796,7 +719,6 @@ class MainWindow(QMainWindow):
         )
         dialog: Optional[QDialog] = None
         try:
-            # --- ダイアログクラスに応じて初期化 ---
             if DialogClass == SequenceEditorDialog:
                 dialog = DialogClass(item_data, self.db_data, self)
             elif DialogClass == SimplePartEditorDialog:
@@ -870,7 +792,6 @@ class MainWindow(QMainWindow):
                             saved_data = None
 
                     if saved_data and item_id_to_select:
-                        # 1. メモリに追加/更新
                         if db_key in get_args(DatabaseKey):
                             if db_key not in self.db_data:
                                 self.db_data[db_key] = {}
@@ -882,7 +803,6 @@ class MainWindow(QMainWindow):
                             print(f"[ERROR] Invalid db_key '{db_key}'...")
                             return
 
-                        # 2. DBに即時保存
                         try:
                             self.data_handler.save_single_item(db_key, saved_data)
                         except Exception as db_save_e:
@@ -890,7 +810,6 @@ class MainWindow(QMainWindow):
                                 f"[ERROR] Failed to save item {item_id_to_select} to DB: {db_save_e}"
                             )
 
-                        # 3. UI更新
                         if target_widget_to_update:
                             parent_dialog = target_widget_to_update.parent()
                             while parent_dialog and not isinstance(
@@ -966,7 +885,6 @@ class MainWindow(QMainWindow):
 
             if deleted_from_memory:
                 try:
-                    # DB削除処理 (変更なし)
                     if db_key == "sequences":
                         db.delete_sequence(item_id)
                     elif db_key == "cuts":
@@ -981,8 +899,6 @@ class MainWindow(QMainWindow):
                         db.delete_actor(item_id)
                     elif db_key == "scenes":
                         db.delete_scene(item_id)
-                    elif db_key == "directions":
-                        db.delete_direction(item_id)
                     elif db_key == "costumes":
                         db.delete_costume(item_id)
                     elif db_key == "poses":
@@ -997,8 +913,10 @@ class MainWindow(QMainWindow):
                         db.delete_composition(item_id)
                     elif db_key == "styles":
                         db.delete_style(item_id)
-                    else:
-                        db._delete_item(db_key, item_id)
+                    elif db_key == "states":
+                        db.delete_state(item_id)
+                    elif db_key == "additional_prompts":
+                        db.delete_additional_prompt(item_id)
                     print(
                         f"[DEBUG] Item {item_id} deleted from database table '{db_key}'."
                     )
@@ -1010,7 +928,6 @@ class MainWindow(QMainWindow):
                         f"[ERROR] Failed to delete item {item_id} from DB: {db_del_e}"
                     )
 
-                # --- 関連データの更新 (メモリ上) ---
                 if db_key == "actors":
                     self.actor_assignments = {
                         k: v for k, v in self.actor_assignments.items() if v != item_id
@@ -1038,7 +955,6 @@ class MainWindow(QMainWindow):
                                 print(
                                     f"Error updating scene after cut deletion: {e_scene}"
                                 )
-                # sdParams は Scene に紐づいたので、削除されても MainWindow の状態は影響を受けない
 
                 self.update_ui_after_data_change()
                 if queue_modified:
@@ -1050,7 +966,6 @@ class MainWindow(QMainWindow):
         else:
             print(f"[DEBUG] Deletion cancelled by user for {item_id}.")
 
-    # --- ▼▼▼ Sequence / Queue 関連のスロット (変更なし) ▼▼▼ ---
     @Slot(str)
     def _handle_edit_sequence(self, sequence_id: str):
         sequence_data = self.db_data.get("sequences", {}).get(sequence_id)
@@ -1086,13 +1001,11 @@ class MainWindow(QMainWindow):
             sequence,
             initial_assignments,
             initial_overrides,
-            self.db_data,  # 4番目の引数は db_data (辞書)
-            self,  # 5番目の引数は parent (self)
+            self.db_data,
+            self,
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            # --- ▼▼▼ 修正箇所 ▼▼▼ ---
-            final_assignments = dialog.get_assignments()  # ★ メソッド名を修正
-            # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+            final_assignments = dialog.get_assignments()
             final_overrides = dialog.get_appearance_overrides()
 
             self.data_handler.add_item_to_queue(
@@ -1121,13 +1034,11 @@ class MainWindow(QMainWindow):
             sequence,
             item_to_edit.actor_assignments,
             item_to_edit.appearance_overrides,
-            self.db_data,  # 4番目の引数は db_data (辞書)
-            self,  # 5番目の引数は parent (self)
+            self.db_data,
+            self,
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            # --- ▼▼▼ 修正箇所 ▼▼▼ ---
-            new_assignments = dialog.get_assignments()  # ★ メソッド名を修正
-            # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+            new_assignments = dialog.get_assignments()
             new_overrides = dialog.get_appearance_overrides()
 
             self.data_handler.update_queue_item_assignments(
@@ -1165,8 +1076,7 @@ class MainWindow(QMainWindow):
         self.data_handler.reorder_queue(new_ordered_ids, self.batch_queue)
         self.batch_panel.update_queue_list()
 
-    # --- ▲▲▲ 変更ここまで ▲▲▲ ---
-
+    # --- ▼▼▼ execute_batch_generation を修正 (start_worker_generation の呼び出し) ▼▼▼ ---
     @Slot()
     def execute_batch_generation(self):
         """バッチキューを実行します。"""
@@ -1174,7 +1084,6 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Batch Run", "Batch queue is empty.")
             return
 
-        # (total_scenes_to_process の計算は変更なし)
         total_scenes_to_process = 0
         sequences_data = self.db_data.get("sequences", {})
         scenes_data = self.db_data.get("scenes", {})
@@ -1184,6 +1093,7 @@ class MainWindow(QMainWindow):
                 total_scenes_to_process += sum(
                     1 for entry in sequence.scene_entries if entry.is_enabled
                 )
+
         if total_scenes_to_process == 0:
             QMessageBox.warning(
                 self, "Batch Run", "No enabled scenes found in the queue."
@@ -1191,7 +1101,7 @@ class MainWindow(QMainWindow):
             return
 
         self.batch_panel.set_buttons_enabled(False)
-        self.prompt_panel.execute_btn.setEnabled(False)  # プロンプトパネルのボタンも
+        self.prompt_panel.execute_btn.setEnabled(False)
         self.batch_panel.set_status("Starting batch generation...", 0)
         QApplication.processEvents()
 
@@ -1205,7 +1115,6 @@ class MainWindow(QMainWindow):
             print("[DEBUG] Batch run started in DEBUG mode (x0.7).")
 
         try:
-            # (タスクとメタデータの集約ループは変更なし)
             for queue_item in self.batch_queue:
                 sequence = sequences_data.get(queue_item.sequence_id)
                 if not sequence:
@@ -1302,7 +1211,6 @@ class MainWindow(QMainWindow):
                     )
                     QApplication.processEvents()
 
-            # --- ★ ループ終了後、バッチ実行 ---
             if not all_tasks:
                 QMessageBox.warning(self, "Batch Run", "No tasks generated.")
                 self.batch_panel.set_status("Idle", 0)
@@ -1315,8 +1223,7 @@ class MainWindow(QMainWindow):
             )
             QApplication.processEvents()
 
-            # --- ★ ワーカーにタスクを渡して実行開始 ---
-            self.start_worker_generation.emit(all_tasks)  # ★ シグナルを発行
+            self.start_worker_generation.emit(all_tasks, self.image_output_base_dir)
 
         except Exception as e:
             QMessageBox.critical(
@@ -1328,6 +1235,9 @@ class MainWindow(QMainWindow):
             self.batch_panel.set_buttons_enabled(True)
             self.prompt_panel.execute_btn.setEnabled(True)
 
+    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+
+    # --- ▼▼▼ ワーカーからのシグナルを受け取るスロット (変更なし) ▼▼▼ ---
     @Slot(int, int, str)
     def on_worker_progress(self, total: int, current: int, message: str):
         """ワーカーからの進捗シグナルを処理します"""
@@ -1340,7 +1250,7 @@ class MainWindow(QMainWindow):
     def on_worker_finished(self, success: bool, message: str):
         """ワーカーの終了シグナルを処理します"""
         self.batch_panel.set_buttons_enabled(True)
-        self.prompt_panel.execute_btn.setEnabled(True)  # プロンプトパネルのボタンも
+        self.prompt_panel.execute_btn.setEnabled(True)
 
         if success:
             QMessageBox.information(self, "Generation Complete", message)
@@ -1352,20 +1262,16 @@ class MainWindow(QMainWindow):
     @Slot(str)
     def on_worker_log(self, message: str):
         """ワーカーからの生ログをコンソールに出力します"""
-        # print() はGUIスレッドからでも安全
         print(f"[Worker] {message}")
+
+    # --- ▲▲▲ 追加ここまで ▲▲▲ ---
 
 
 # --- (main 関数実行部分は変更なし) ---
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     try:
-        # ▼▼▼ DB初期化処理を修正 ▼▼▼
-        # 開発中は毎回削除＆作成する場合:
         db.initialize_db()
-        # 既存データを保持する場合:
-        # db.ensure_db_tables_exist() # initialize_db をリネームした場合
-        # ▲▲▲ 修正ここまで ▲▲▲
     except Exception as e:
         print(f"FATAL: Could not initialize database: {e}")
         traceback.print_exc()

@@ -33,42 +33,58 @@ from ..models import (
 )
 
 if TYPE_CHECKING:
-    from ..main_window import MainWindow  # 型ヒント用にMainWindowをインポート
+    from ..main_window import MainWindow
 
-_CONFIG_FILE_NAME = "config.json"
-_DATA_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data"
+# --- ▼▼▼ パス定義を変更 ▼▼▼ ---
+_PROJECT_ROOT = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
+_DATA_DIR = os.path.join(_PROJECT_ROOT, "src", "data")
+
+# 従来のコンフィグ（シーンIDなど）
+_CONFIG_FILE_NAME = "config.json"
 _CONFIG_FILE_PATH = os.path.join(_DATA_DIR, _CONFIG_FILE_NAME)
+
+# 新しい設定ファイル（画像出力先など）
+_PREFERENCE_FILE_NAME = "preference.json"
+_PREFERENCE_FILE_PATH = os.path.join(_PROJECT_ROOT, _PREFERENCE_FILE_NAME)
+# --- ▲▲▲ 変更ここまで ▲▲▲ ---
 
 
 class DataHandler:
     def __init__(self, main_window: "MainWindow"):
-        self.main_window = main_window  # MainWindowのインスタンスを保持
+        self.main_window = main_window
 
+    # --- ▼▼▼ load_config を修正 (preference.json からも読む) ▼▼▼ ---
     def load_config(
         self,
-    ) -> Tuple[Optional[str], Dict[str, str], Dict[str, Dict[str, Optional[str]]]]:
-        """設定ファイルから最後の Scene ID, 配役を読み込みます。"""
+    ) -> Tuple[
+        Optional[str],
+        Dict[str, str],
+        Dict[str, Dict[str, Optional[str]]],
+        str,  # image_output_base_dir
+    ]:
+        """設定ファイルから最後の Scene ID, 配役, 保存パスを読み込みます。"""
         default_scene_id = None
         default_assignments = {}
-        default_overrides = {}  # ★ 追加
+        default_overrides = {}
+        default_output_base_dir = "data/output_images"
 
-        if not os.path.exists(_CONFIG_FILE_PATH):
-            print(
-                f"[DEBUG] Config file not found: {_CONFIG_FILE_PATH}. Using defaults."
-            )
-            return default_scene_id, default_assignments, default_overrides
-
+        # 1. 従来のコンフィグ (_CONFIG_FILE_PATH) を読み込む
         try:
-            with open(_CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
-                config_data = json.load(f)
+            if not os.path.exists(_CONFIG_FILE_PATH):
+                print(
+                    f"[DEBUG] Config file not found: {_CONFIG_FILE_PATH}. Using defaults."
+                )
+                config_data = {}
+            else:
+                with open(_CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
+                    config_data = json.load(f)
 
             scene_id = config_data.get("last_scene_id", default_scene_id)
             assignments = config_data.get("last_assignments", default_assignments)
-            overrides = config_data.get("last_overrides", default_overrides)  # ★ 追加
+            overrides = config_data.get("last_overrides", default_overrides)
 
-            # (型チェック)
             if not isinstance(scene_id, (str, type(None))):
                 scene_id = default_scene_id
             if not isinstance(assignments, dict):
@@ -76,23 +92,57 @@ class DataHandler:
             if not isinstance(overrides, dict):
                 overrides = default_overrides
 
-            print(
-                f"[DEBUG] Config loaded: scene={scene_id}, assignments={assignments}, overrides={overrides}"
-            )
-            return scene_id, assignments, overrides  # ★ 戻り値変更
         except (json.JSONDecodeError, OSError, TypeError) as e:
             print(
                 f"[ERROR] Failed to load config file {_CONFIG_FILE_PATH}: {e}. Using defaults."
             )
-            return default_scene_id, default_assignments, default_overrides
+            scene_id, assignments, overrides = (
+                default_scene_id,
+                default_assignments,
+                default_overrides,
+            )
 
+        # 2. 新しい設定ファイル (_PREFERENCE_FILE_PATH) を読み込む
+        try:
+            if not os.path.exists(_PREFERENCE_FILE_PATH):
+                print(
+                    f"[DEBUG] Preference file not found: {_PREFERENCE_FILE_PATH}. Using default."
+                )
+                pref_data = {}
+            else:
+                with open(_PREFERENCE_FILE_PATH, "r", encoding="utf-8") as f:
+                    pref_data = json.load(f)
+
+            output_base_dir = pref_data.get(
+                "image_output_base_dir", default_output_base_dir
+            )
+            if not isinstance(output_base_dir, str):
+                output_base_dir = default_output_base_dir
+
+        except (json.JSONDecodeError, OSError, TypeError) as e:
+            print(
+                f"[ERROR] Failed to load preference file {_PREFERENCE_FILE_PATH}: {e}. Using default."
+            )
+            output_base_dir = default_output_base_dir
+
+        print(
+            f"[DEBUG] Config loaded: scene={scene_id}, assignments={assignments}, overrides={overrides}, output_dir={output_base_dir}"
+        )
+        return scene_id, assignments, overrides, output_base_dir
+
+    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+
+    # --- ▼▼▼ save_config を修正 (2つのファイルに分けて保存) ▼▼▼ ---
     def save_config(
         self,
         scene_id: Optional[str],
         assignments: Dict[str, str],
         overrides: Dict[str, Dict[str, Optional[str]]],
-    ):  # ★ 引数変更
-        """現在の Scene ID, 配役を設定ファイルに保存します。"""
+        output_base_dir: str,
+    ):
+        """現在の Scene ID, 配役, 保存パスを設定ファイルに保存します。"""
+
+        # 1. 従来のコンフィグ (_CONFIG_FILE_PATH) を保存
         config_data = {
             "last_scene_id": scene_id,
             "last_assignments": assignments,
@@ -106,11 +156,24 @@ class DataHandler:
         except (OSError, TypeError) as e:
             print(f"[ERROR] Failed to save config file {_CONFIG_FILE_PATH}: {e}")
 
+        # 2. 新しい設定ファイル (_PREFERENCE_FILE_PATH) を保存
+        pref_data = {
+            "image_output_base_dir": output_base_dir,
+        }
+        try:
+            with open(_PREFERENCE_FILE_PATH, "w", encoding="utf-8") as f:
+                json.dump(pref_data, f, indent=2, ensure_ascii=False)
+            print(f"[DEBUG] Preferences saved to {_PREFERENCE_FILE_PATH}")
+        except (OSError, TypeError) as e:
+            print(
+                f"[ERROR] Failed to save preference file {_PREFERENCE_FILE_PATH}: {e}"
+            )
+
+    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+
     def load_all_data(
         self,
-    ) -> Tuple[
-        Dict[str, Dict[str, Any]], List[QueueItem], Optional[str]
-    ]:  # ★ 戻り値の型を修正
+    ) -> Tuple[Dict[str, Dict[str, Any]], List[QueueItem], Optional[str]]:
         """データベースから全てのデータをロードします。"""
         print("[DEBUG] DataHandler.load_all_data called.")
         db_data: Dict[str, Dict[str, Any]] = {}
@@ -132,7 +195,7 @@ class DataHandler:
             db_data["sdParams"] = db.load_sd_params()
             db_data["sequences"] = db.load_sequences()
             db_data["states"] = db.load_states()
-            db_data["additional_prompts"] = db.load_additional_prompts()  # ★ 追加
+            db_data["additional_prompts"] = db.load_additional_prompts()
             batch_queue = db.load_batch_queue()
 
             print("[DEBUG] Data loaded successfully from database.")
@@ -151,12 +214,12 @@ class DataHandler:
             batch_queue = []
             initial_scene_id = None
 
-        return db_data, batch_queue, initial_scene_id  # ★ 戻り値を修正
+        return db_data, batch_queue, initial_scene_id
 
     def save_all_data(
         self,
         db_data: Dict[str, Dict[str, Any]],
-        batch_queue: List[QueueItem],  # ★ batch_queue を引数に追加
+        batch_queue: List[QueueItem],
     ):
         """メモリ上の全データをSQLiteデータベースに保存します。"""
         print("[DEBUG] DataHandler.save_all_data called.")
@@ -192,7 +255,7 @@ class DataHandler:
             for state in db_data.get("states", {}).values():
                 db.save_state(state)
             for ap in db_data.get("additional_prompts", {}).values():
-                db.save_additional_prompt(ap)  # ★ 追加
+                db.save_additional_prompt(ap)
 
             db.clear_batch_queue()
             for item in batch_queue:
@@ -228,7 +291,6 @@ class DataHandler:
                 fileName += ".json"
             try:
                 export_dict = {}
-                # ★ db_data 全体をエクスポート
                 for key, data_dict in db_data.items():
                     export_dict[key] = {
                         item_id: item.__dict__ for item_id, item in data_dict.items()
@@ -237,7 +299,6 @@ class DataHandler:
                 # ネストされた dataclass リストを辞書に変換
                 if "scenes" in export_dict:
                     for scene_id, scene_data in export_dict["scenes"].items():
-                        # role_directions -> role_assignments
                         scene_data["role_assignments"] = [
                             ra.__dict__ for ra in scene_data.get("role_assignments", [])
                         ]
@@ -251,16 +312,13 @@ class DataHandler:
                         costume_data["color_palette"] = [
                             cp.__dict__ for cp in costume_data.get("color_palette", [])
                         ]
-                if (
-                    "sequences" in export_dict
-                ):  # ★ db_data から取得したので db_data["sequences"] ではなく export_dict
+                if "sequences" in export_dict:
                     for seq_id, seq_data in export_dict["sequences"].items():
-                        seq_dict = seq_data  # 既に __dict__ 済み
+                        seq_dict = seq_data
                         seq_dict["scene_entries"] = [
                             entry.__dict__
                             for entry in seq_data.get("scene_entries", [])
                         ]
-                        # export_dict["sequences"][seq_id] = seq_dict # 辞書を上書きしない
 
                 export_dict["batch_queue"] = [item.__dict__ for item in batch_queue]
 
@@ -324,7 +382,7 @@ class DataHandler:
                         "sdParams": StableDiffusionParams,
                         "sequences": Sequence,
                         "states": State,
-                        "additional_prompts": AdditionalPrompt,  # ★ 追加
+                        "additional_prompts": AdditionalPrompt,
                     }
 
                     for key, klass in type_map.items():
@@ -340,12 +398,10 @@ class DataHandler:
                             try:
                                 # ネストされた dataclass の復元
                                 if klass == Scene:
-                                    # role_directions -> role_assignments
                                     item_data["role_assignments"] = [
                                         RoleAppearanceAssignment(**ra)
                                         for ra in item_data.get("role_assignments", [])
                                     ]
-                                    # 古い role_directions があれば削除
                                     item_data.pop("role_directions", None)
                                 elif klass == Cut:
                                     item_data["roles"] = [
@@ -369,7 +425,6 @@ class DataHandler:
                                     f"[DEBUG] Import Warning: Skipping item '{item_id}' in '{key}' due to error: {ex}. Data: {item_data}"
                                 )
 
-                    # ★ Batch Queue の復元 (変更なし)
                     queue_list = imported_data.get("batch_queue", [])
                     if isinstance(queue_list, list):
                         for item_data in queue_list:
@@ -422,8 +477,6 @@ class DataHandler:
                 db.save_cut(item_data)
             elif db_key == "scenes" and isinstance(item_data, Scene):
                 db.save_scene(item_data)
-            elif db_key == "directions" and isinstance(item_data, Direction):
-                db.save_direction(item_data)
             elif db_key == "costumes" and isinstance(item_data, Costume):
                 db.save_costume(item_data)
             elif db_key == "poses" and isinstance(item_data, Pose):
@@ -439,7 +492,7 @@ class DataHandler:
             elif db_key == "styles" and isinstance(item_data, Style):
                 db.save_style(item_data)
             elif db_key == "sdParams" and isinstance(item_data, StableDiffusionParams):
-                db.save_sd_param(item_data)  # ★ 修正
+                db.save_sd_param(item_data)
             elif db_key == "sequences" and isinstance(item_data, Sequence):
                 db.save_sequence(item_data)
             elif db_key == "states" and isinstance(item_data, State):
@@ -507,7 +560,6 @@ class DataHandler:
                             f"[DEBUG] Removed deleted state ID {partId} from costume {costume.id}"
                         )
 
-            # --- ▼▼▼ Scene から Additional Prompt ID 削除 ▼▼▼ ---
             if db_key == "additional_prompts":
                 for scene in db_data.get("scenes", {}).values():
                     if (
@@ -519,7 +571,7 @@ class DataHandler:
                             f"[DEBUG] Removed deleted AP ID {partId} from scene {scene.id}"
                         )
             if db_key in ["costumes", "poses", "expressions"]:
-                id_list_name = f"{db_key}_ids"  # costumes -> costume_ids
+                id_list_name = f"{db_key}_ids"
                 for scene in db_data.get("scenes", {}).values():
                     if hasattr(scene, "role_assignments"):
                         for ra in scene.role_assignments:
@@ -530,14 +582,12 @@ class DataHandler:
                                 print(
                                     f"[DEBUG] Removed deleted {db_key} ID {partId} from scene {scene.id}, role {ra.role_id}"
                                 )
-            # --- ▲▲▲ 追加 ▲▲▲ ---
 
         else:
             print(f"[DEBUG] Item {partId} not found in {db_key}, cannot delete.")
 
         return deleted_from_memory, queue_modified
 
-    # --- ▼▼▼ キュー操作用メソッドを追加 ▼▼▼ ---
     def save_batch_queue(self, batch_queue: List[QueueItem]):
         """現在のキューの状態をDBに保存します。"""
         try:
@@ -555,7 +605,7 @@ class DataHandler:
         self,
         sequence_id: str,
         actor_assignments: Dict[str, str],
-        appearance_overrides: Dict[str, Dict[str, Optional[str]]],  # ★ 追加
+        appearance_overrides: Dict[str, Dict[str, Optional[str]]],
         batch_queue: List[QueueItem],
     ):
         """新しいアイテムをキューの末尾に追加し、DBに保存します。"""
@@ -568,13 +618,13 @@ class DataHandler:
             order=new_order,
         )
         batch_queue.append(new_item)
-        self.save_batch_queue(batch_queue)  # DBにも保存
+        self.save_batch_queue(batch_queue)
 
     def update_queue_item_assignments(
         self,
         item_id: str,
         new_assignments: Dict[str, str],
-        new_overrides: Dict[str, Dict[str, Optional[str]]],  # ★ 追加
+        new_overrides: Dict[str, Dict[str, Optional[str]]],
         batch_queue: List[QueueItem],
     ):
         """指定されたキューアイテムのアクター割り当てを更新し、DBに保存します。"""
@@ -599,11 +649,10 @@ class DataHandler:
         original_len = len(batch_queue)
         new_queue = [item for item in batch_queue if item.id != item_id]
         if len(new_queue) < original_len:
-            # order を再割り当て
             for i, item in enumerate(new_queue):
                 item.order = i
-            batch_queue[:] = new_queue  # リストを更新
-            self.save_batch_queue(batch_queue)  # DBも更新
+            batch_queue[:] = new_queue
+            self.save_batch_queue(batch_queue)
             return True
         return False
 
@@ -619,7 +668,7 @@ class DataHandler:
             else:
                 print(f"[WARN] Item ID {item_id} not found during reorder.")
 
-        if len(new_queue) == len(batch_queue):  # 整合性チェック
+        if len(new_queue) == len(batch_queue):
             batch_queue[:] = new_queue
             self.save_batch_queue(batch_queue)
         else:

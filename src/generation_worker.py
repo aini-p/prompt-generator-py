@@ -19,7 +19,7 @@ _FORGE_VENV_PYTHON = os.path.join(
 )
 _GENIMAGE_PY = os.path.join(_CLIENT_DIR, "GenImage.py")
 _DATA_DIR = os.path.join(_PROJECT_ROOT, "data")
-_OUTPUT_JSON_PATH = os.path.join(_DATA_DIR, "tasks.json")  # 固定パス
+_OUTPUT_JSON_PATH = os.path.join(_DATA_DIR, "tasks.json")
 
 # --- Forge起動関連のパス ---
 _CONFIG_FILE = os.path.join(_CLIENT_DIR, "config.json")
@@ -119,7 +119,6 @@ class GenerationWorker(QObject):
 
         self.log_message.emit("Forge (Stable Diffusion) の起動を開始します...")
 
-        # --- 1. config.json から起動時引数を読み込む (start_all.bat と同じロジック) ---
         try:
             with open(_CONFIG_FILE, "r", encoding="utf-8") as f:
                 config = json.load(f)
@@ -148,18 +147,14 @@ class GenerationWorker(QObject):
             )
             return False
 
-        # --- 2. 実行に必要な環境変数を設定 ---
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
         env["API_URL"] = self.api_url
         env["FORGE_DIR"] = _FORGE_DIR_PATH
         env["FORGE_WINDOW_TITLE"] = "Stable Diffusion Forge"
         env["LAUNCH_OPTIONS"] = launch_options_str
-
-        # --- ▼▼▼ ご要望の環境変数を追加 ▼▼▼ ---
         env["CHECK_TIMEOUT"] = "600"
         env["CHECK_INTERVAL"] = "5"
-        # --- ▲▲▲ 追加完了 ▲▲▲ ---
 
         self.log_message.emit(f"Setting ENV: API_URL={env['API_URL']}")
         self.log_message.emit(f"Setting ENV: FORGE_DIR={env['FORGE_DIR']}")
@@ -210,7 +205,8 @@ class GenerationWorker(QObject):
         finally:
             self.process = None
 
-    def _run_genimage(self, tasks: List[ImageGenerationTask]) -> bool:
+    # --- ▼▼▼ _run_genimage を修正 (base_dir を引数に追加し、command に反映) ▼▼▼ ---
+    def _run_genimage(self, tasks: List[ImageGenerationTask], base_dir: str) -> bool:
         """
         GenImage.py を実行し、進捗を監視する。
         """
@@ -225,6 +221,7 @@ class GenerationWorker(QObject):
             )
             return False
 
+        # --- コマンド構築 ---
         command = [
             _FORGE_VENV_PYTHON,
             _GENIMAGE_PY,
@@ -232,7 +229,19 @@ class GenerationWorker(QObject):
             "json",
             "--localTaskFile",
             _OUTPUT_JSON_PATH,
+            "--jpeg_metadata_only",  # ★ jpeg_metadata_only を True で渡す
         ]
+
+        # ★ base_dir が指定されている場合のみ --output_base_dir を追加
+        if base_dir:
+            # config.json のパスはプロジェクトルートからの相対パス
+            # GenImage.py (in StableDiffusionClient) から見ても正しく解決できるよう
+            # プロジェクトルートからの相対パスとして渡す
+            # (GenImage.py側で os.path.abspath を使って解決する想定)
+
+            # _PROJECT_ROOT (srcの親) からの相対パスを渡す
+            # (os.path.join(_PROJECT_ROOT, base_dir) で絶対パスにしても良い)
+            command.extend(["--output_base_dir", base_dir])
 
         self.log_message.emit(f"GenImage.py 実行: {' '.join(command)}")
 
@@ -307,8 +316,11 @@ class GenerationWorker(QObject):
         finally:
             self.process = None
 
-    @Slot(list)
-    def start_generation(self, tasks: List[ImageGenerationTask]):
+    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+
+    # --- ▼▼▼ start_generation を修正 (Slotの引数を変更し、_run_genimage に base_dir を渡す) ▼▼▼ ---
+    @Slot(list, str)
+    def start_generation(self, tasks: List[ImageGenerationTask], base_dir: str):
         """
         スレッド開始時に呼び出されるメインの実行関数
         1. Forge API確認
@@ -331,7 +343,6 @@ class GenerationWorker(QObject):
                 if not self._launch_forge():
                     self.finished.emit(False, "Forgeの起動に失敗しました。")
                     return
-                # 起動成功
                 self.log_message.emit("Forge launch successful.")
 
             # 3. tasks.json 書き込み
@@ -340,7 +351,7 @@ class GenerationWorker(QObject):
                 return
 
             # 4. GenImage.py 実行
-            if self._run_genimage(tasks):
+            if self._run_genimage(tasks, base_dir):  # ★ base_dir を渡す
                 self.finished.emit(True, "バッチ処理が正常に完了しました。")
             else:
                 self.finished.emit(False, "画像生成プロセスでエラーが発生しました。")
@@ -349,3 +360,5 @@ class GenerationWorker(QObject):
             self.log_message.emit(f"ワーカー実行中に致命的なエラーが発生しました: {e}")
             traceback.print_exc()
             self.finished.emit(False, f"ワーカー実行エラー: {e}")
+
+    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
