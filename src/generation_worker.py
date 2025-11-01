@@ -3,9 +3,9 @@ import subprocess
 import os
 import json
 import re
-import requests  # ★ 追加
-import time  # ★ 追加
-import traceback  # ★ 追加
+import requests
+import time
+import traceback
 from typing import List, Optional
 from PySide6.QtCore import QObject, Signal, Slot
 from dataclasses import asdict
@@ -21,13 +21,13 @@ _GENIMAGE_PY = os.path.join(_CLIENT_DIR, "GenImage.py")
 _DATA_DIR = os.path.join(_PROJECT_ROOT, "data")
 _OUTPUT_JSON_PATH = os.path.join(_DATA_DIR, "tasks.json")  # 固定パス
 
-# --- ▼▼▼ Forge起動関連のパスを追加 ▼▼▼ ---
+# --- ▼▼▼ Forge起動関連のパスを修正・追加 ▼▼▼ ---
 _CONFIG_FILE = os.path.join(_CLIENT_DIR, "config.json")
 _LAUNCH_FORGE_BAT = os.path.join(_CLIENT_DIR, "_launch_forge_if_needed.bat")
-_FORGE_VENV_ACTIVATE = os.path.join(
-    _CLIENT_DIR, "stable-diffusion-webui-forge", "venv", "Scripts", "activate.bat"
-)
-# --- ▲▲▲ 追加ここまで ▲▲▲ ---
+_FORGE_DIR_PATH = os.path.join(
+    _CLIENT_DIR, "stable-diffusion-webui-forge"
+)  # ★ FORGE_DIR のパス
+# --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
 
 class GenerationWorker(QObject):
@@ -35,7 +35,6 @@ class GenerationWorker(QObject):
     GenImage.py を別スレッドで実行し、進捗をシグナルで送信するワーカー
     """
 
-    # --- 2. シグナル定義 ---
     progress_updated = Signal(int, int, str)
     finished = Signal(bool, str)
     log_message = Signal(str)
@@ -43,7 +42,7 @@ class GenerationWorker(QObject):
     def __init__(self):
         super().__init__()
         self.process: Optional[subprocess.Popen] = None
-        self.api_url: str = ""  # ★ API URLを保持
+        self.api_url: str = ""
 
     def _write_tasks_json(self, tasks: List[ImageGenerationTask]) -> bool:
         """
@@ -60,7 +59,6 @@ class GenerationWorker(QObject):
             self.log_message.emit(f"エラー: tasks.json の書き込みに失敗しました: {e}")
             return False
 
-    # --- ▼▼▼ API疎通確認メソッドを追加 ▼▼▼ ---
     def _check_api_ready(self) -> bool:
         """config.jsonからURLを読み込み、APIが応答するか確認する"""
         if not self.api_url:
@@ -86,12 +84,8 @@ class GenerationWorker(QObject):
                 return False
 
         try:
-            # Forge APIの簡単なエンドポイントにアクセス (例: /)
-            # GenImage.pyが使う /sdapi/v1/png-info などでも良い
             self.log_message.emit(f"Checking API status at: {self.api_url}")
-            response = requests.get(f"{self.api_url}/", timeout=3)  # 3秒タイムアウト
-
-            # (通常 / は 404 を返すが、サーバーが起動していれば応答はあるはず)
+            response = requests.get(f"{self.api_url}/", timeout=3)
             if response.status_code == 200 or response.status_code == 404:
                 self.log_message.emit(
                     f"Forge API 接続成功 (Status: {response.status_code}): {self.api_url}"
@@ -114,7 +108,7 @@ class GenerationWorker(QObject):
             self.log_message.emit(f"Forge API 確認中にエラー: {e}")
             return False
 
-    # --- ▼▼▼ Forge起動メソッドを追加 ▼▼▼ ---
+    # --- ▼▼▼ _launch_forge メソッドを修正 ▼▼▼ ---
     def _launch_forge(self) -> bool:
         """
         _launch_forge_if_needed.bat を実行してForgeを起動する。
@@ -128,11 +122,52 @@ class GenerationWorker(QObject):
 
         self.log_message.emit("Forge (Stable Diffusion) の起動を開始します...")
 
+        # --- 1. config.json から起動時引数を読み込む (start_all.bat と同じロジック) ---
+        try:
+            with open(_CONFIG_FILE, "r", encoding="utf-8") as f:
+                config = json.load(f)
+
+            # API URLの読み込み (self.api_url が未設定の場合のみ)
+            if not self.api_url:
+                self.api_url = config.get("stableDiffusionURL")
+                if not self.api_url:
+                    self.log_message.emit(
+                        "エラー: config.json に stableDiffusionURL がありません。"
+                    )
+                    return False
+
+            # launchArgs の解析 (start_all.bat  の Python ロジックを模倣)
+            launch_args = config.get("launchArgs", {})
+            launch_options_list = []
+            for k, v in launch_args.items():
+                if isinstance(v, bool) and v:
+                    launch_options_list.append(f"--{k}")
+                elif isinstance(v, str) and v:
+                    # バッチファイル  と同じく、引数値を引用符で囲む
+                    launch_options_list.append(f'--{k} "{v}"')
+
+            launch_options_str = " ".join(launch_options_list)
+
+        except Exception as e:
+            self.log_message.emit(
+                f"Forge 起動エラー: config.json の読み込みに失敗: {e}"
+            )
+            return False
+
+        # --- 2. 実行に必要な環境変数を設定 ---
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"  # 文字化け対策
+        env["API_URL"] = self.api_url
+        env["FORGE_DIR"] = _FORGE_DIR_PATH
+        env["FORGE_WINDOW_TITLE"] = "Stable Diffusion Forge"
+        env["LAUNCH_OPTIONS"] = launch_options_str
+
+        self.log_message.emit(f"Setting ENV: API_URL={env['API_URL']}")
+        self.log_message.emit(f"Setting ENV: FORGE_DIR={env['FORGE_DIR']}")
+        self.log_message.emit(f"Setting ENV: LAUNCH_OPTIONS={env['LAUNCH_OPTIONS']}")
+        # --- (修正ここまで) ---
 
         try:
-            # Popenでバッチファイルを実行
             self.process = subprocess.Popen(
                 [_LAUNCH_FORGE_BAT],
                 cwd=_CLIENT_DIR,
@@ -142,11 +177,10 @@ class GenerationWorker(QObject):
                 encoding="utf-8",
                 errors="ignore",
                 bufsize=1,
-                shell=True,  # .batファイルを実行するにはTrueが必要
-                env=env,
+                shell=True,
+                env=env,  # ★ 修正した環境変数を渡す
             )
 
-            # バッチファイルの出力をリアルタイムでログに流す
             if self.process.stdout:
                 for line in iter(self.process.stdout.readline, ""):
                     if not line:
@@ -176,7 +210,7 @@ class GenerationWorker(QObject):
         finally:
             self.process = None
 
-    # --- ▼▼▼ GenImage実行メソッドを分離 ▼▼▼ ---
+    # --- ▼▼▼ _run_genimage メソッド (変更なし) ▼▼▼ ---
     def _run_genimage(self, tasks: List[ImageGenerationTask]) -> bool:
         """
         GenImage.py を実行し、進捗を監視する。
@@ -259,7 +293,6 @@ class GenerationWorker(QObject):
                 self.log_message.emit("GenImage.py が正常に完了しました。")
                 return True
             elif return_code == 5:
-                # GenImage.py のタイムアウトエラー
                 self.log_message.emit("エラー: GenImage.py がタイムアウトしました。")
                 return False
             else:
@@ -275,7 +308,7 @@ class GenerationWorker(QObject):
         finally:
             self.process = None
 
-    # --- ▼▼▼ メインの実行関数を修正 ▼▼▼ ---
+    # --- ▼▼▼ start_generation メソッド (変更なし) ▼▼▼ ---
     @Slot(list)
     def start_generation(self, tasks: List[ImageGenerationTask]):
         """
