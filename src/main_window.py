@@ -594,7 +594,7 @@ class MainWindow(QMainWindow):
                 return
 
             metadata = BatchMetadata(
-                sequence_name="Single Scene",
+                sequence_name="Test",
                 scene_name=getattr(current_scene, "name", "N/A"),
             )
             char_names = set()
