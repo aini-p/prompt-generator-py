@@ -3,7 +3,9 @@ import subprocess
 import os
 import json
 import re
-import traceback
+import requests  # ★ 追加
+import time  # ★ 追加
+import traceback  # ★ 追加
 from typing import List, Optional
 from PySide6.QtCore import QObject, Signal, Slot
 from dataclasses import asdict
@@ -19,6 +21,14 @@ _GENIMAGE_PY = os.path.join(_CLIENT_DIR, "GenImage.py")
 _DATA_DIR = os.path.join(_PROJECT_ROOT, "data")
 _OUTPUT_JSON_PATH = os.path.join(_DATA_DIR, "tasks.json")  # 固定パス
 
+# --- ▼▼▼ Forge起動関連のパスを追加 ▼▼▼ ---
+_CONFIG_FILE = os.path.join(_CLIENT_DIR, "config.json")
+_LAUNCH_FORGE_BAT = os.path.join(_CLIENT_DIR, "_launch_forge_if_needed.bat")
+_FORGE_VENV_ACTIVATE = os.path.join(
+    _CLIENT_DIR, "stable-diffusion-webui-forge", "venv", "Scripts", "activate.bat"
+)
+# --- ▲▲▲ 追加ここまで ▲▲▲ ---
+
 
 class GenerationWorker(QObject):
     """
@@ -26,21 +36,18 @@ class GenerationWorker(QObject):
     """
 
     # --- 2. シグナル定義 ---
-    # (最大値, 現在値, テキスト)
     progress_updated = Signal(int, int, str)
-    # (成功フラグ, メッセージ)
     finished = Signal(bool, str)
-    # (デバッグ用の生ログ)
     log_message = Signal(str)
 
     def __init__(self):
         super().__init__()
         self.process: Optional[subprocess.Popen] = None
+        self.api_url: str = ""  # ★ API URLを保持
 
     def _write_tasks_json(self, tasks: List[ImageGenerationTask]) -> bool:
         """
         tasks.json (固定パス) にタスクリストを書き込む。
-        (batch_runner.py のロジックを移植)
         """
         try:
             os.makedirs(_DATA_DIR, exist_ok=True)
@@ -53,33 +60,137 @@ class GenerationWorker(QObject):
             self.log_message.emit(f"エラー: tasks.json の書き込みに失敗しました: {e}")
             return False
 
-    @Slot(list)
-    def start_generation(self, tasks: List[ImageGenerationTask]):
-        """
-        スレッド開始時に呼び出されるメインの実行関数
-        """
-        if not tasks:
-            self.finished.emit(False, "生成するタスクがありません。")
-            return
+    # --- ▼▼▼ API疎通確認メソッドを追加 ▼▼▼ ---
+    def _check_api_ready(self) -> bool:
+        """config.jsonからURLを読み込み、APIが応答するか確認する"""
+        if not self.api_url:
+            self.log_message.emit("API URLが未設定です。config.jsonを確認します。")
+            try:
+                if not os.path.exists(_CONFIG_FILE):
+                    self.log_message.emit(
+                        f"エラー: config.json が見つかりません。\n{_CONFIG_FILE}"
+                    )
+                    return False
+                with open(_CONFIG_FILE, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+                self.api_url = config.get("stableDiffusionURL")
+                if not self.api_url:
+                    self.log_message.emit(
+                        "エラー: config.json に stableDiffusionURL が設定されていません。"
+                    )
+                    return False
+            except Exception as e:
+                self.log_message.emit(
+                    f"エラー: config.json の読み込みに失敗しました: {e}"
+                )
+                return False
 
-        # --- 3. tasks.json の書き込み ---
-        if not self._write_tasks_json(tasks):
-            self.finished.emit(False, "tasks.json の書き込みに失敗しました。")
-            return
+        try:
+            # Forge APIの簡単なエンドポイントにアクセス (例: /)
+            # GenImage.pyが使う /sdapi/v1/png-info などでも良い
+            self.log_message.emit(f"Checking API status at: {self.api_url}")
+            response = requests.get(f"{self.api_url}/", timeout=3)  # 3秒タイムアウト
 
-        # --- 4. 実行コマンドの構築 ---
-        # GenImage.py が StableDiffusionClient フォルダにあることを前提
+            # (通常 / は 404 を返すが、サーバーが起動していれば応答はあるはず)
+            if response.status_code == 200 or response.status_code == 404:
+                self.log_message.emit(
+                    f"Forge API 接続成功 (Status: {response.status_code}): {self.api_url}"
+                )
+                return True
+            else:
+                self.log_message.emit(
+                    f"Forge API 接続失敗 (Status: {response.status_code}): {self.api_url}"
+                )
+                return False
+        except requests.exceptions.ConnectionError:
+            self.log_message.emit(
+                f"Forge API に接続できません (ConnectionError): {self.api_url}"
+            )
+            return False
+        except requests.exceptions.Timeout:
+            self.log_message.emit(f"Forge API がタイムアウトしました: {self.api_url}")
+            return False
+        except Exception as e:
+            self.log_message.emit(f"Forge API 確認中にエラー: {e}")
+            return False
+
+    # --- ▼▼▼ Forge起動メソッドを追加 ▼▼▼ ---
+    def _launch_forge(self) -> bool:
+        """
+        _launch_forge_if_needed.bat を実行してForgeを起動する。
+        バッチファイルの終了（＝API準備完了）を待つ。
+        """
+        if not os.path.exists(_LAUNCH_FORGE_BAT):
+            self.log_message.emit(
+                f"エラー: 起動バッチファイルが見つかりません。\n{_LAUNCH_FORGE_BAT}"
+            )
+            return False
+
+        self.log_message.emit("Forge (Stable Diffusion) の起動を開始します...")
+
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"  # 文字化け対策
+
+        try:
+            # Popenでバッチファイルを実行
+            self.process = subprocess.Popen(
+                [_LAUNCH_FORGE_BAT],
+                cwd=_CLIENT_DIR,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="ignore",
+                bufsize=1,
+                shell=True,  # .batファイルを実行するにはTrueが必要
+                env=env,
+            )
+
+            # バッチファイルの出力をリアルタイムでログに流す
+            if self.process.stdout:
+                for line in iter(self.process.stdout.readline, ""):
+                    if not line:
+                        break
+                    line = line.strip()
+                    if line:
+                        self.log_message.emit(f"[Forge Launcher] {line}")
+
+            self.process.stdout.close()
+            return_code = self.process.wait()
+
+            if return_code == 0:
+                self.log_message.emit(
+                    "Forge 起動バッチが正常に終了しました。APIを再確認します。"
+                )
+                time.sleep(5)  # 念のため数秒待機
+                return self._check_api_ready()
+            else:
+                self.log_message.emit(
+                    f"エラー: Forge 起動バッチが異常終了しました (コード: {return_code})。"
+                )
+                return False
+
+        except Exception as e:
+            self.log_message.emit(f"Forge起動プロセス実行中にエラー: {e}")
+            return False
+        finally:
+            self.process = None
+
+    # --- ▼▼▼ GenImage実行メソッドを分離 ▼▼▼ ---
+    def _run_genimage(self, tasks: List[ImageGenerationTask]) -> bool:
+        """
+        GenImage.py を実行し、進捗を監視する。
+        """
         if not os.path.exists(_FORGE_VENV_PYTHON):
-            self.finished.emit(
-                False,
-                f"エラー: ForgeのPython実行ファイルが見つかりません。\n{_FORGE_VENV_PYTHON}",
+            self.log_message.emit(
+                f"エラー: ForgeのPython実行ファイルが見つかりません。\n{_FORGE_VENV_PYTHON}"
             )
-            return
+            return False
         if not os.path.exists(_GENIMAGE_PY):
-            self.finished.emit(
-                False, f"エラー: GenImage.py が見つかりません。\n{_GENIMAGE_PY}"
+            self.log_message.emit(
+                f"エラー: GenImage.py が見つかりません。\n{_GENIMAGE_PY}"
             )
-            return
+            return False
 
         command = [
             _FORGE_VENV_PYTHON,
@@ -90,43 +201,36 @@ class GenerationWorker(QObject):
             _OUTPUT_JSON_PATH,
         ]
 
-        self.log_message.emit(f"コマンド実行: {' '.join(command)}")
-        self.log_message.emit(f"作業ディレクトリ: {_CLIENT_DIR}")
+        self.log_message.emit(f"GenImage.py 実行: {' '.join(command)}")
 
         total_tasks = len(tasks)
-        self.progress_updated.emit(total_tasks, 0, "Generation Started...")
+        self.progress_updated.emit(total_tasks, 0, "Image Generation Started...")
+
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"  # 文字化け対策
 
         try:
-            # 実行環境の環境変数をコピー
-            env = os.environ.copy()
-            # サブプロセスの標準入出力エンコーディングを UTF-8 に強制
-            env["PYTHONIOENCODING"] = "utf-8"
-
-            # --- 5. サブプロセスの実行 ---
             self.process = subprocess.Popen(
                 command,
-                cwd=_CLIENT_DIR,  # GenImage.py のカレントディレクトリ
+                cwd=_CLIENT_DIR,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,  # エラーも標準出力にマージ
+                stderr=subprocess.STDOUT,
                 text=True,
-                encoding="utf-8",  # ★ 読み取り側も UTF-8 を指定
+                encoding="utf-8",
                 errors="ignore",
                 bufsize=1,
                 shell=False,
-                env=env,  # ★ 修正した環境変数を渡す
+                env=env,
             )
-            # --- ▲▲▲ 修正点 (ここまで) ▲▲▲ ---
 
-            # --- 6. 標準出力のリアルタイム監視 ---
             if self.process.stdout:
                 for line in iter(self.process.stdout.readline, ""):
                     if not line:
                         break
                     line = line.strip()
                     if line:
-                        self.log_message.emit(line)  # 生ログを送信
+                        self.log_message.emit(line)
 
-                        # 進捗をパースしてシグナルを送信
                         match = re.search(r"--- タスク (\d+)/(\d+) を処理中 ---", line)
                         if match:
                             current = int(match.group(1))
@@ -148,26 +252,69 @@ class GenerationWorker(QObject):
             self.process.stdout.close()
             return_code = self.process.wait()
 
-            # --- 7. 終了処理 ---
             if return_code == 0:
                 self.progress_updated.emit(
                     total_tasks, total_tasks, "Generation Complete."
                 )
-                self.finished.emit(True, "バッチ処理が正常に完了しました。")
+                self.log_message.emit("GenImage.py が正常に完了しました。")
+                return True
             elif return_code == 5:
-                self.finished.emit(
-                    False,
-                    "エラー: APIリクエストがタイムアウトしました。Forgeの再起動が必要かもしれません。",
-                )
+                # GenImage.py のタイムアウトエラー
+                self.log_message.emit("エラー: GenImage.py がタイムアウトしました。")
+                return False
             else:
-                self.finished.emit(
-                    False,
-                    f"エラー: GenImage.py が異常終了しました (コード: {return_code})。",
+                self.log_message.emit(
+                    f"エラー: GenImage.py が異常終了しました (コード: {return_code})。"
                 )
+                return False
+
+        except Exception as e:
+            self.log_message.emit(f"GenImage.py 実行中にエラー: {e}")
+            traceback.print_exc()
+            return False
+        finally:
+            self.process = None
+
+    # --- ▼▼▼ メインの実行関数を修正 ▼▼▼ ---
+    @Slot(list)
+    def start_generation(self, tasks: List[ImageGenerationTask]):
+        """
+        スレッド開始時に呼び出されるメインの実行関数
+        1. Forge API確認
+        2. (必要なら) Forge起動
+        3. tasks.json 書き込み
+        4. GenImage.py 実行
+        """
+        if not tasks:
+            self.finished.emit(False, "生成するタスクがありません。")
+            return
+
+        try:
+            # 1. Forge API確認
+            self.log_message.emit("Checking Forge API status...")
+            if not self._check_api_ready():
+                self.log_message.emit(
+                    "Forge API not responding. Attempting to launch..."
+                )
+                # 2. Forge起動
+                if not self._launch_forge():
+                    self.finished.emit(False, "Forgeの起動に失敗しました。")
+                    return
+                # 起動成功
+                self.log_message.emit("Forge launch successful.")
+
+            # 3. tasks.json 書き込み
+            if not self._write_tasks_json(tasks):
+                self.finished.emit(False, "tasks.json の書き込みに失敗しました。")
+                return
+
+            # 4. GenImage.py 実行
+            if self._run_genimage(tasks):
+                self.finished.emit(True, "バッチ処理が正常に完了しました。")
+            else:
+                self.finished.emit(False, "画像生成プロセスでエラーが発生しました。")
 
         except Exception as e:
             self.log_message.emit(f"ワーカー実行中に致命的なエラーが発生しました: {e}")
             traceback.print_exc()
             self.finished.emit(False, f"ワーカー実行エラー: {e}")
-        finally:
-            self.process = None
