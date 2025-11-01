@@ -3,6 +3,7 @@ import subprocess
 import os
 import json
 import re
+import traceback
 from typing import List, Optional
 from PySide6.QtCore import QObject, Signal, Slot
 from dataclasses import asdict
@@ -96,6 +97,11 @@ class GenerationWorker(QObject):
         self.progress_updated.emit(total_tasks, 0, "Generation Started...")
 
         try:
+            # 実行環境の環境変数をコピー
+            env = os.environ.copy()
+            # サブプロセスの標準入出力エンコーディングを UTF-8 に強制
+            env["PYTHONIOENCODING"] = "utf-8"
+
             # --- 5. サブプロセスの実行 ---
             self.process = subprocess.Popen(
                 command,
@@ -103,11 +109,13 @@ class GenerationWorker(QObject):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,  # エラーも標準出力にマージ
                 text=True,
-                encoding="utf-8",
-                errors="ignore",  # エンコーディングエラーを無視
-                bufsize=1,  # ラインバッファリング
-                shell=False,  # venv の python を直接呼ぶので shell=False でOK
+                encoding="utf-8",  # ★ 読み取り側も UTF-8 を指定
+                errors="ignore",
+                bufsize=1,
+                shell=False,
+                env=env,  # ★ 修正した環境変数を渡す
             )
+            # --- ▲▲▲ 修正点 (ここまで) ▲▲▲ ---
 
             # --- 6. 標準出力のリアルタイム監視 ---
             if self.process.stdout:
@@ -119,19 +127,16 @@ class GenerationWorker(QObject):
                         self.log_message.emit(line)  # 生ログを送信
 
                         # 進捗をパースしてシグナルを送信
-                        # GenImage.py の出力 "--- タスク X/Y を処理中 ---" を探す
                         match = re.search(r"--- タスク (\d+)/(\d+) を処理中 ---", line)
                         if match:
                             current = int(match.group(1))
                             total = int(match.group(2))
-                            # 処理 *開始* 時点なので、(current - 1) が完了済み
                             self.progress_updated.emit(
                                 total,
                                 current - 1,
                                 f"Processing Task {current}/{total}...",
                             )
 
-                        # GenImage.py の出力 "[進捗: X/Y | ... | 予想残り時間: ...]" を探す
                         match_progress = re.search(r"\[進捗: (\d+)/(\d+)", line)
                         if match_progress:
                             current = int(match_progress.group(1))
@@ -150,7 +155,6 @@ class GenerationWorker(QObject):
                 )
                 self.finished.emit(True, "バッチ処理が正常に完了しました。")
             elif return_code == 5:
-                # GenImage.py のタイムアウトエラー
                 self.finished.emit(
                     False,
                     "エラー: APIリクエストがタイムアウトしました。Forgeの再起動が必要かもしれません。",
