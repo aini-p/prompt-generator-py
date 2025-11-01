@@ -32,7 +32,6 @@ class GenerationWorker(QObject):
     GenImage.py を別スレッドで実行し、進捗をシグナルで送信するワーカー
     """
 
-    # --- 2. シグナル定義 ---
     progress_updated = Signal(int, int, str)
     finished = Signal(bool, str)
     log_message = Signal(str)
@@ -234,14 +233,13 @@ class GenerationWorker(QObject):
 
         # ★ base_dir が指定されている場合のみ --output_base_dir を追加
         if base_dir:
-            # config.json のパスはプロジェクトルートからの相対パス
-            # GenImage.py (in StableDiffusionClient) から見ても正しく解決できるよう
-            # プロジェクトルートからの相対パスとして渡す
-            # (GenImage.py側で os.path.abspath を使って解決する想定)
+            # config.json のパスはプロジェクトルート(run_app.bat)からの相対パス
+            # GenImage.py (StableDiffusionClient下) から実行されるため、
+            # GenImage.py に渡すパスは、GenImage.py の場所からの相対パスか絶対パスである必要がある
 
-            # _PROJECT_ROOT (srcの親) からの相対パスを渡す
-            # (os.path.join(_PROJECT_ROOT, base_dir) で絶対パスにしても良い)
-            command.extend(["--output_base_dir", base_dir])
+            # _PROJECT_ROOT (srcの親) からの絶対パスに変換して渡す
+            abs_base_dir = os.path.abspath(os.path.join(_PROJECT_ROOT, base_dir))
+            command.extend(["--output_base_dir", abs_base_dir])
 
         self.log_message.emit(f"GenImage.py 実行: {' '.join(command)}")
 

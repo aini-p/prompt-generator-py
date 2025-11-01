@@ -57,7 +57,6 @@ class LibraryPanel(QWidget):
             ("Scenes", "scenes"),
             ("Cuts", "cuts"),
             ("Actors", "actors"),
-            ("Directions", "directions"),
             ("Costumes", "costumes"),
             ("Poses", "poses"),
             ("Expressions", "expressions"),
