@@ -109,11 +109,12 @@ def initialize_db():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS scenes (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
-                background_id TEXT, lighting_id TEXT, composition_ids TEXT,
+                background_id TEXT, lighting_id TEXT, 
+                composition_ids TEXT, 
                 cut_id TEXT,
                 role_assignments TEXT,
                 style_id TEXT,
-                sd_param_id TEXT,
+                sd_param_ids TEXT,
                 state_categories TEXT,additional_prompt_ids TEXT
             )""")
         cursor.execute("""
@@ -255,7 +256,6 @@ def _save_item(table_name: str, item_data: Dict[str, Any]):
 
 
 def _load_items(table_name: str, class_type: Type[T]) -> Dict[str, T]:
-    """汎用: 指定された型の全アイテムをロードします。古い属性は無視します。"""
     conn = get_connection()
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -268,26 +268,26 @@ def _load_items(table_name: str, class_type: Type[T]) -> Dict[str, T]:
         rows = []
     finally:
         conn.close()
-
-    # dataclass のフィールド名を取得
     class_fields = {f.name for f in class_type.__dataclass_fields__.values()}
-
     for row in rows:
         row_dict_raw = dict(row)
         item_id = row_dict_raw.get("id")
         if not item_id:
             continue
 
-        # ★ 古い composition_id がDBに残っていたら composition_ids に移行
-        if table_name == "scenes" and "composition_id" in row_dict_raw:
-            old_comp_id = row_dict_raw.pop("composition_id", None)
-            if old_comp_id and not row_dict_raw.get("composition_ids"):
-                row_dict_raw["composition_ids"] = list_to_json_str([old_comp_id])
+        if table_name == "scenes":
+            if "composition_id" in row_dict_raw:
+                old_comp_id = row_dict_raw.pop("composition_id", None)
+                if old_comp_id and not row_dict_raw.get("composition_ids"):
+                    row_dict_raw["composition_ids"] = list_to_json_str([old_comp_id])
 
-        # dataclass に存在するフィールドのみを抽出
+            if "sd_param_id" in row_dict_raw:
+                old_sd_id = row_dict_raw.pop("sd_param_id", None)
+                if old_sd_id and not row_dict_raw.get("sd_param_ids"):
+                    row_dict_raw["sd_param_ids"] = list_to_json_str([old_sd_id])
+
         row_dict = {k: v for k, v in row_dict_raw.items() if k in class_fields}
 
-        # --- JSON 文字列 -> リスト/Dict 変換処理 ---
         if "tags" in row_dict and isinstance(row_dict["tags"], str):
             try:
                 row_dict["tags"] = json.loads(row_dict["tags"])
@@ -295,38 +295,35 @@ def _load_items(table_name: str, class_type: Type[T]) -> Dict[str, T]:
                 row_dict["tags"] = []
 
         if class_type == Scene:
-            if "state_categories" in row_dict:
-                row_dict["state_categories"] = json_str_to_list(
-                    row_dict.get("state_categories"), str
-                )
-            if "additional_prompt_ids" in row_dict:  # ★ 追加済み
-                row_dict["additional_prompt_ids"] = json_str_to_list(
-                    row_dict.get("additional_prompt_ids"), str
-                )
-            if "role_assignments" in row_dict:
-                row_dict["role_assignments"] = json_str_to_dataclass_list(
-                    row_dict.get("role_assignments"), RoleAppearanceAssignment
-                )
-            if "composition_ids" in row_dict:
-                row_dict["composition_ids"] = json_str_to_list(
-                    row_dict.get("composition_ids"), str
-                )
-        if class_type == Costume and "state_ids" in row_dict:
+            row_dict["state_categories"] = json_str_to_list(
+                row_dict.get("state_categories"), str
+            )
+            row_dict["additional_prompt_ids"] = json_str_to_list(
+                row_dict.get("additional_prompt_ids"), str
+            )
+            row_dict["role_assignments"] = json_str_to_dataclass_list(
+                row_dict.get("role_assignments"), RoleAppearanceAssignment
+            )
+            row_dict["composition_ids"] = json_str_to_list(
+                row_dict.get("composition_ids"), str
+            )
+            row_dict["sd_param_ids"] = json_str_to_list(
+                row_dict.get("sd_param_ids"), str
+            )  # ★ 追加
+
+        if class_type == Costume:
             row_dict["state_ids"] = json_str_to_list(row_dict.get("state_ids"), str)
-        if class_type == Cut and "roles" in row_dict:
-            row_dict["roles"] = json_str_to_list(row_dict.get("roles"), SceneRole)
-        if class_type == Costume and "color_palette" in row_dict:
             row_dict["color_palette"] = json_str_to_list(
                 row_dict.get("color_palette"), ColorPaletteItem
             )
-        if class_type == Sequence and "scene_entries" in row_dict:
+        if class_type == Cut:
+            row_dict["roles"] = json_str_to_list(row_dict.get("roles"), SceneRole)
+        if class_type == Sequence:
             row_dict["scene_entries"] = json_str_to_list(
                 row_dict.get("scene_entries"), SequenceSceneEntry
             )
-        # QueueItem は load_batch_queue で処理
 
         try:
-            # dataclassが新しいフィールド(style_id, sd_param_id)も受け取る
             items[item_id] = class_type(**row_dict)
         except Exception as e:
             print(
@@ -335,7 +332,6 @@ def _load_items(table_name: str, class_type: Type[T]) -> Dict[str, T]:
             import traceback
 
             traceback.print_exc()
-
     return items
 
 
@@ -428,6 +424,7 @@ def save_scene(scene: Scene):
         data.get("additional_prompt_ids", [])
     )
     data["composition_ids"] = list_to_json_str(data.get("composition_ids", []))
+    data["sd_param_ids"] = list_to_json_str(data.get("sd_param_ids", []))
     _save_item("scenes", data)
 
 

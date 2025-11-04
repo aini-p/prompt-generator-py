@@ -134,7 +134,7 @@ class Scene:
     cut_id: Optional[str] = None
     role_assignments: List[RoleAppearanceAssignment] = field(default_factory=list)
     style_id: Optional[str] = None
-    sd_param_id: Optional[str] = None
+    sd_param_ids: List[str] = field(default_factory=list)
     state_categories: List[str] = field(default_factory=list)
     additional_prompt_ids: List[str] = field(default_factory=list)
 
@@ -190,6 +190,7 @@ class GeneratedPrompt:
     positive: str
     negative: str
     firstActorInfo: Optional[Dict[str, Any]] = None
+    composition: Optional[Composition] = None
 
 
 @dataclass

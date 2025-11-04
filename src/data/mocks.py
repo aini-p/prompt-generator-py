@@ -181,7 +181,7 @@ light_default_studio = Lighting(
     id="light_default_studio", name="デフォルトスタジオ照明", prompt="studio lighting"
 )
 comp_default_medium = Composition(
-    id="comp_default_medium", name="デフォルトミディアMショット", prompt="medium shot"
+    id="comp_default_medium", name="デフォルトミディアムショット", prompt="medium shot"
 )
 
 # --- アプリケーション全体の初期データベース ---
@@ -262,7 +262,7 @@ initialMockDatabase: FullDatabase = FullDatabase(
             tags=["solo"],
             background_id="bg_default_white",
             lighting_id="light_default_studio",
-            composition_ids=[comp_default_medium.id],  # ★ 変更
+            composition_ids=[comp_default_medium.id],
             cut_id=cut_default_solo_1.id,
             role_assignments=[
                 RoleAppearanceAssignment(
@@ -273,7 +273,7 @@ initialMockDatabase: FullDatabase = FullDatabase(
                 )
             ],
             style_id=style_default.id,
-            sd_param_id=default_sd_params.id,
+            sd_param_ids=[default_sd_params.id],  # ★ 変更
             state_categories=["damaged"],
             additional_prompt_ids=[ap_quality_up.id],
         ),
@@ -283,7 +283,7 @@ initialMockDatabase: FullDatabase = FullDatabase(
             tags=["pair"],
             background_id="bg_default_white",
             lighting_id="light_default_studio",
-            composition_ids=[comp_default_medium.id],  # ★ 変更
+            composition_ids=[comp_default_medium.id],
             cut_id=cut_default_pair_1.id,
             role_assignments=[
                 RoleAppearanceAssignment(
@@ -306,7 +306,7 @@ initialMockDatabase: FullDatabase = FullDatabase(
                 ),
             ],
             style_id=style_anime.id,
-            sd_param_id=default_sd_params.id,
+            sd_param_ids=[default_sd_params.id],  # ★ 変更
             state_categories=["wet", "damaged"],
             additional_prompt_ids=[ap_quality_up.id, ap_lens_effect.id],
         ),
@@ -314,11 +314,11 @@ initialMockDatabase: FullDatabase = FullDatabase(
             id="scene_no_state",
             name="状態カテゴリなしシーン",
             tags=["solo"],
-            composition_ids=[comp_default_medium.id],  # ★ 変更
+            composition_ids=[comp_default_medium.id],
             cut_id=cut_default_solo_1.id,
             role_assignments=[RoleAppearanceAssignment(role_id="r1")],
             style_id=style_default.id,
-            sd_param_id=default_sd_params.id,
+            sd_param_ids=[default_sd_params.id],  # ★ 変更
             state_categories=[],
             additional_prompt_ids=[],
         ),
@@ -328,11 +328,11 @@ initialMockDatabase: FullDatabase = FullDatabase(
             tags=["solo", "casual"],
             background_id="bg_default_white",
             lighting_id="light_default_studio",
-            composition_ids=[comp_default_medium.id],  # ★ 変更
+            composition_ids=[comp_default_medium.id],
             cut_id=cut_default_solo_1.id,
             role_assignments=[RoleAppearanceAssignment(role_id="r1")],
             style_id=style_anime.id,
-            sd_param_id=default_sd_params.id,
+            sd_param_ids=[default_sd_params.id],  # ★ 変更
             state_categories=["casual"],
             additional_prompt_ids=[ap_quality_up.id],
         ),
