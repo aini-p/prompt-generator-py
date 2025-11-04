@@ -253,9 +253,8 @@ class SceneEditorDialog(BaseEditorDialog):
         self.current_role_assignments: List[RoleAppearanceAssignment] = []
         self.current_state_categories: List[str] = []
         self.current_additional_prompt_ids: List[str] = []
-        # --- ▼▼▼ 構図IDリスト用の内部状態を追加 ▼▼▼ ---
         self.current_composition_ids: List[str] = []
-        # --- ▲▲▲ 追加ここまで ▲▲▲ ---
+        self.current_sd_param_ids: List[str] = []
 
         if initial_data:
             if hasattr(initial_data, "role_assignments"):
