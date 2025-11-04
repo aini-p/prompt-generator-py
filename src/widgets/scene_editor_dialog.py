@@ -274,10 +274,10 @@ class SceneEditorDialog(BaseEditorDialog):
                 self.current_additional_prompt_ids = list(
                     initial_data.additional_prompt_ids
                 )
-            # --- ▼▼▼ 構図IDリストを内部状態にコピー ▼▼▼ ---
             if hasattr(initial_data, "composition_ids"):
                 self.current_composition_ids = list(initial_data.composition_ids)
-            # --- ▲▲▲ 追加ここまで ▲▲▲ ---
+            if hasattr(initial_data, "sd_param_ids"):
+                self.current_sd_param_ids = list(initial_data.sd_param_ids)
 
         super().__init__(initial_data, db_dict, "シーン (Scene)", parent)
 
@@ -312,13 +312,6 @@ class SceneEditorDialog(BaseEditorDialog):
             reference_modal_type="STYLE",
             allow_none=True,
         )
-        sd_param_ref_widget = self._create_reference_editor_widget(
-            field_name="sd_param_id",
-            current_id=getattr(self.initial_data, "sd_param_id", None),
-            reference_db_key="sdParams",
-            reference_modal_type="SDPARAMS",
-            allow_none=True,
-        )
 
         # --- レイアウトに追加 (Composition 以外) ---
         self.form_layout.addRow("名前:", self.name_edit)
@@ -326,7 +319,32 @@ class SceneEditorDialog(BaseEditorDialog):
         self.form_layout.addRow("背景:", background_ref_widget)
         self.form_layout.addRow("照明:", lighting_ref_widget)
         self.form_layout.addRow("スタイル:", style_ref_widget)
-        self.form_layout.addRow("SD Params:", sd_param_ref_widget)
+
+        # --- ▼▼▼ SD Params UI (新規追加) ▼▼▼ ---
+        self.form_layout.addRow(QLabel("--- SD パラメータ (SD Params) ---"))
+        self.selected_sdp_list = QListWidget()
+        self.selected_sdp_list.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self.selected_sdp_list.itemDoubleClicked.connect(
+            self._handle_sdp_double_clicked
+        )
+        self._populate_sdp_list()  # ★ SDParams用リスト表示関数
+
+        sdp_btn_layout = QHBoxLayout()
+        add_sdp_btn = QPushButton("＋ SDParamsを選択...")
+        add_new_sdp_btn = QPushButton("＋ 新規SDParamsを作成")
+        remove_sdp_btn = QPushButton("－ 選択したSDParamsを削除")
+        add_sdp_btn.clicked.connect(self._add_sdp_dialog)  # ★
+        add_new_sdp_btn.clicked.connect(self._handle_add_new_sdp)  # ★
+        remove_sdp_btn.clicked.connect(self._remove_selected_sdp)  # ★
+        sdp_btn_layout.addWidget(add_sdp_btn)
+        sdp_btn_layout.addWidget(add_new_sdp_btn)
+        sdp_btn_layout.addWidget(remove_sdp_btn)
+        sdp_btn_layout.addStretch()
+
+        self.form_layout.addRow(self.selected_sdp_list)
+        self.form_layout.addRow(sdp_btn_layout)
 
         # --- Cut 選択 ---
         self.form_layout.addRow(QLabel("--- カット設定 ---"))
@@ -434,6 +452,99 @@ class SceneEditorDialog(BaseEditorDialog):
             self.db_dict.get("cuts", {}).get(initial_cut_id) if initial_cut_id else None
         )
         self._update_appearance_assignment_ui(initial_cut)
+
+    # --- ▼▼▼ SD Params リスト関連メソッド (新規追加) ▼▼▼ ---
+    def _populate_sdp_list(self):
+        """選択済みの SDParams リストを更新します。"""
+        self.selected_sdp_list.clear()
+        all_sdps = self.db_dict.get("sdParams", {})
+        current_id_order = {
+            sdp_id: i for i, sdp_id in enumerate(self.current_sd_param_ids)
+        }
+        sorted_ids = sorted(
+            self.current_sd_param_ids,
+            key=lambda sdp_id: current_id_order.get(sdp_id, float("inf")),
+        )
+        for sdp_id in sorted_ids:
+            sdp = all_sdps.get(sdp_id)
+            item_text = f"SDParams ID not found: {sdp_id}"
+            if sdp:
+                item_text = f"{getattr(sdp, 'name', 'N/A')} ({sdp_id})"
+            item = QListWidgetItem(item_text)
+            item.setData(Qt.ItemDataRole.UserRole, sdp_id)
+            self.selected_sdp_list.addItem(item)
+
+    @Slot()
+    def _add_sdp_dialog(self):
+        """利用可能な SDParams を選択するダイアログを表示し、追加します。"""
+        all_sdps = self.db_dict.get("sdParams", {})
+        if not all_sdps:
+            QMessageBox.information(
+                self, "SDParams 追加", "利用可能な SDParams がありません。"
+            )
+            return
+
+        selectable_sdps = {
+            sdp_id: sdp
+            for sdp_id, sdp in all_sdps.items()
+            if sdp_id not in self.current_sd_param_ids
+        }
+        if not selectable_sdps:
+            QMessageBox.information(
+                self, "SDParams 追加", "追加可能な SDParams がありません。"
+            )
+            return
+
+        def display_sdp(sdp: StableDiffusionParams) -> str:
+            return f"{getattr(sdp, 'name', 'N/A')} ({getattr(sdp, 'id', 'N/A')})"
+
+        def sort_sdp_key(item: Tuple[str, StableDiffusionParams]) -> str:
+            sdp = item[1]
+            return getattr(sdp, "name", "").lower()
+
+        dialog = GenericSelectionDialog(
+            items_data=selectable_sdps,
+            display_func=display_sdp,
+            window_title="Select SDParams to Add",
+            filter_placeholder="Filter by name or ID...",
+            sort_key_func=sort_sdp_key,
+            parent=self,
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            selected_id = dialog.get_selected_item_id()
+            if selected_id and selected_id not in self.current_sd_param_ids:
+                self.current_sd_param_ids.append(selected_id)
+                self._populate_sdp_list()
+                self._mark_data_changed()
+
+    @Slot()
+    def _handle_add_new_sdp(self):
+        """新規 SDParams 作成ダイアログを開くリクエスト"""
+        self.request_open_editor.emit("SDPARAMS", None, None)
+
+    @Slot()
+    def _remove_selected_sdp(self):
+        """選択済みリストで選択された SDParams を削除します。"""
+        selected_items = self.selected_sdp_list.selectedItems()
+        if selected_items:
+            sdp_id_to_remove = selected_items[0].data(Qt.ItemDataRole.UserRole)
+            if sdp_id_to_remove in self.current_sd_param_ids:
+                self.current_sd_param_ids.remove(sdp_id_to_remove)
+                self._populate_sdp_list()
+                self._mark_data_changed()
+
+    @Slot(QListWidgetItem)
+    def _handle_sdp_double_clicked(self, item: QListWidgetItem):
+        """SDParams リストの項目がダブルクリックされたときの処理"""
+        sdp_id = item.data(Qt.ItemDataRole.UserRole)
+        sdp_data = self.db_dict.get("sdParams", {}).get(sdp_id)
+        if sdp_data:
+            self.request_open_editor.emit("SDPARAMS", sdp_data, None)
+        else:
+            QMessageBox.warning(
+                self, "Error", f"Could not find SDParams data for ID: {sdp_id}"
+            )
 
     # --- ▼▼▼ 構図 (Composition) リスト関連メソッド (APからコピーして修正) ▼▼▼ ---
     def _populate_comp_list(self):
@@ -794,6 +905,11 @@ class SceneEditorDialog(BaseEditorDialog):
                 "[DEBUG] SceneEditorDialog detected Composition change. Repopulating Comp list."
             )
             self._populate_comp_list()
+        elif db_key == "sdParams":
+            print(
+                "[DEBUG] SceneEditorDialog detected SDParams change. Repopulating SDP list."
+            )
+            self._populate_sdp_list()
         else:
             super().update_combo_box_after_edit(target_widget, db_key, select_id)
 
@@ -810,12 +926,10 @@ class SceneEditorDialog(BaseEditorDialog):
             bg_id = self._get_widget_value("background_id")
             light_id = self._get_widget_value("lighting_id")
             style_id = self._get_widget_value("style_id")
-            sd_param_id = self._get_widget_value("sd_param_id")
             cut_id = self._get_widget_value("cut_id")
 
-            # --- ★ 構図IDリストを取得 ---
             composition_ids = self.current_composition_ids
-            # --- ★ State/APリストを取得 ---
+            sd_param_ids = self.current_sd_param_ids
             state_categories = sorted(self.current_state_categories)
             additional_prompt_ids = self.current_additional_prompt_ids
 
@@ -851,7 +965,7 @@ class SceneEditorDialog(BaseEditorDialog):
                 updated_scene.lighting_id = light_id or ""
                 updated_scene.composition_ids = composition_ids  # ★ 更新
                 updated_scene.style_id = style_id
-                updated_scene.sd_param_id = sd_param_id
+                updated_scene.sd_param_ids = sd_param_ids
                 updated_scene.cut_id = cut_id
                 updated_scene.role_assignments = valid_role_assignments
                 updated_scene.state_categories = state_categories
@@ -870,7 +984,7 @@ class SceneEditorDialog(BaseEditorDialog):
                     cut_id=cut_id,
                     role_assignments=valid_role_assignments,
                     style_id=style_id,
-                    sd_param_id=sd_param_id,
+                    sd_param_ids=sd_param_ids,
                     state_categories=state_categories,
                     additional_prompt_ids=additional_prompt_ids,
                 )

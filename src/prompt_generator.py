@@ -128,7 +128,7 @@ def _clean_prompt(text: str) -> str:
 # ==============================================================================
 # Main Prompt Generation Logic
 # ==============================================================================
-# --- ▼▼▼ generate_batch_prompts を全置き換え ▼▼▼ ---
+# --- ▼▼▼ generate_batch_prompts (構図のデカルト積まで) ▼▼▼ ---
 def generate_batch_prompts(
     scene_id: str,
     actor_assignments: ActorAssignments,
@@ -137,6 +137,7 @@ def generate_batch_prompts(
 ) -> List[GeneratedPrompt]:
     """
     シーンIDと配役情報から、衣装・ポーズ・表情・構図の全組み合わせのプロンプトを生成。
+    (SDParams はこの時点では考慮しない)
     """
     scene = db.scenes.get(scene_id)
     if not scene:
@@ -149,23 +150,19 @@ def generate_batch_prompts(
             )
         ]
 
-    # --- 1. シーン共通パーツ取得 (Style, BG, Lighting) ---
     style = db.styles.get(scene.style_id) if scene.style_id else None
     background = db.backgrounds.get(scene.background_id)
     lighting = db.lighting.get(scene.lighting_id)
 
-    # --- 2. 構図リスト取得 (複数対応) ---
     composition_list: List[Optional[Composition]] = []
     if hasattr(scene, "composition_ids") and scene.composition_ids:
         for comp_id in scene.composition_ids:
             comp = db.compositions.get(comp_id)
             if comp:
                 composition_list.append(comp)
-    # 1つも有効なものがない場合、フォールバック (None) を追加
     if not composition_list:
         composition_list.append(None)
 
-    # --- 3. 追加プロンプトリスト取得 ---
     additional_prompts_list: List[AdditionalPrompt] = []
     if hasattr(scene, "additional_prompt_ids"):
         for ap_id in getattr(scene, "additional_prompt_ids", []):
@@ -173,7 +170,6 @@ def generate_batch_prompts(
             if ap:
                 additional_prompts_list.append(ap)
 
-    # --- 4. Cut 取得 ---
     cut_obj = db.cuts.get(scene.cut_id) if scene.cut_id else None
     if not cut_obj:
         return [
@@ -185,7 +181,6 @@ def generate_batch_prompts(
             )
         ]
 
-    # --- 5. 配役ごとの Appearance 組み合わせリストを作成 ---
     role_appearance_combinations: Dict[
         str, List[Dict[str, Optional[PromptPartBase]]]
     ] = {}
@@ -219,8 +214,6 @@ def generate_batch_prompts(
         role_assignment = scene_assignments_map.get(role.id)
         role_overrides = appearance_overrides.get(role.id, {})
 
-        # (Costume, Pose, Expression のIDリスト取得ロジックは変更なし)
-        # 1. Costume
         costume_override = role_overrides.get("costume_id")
         if costume_override:
             costume_ids = [costume_override]
@@ -228,7 +221,7 @@ def generate_batch_prompts(
             costume_ids = role_assignment.costume_ids
         else:
             costume_ids = [actor.base_costume_id]
-        # 2. Pose
+
         pose_override = role_overrides.get("pose_id")
         if pose_override:
             pose_ids = [pose_override]
@@ -236,7 +229,7 @@ def generate_batch_prompts(
             pose_ids = role_assignment.pose_ids
         else:
             pose_ids = [actor.base_pose_id]
-        # 3. Expression
+
         expression_override = role_overrides.get("expression_id")
         if expression_override:
             expression_ids = [expression_override]
@@ -272,24 +265,21 @@ def generate_batch_prompts(
             )
         ]
 
-    # --- 6. 全配役の Appearance 組み合わせ (デカルト積) を計算 ---
     list_of_role_combination_lists = [
         role_appearance_combinations[role.id] for role in valid_roles_in_scene
     ]
     overall_combinations = getCartesianProduct(list_of_role_combination_lists)
 
-    # --- 7. 全組み合わせをループしてプロンプト生成 ---
     generated_prompts: List[GeneratedPrompt] = []
     cut_base_name = cut_obj.name or f"Cut{scene.cut_id or 'N/A'}"
     global_prompt_index = 1
 
-    # --- ▼▼▼ 修正: 構図(composition_list)もデカルト積に含める ▼▼▼ ---
+    # --- 構図(composition_list)もデカルト積に含める ---
     all_combinations_product = itertools.product(overall_combinations, composition_list)
 
     for combo_product in all_combinations_product:
         overall_combo: List[Dict[str, Optional[PromptPartBase]]] = combo_product[0]
         composition: Optional[Composition] = combo_product[1]
-        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
         if len(overall_combo) != len(valid_roles_in_scene):
             print(f"[WARN] Skipping invalid combination: {overall_combo}")
@@ -299,7 +289,6 @@ def generate_batch_prompts(
         negative_prompts_per_role: Dict[str, str] = {}
         appearance_names_per_role: Dict[str, str] = {}
 
-        # (各配役のプロンプト生成ロジックは変更なし)
         for i, role in enumerate(valid_roles_in_scene):
             role_id = role.id
             appearance: Dict[str, Optional[PromptPartBase]] = overall_combo[i]
@@ -346,7 +335,6 @@ def generate_batch_prompts(
             )
             appearance_names_per_role[role_id] = f"{c_name}/{p_name}/{e_name}"
 
-        # --- 8. テンプレートに代入 & 共通プロンプトと結合 ---
         final_positive = cut_obj.prompt_template
         final_negative = cut_obj.negative_template
 
@@ -361,15 +349,12 @@ def generate_batch_prompts(
         final_positive = re.sub(r"\[R\d+\]", "", final_positive)
         final_negative = re.sub(r"\[R\d+\]", "", final_negative)
 
-        # 共通プロンプト結合
         common_pos_parts = [
             getattr(style, "prompt", ""),
             final_positive,
             getattr(background, "prompt", ""),
             getattr(lighting, "prompt", ""),
-            # --- ▼▼▼ 修正: ループ変数 (composition) を使用 ▼▼▼ ---
-            getattr(composition, "prompt", ""),
-            # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+            getattr(composition, "prompt", ""),  # ★ 構図プロンプト
             *[ap.prompt for ap in additional_prompts_list if ap.prompt],
         ]
         common_neg_parts = [
@@ -377,9 +362,7 @@ def generate_batch_prompts(
             final_negative,
             getattr(background, "negative_prompt", ""),
             getattr(lighting, "negative_prompt", ""),
-            # --- ▼▼▼ 修正: ループ変数 (composition) を使用 ▼▼▼ ---
-            getattr(composition, "negative_prompt", ""),
-            # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+            getattr(composition, "negative_prompt", ""),  # ★ 構図ネガティブ
             *[
                 ap.negative_prompt
                 for ap in additional_prompts_list
@@ -390,7 +373,6 @@ def generate_batch_prompts(
         final_positive = _clean_prompt(_combine_prompts(*common_pos_parts))
         final_negative = _clean_prompt(_combine_prompts(*common_neg_parts))
 
-        # プロンプト名生成
         combo_name_parts = []
         for role in valid_roles_in_scene:
             actor = db.actors.get(actor_assignments[role.id])
@@ -399,16 +381,14 @@ def generate_batch_prompts(
                 f"{getattr(actor, 'name', role.id)}[{appearance_name}]"
             )
 
-        # --- ▼▼▼ 修正: 構図名も名前に含める ▼▼▼ ---
         comp_name = getattr(composition, "name", "BaseComp")
         combo_name_parts.append(f"Comp[{comp_name}]")
-        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
         combo_name = " & ".join(combo_name_parts)
 
         generated_prompts.append(
             GeneratedPrompt(
-                cut=global_prompt_index,
+                cut=global_prompt_index,  # ★ この時点でのインデックス
                 name=f"{cut_base_name}: {combo_name}",
                 positive=final_positive,
                 negative=final_negative,
@@ -435,71 +415,98 @@ def _sanitize_filename(name: Optional[str]) -> str:
     return name if name else "unknown"
 
 
-# --- ▼▼▼ create_image_generation_tasks を修正 (引数とメタデータを変更) ▼▼▼ ---
+# --- ▼▼▼ create_image_generation_tasks を全置き換え ▼▼▼ ---
 def create_image_generation_tasks(
     generated_prompts: List[GeneratedPrompt],
     cut: Optional[Cut],
     scene: Optional[Scene],
     db: FullDatabase,
 ) -> List[ImageGenerationTask]:
+    """
+    プロンプトリストとシーン設定に基づき、SD Param のデカルト積を含む
+    最終的な ImageGenerationTask のリストを作成します。
+    """
     if not cut or not scene:
         return []
 
-    sd_param_id = getattr(scene, "sd_param_id", None)
-    sd_params = db.sdParams.get(sd_param_id) if sd_param_id else None
-    if not sd_params:
-        sd_params = next(
+    # --- 1. SD Params リストの取得 ---
+    sd_params_list: List[StableDiffusionParams] = []
+    if hasattr(scene, "sd_param_ids") and scene.sd_param_ids:
+        for sdp_id in scene.sd_param_ids:
+            sdp = db.sdParams.get(sdp_id)
+            if sdp:
+                sd_params_list.append(sdp)
+
+    # 1つも有効なものがない場合、フォールバック
+    if not sd_params_list:
+        default_sdp = next(
             iter(db.sdParams.values()),
-            StableDiffusionParams(id="fallback", name="Fallback Default"),
+            StableDiffusionParams(id="fallback", name="Fallback_Default"),  # デフォルト
         )
+        sd_params_list.append(default_sdp)
         print(
-            f"[WARN] SD Params not found for scene '{getattr(scene, 'name', 'N/A')}'. Using fallback: {sd_params.name}"
+            f"[WARN] SD Params not found for scene '{getattr(scene, 'name', 'N/A')}'. Using fallback: {default_sdp.name}"
         )
 
     safe_scene_name = _sanitize_filename(getattr(scene, "name", "unknown_scene"))
     tasks: List[ImageGenerationTask] = []
+    task_index = 1  # 最終的なタスクインデックス
 
+    # --- 2. (プロンプト x SDParams) のデカルト積ループ ---
     for prompt_data in generated_prompts:
-        work_title = "unknown_work"
-        char_name = "unknown_character"
-        if prompt_data.firstActorInfo:
-            char = prompt_data.firstActorInfo.get("character")
-            work = prompt_data.firstActorInfo.get("work")
-            if char:
-                char_name = getattr(char, "name", char_name)
-            if work:
-                work_title = getattr(work, "title_jp", work_title)
+        for sd_params in sd_params_list:
+            work_title = "unknown_work"
+            char_name = "unknown_character"
+            if prompt_data.firstActorInfo:
+                char = prompt_data.firstActorInfo.get("character")
+                work = prompt_data.firstActorInfo.get("work")
+                if char:
+                    char_name = getattr(char, "name", char_name)
+                if work:
+                    work_title = getattr(work, "title_jp", work_title)
 
-        safe_work = _sanitize_filename(work_title)
-        safe_char = _sanitize_filename(char_name)
+            safe_work = _sanitize_filename(work_title)
+            safe_char = _sanitize_filename(char_name)
+            safe_sdp_name = _sanitize_filename(
+                getattr(sd_params, "name", "default_sdp")
+            )
 
-        filename_prefix = (
-            f"{safe_work}_{safe_char}_{safe_scene_name}_cut{prompt_data.cut}"
-        )
+            # ★ ファイル名に (prompt_data.cut) と (sd_param名) を含める
+            filename_prefix = f"{safe_work}_{safe_char}_{safe_scene_name}_p{prompt_data.cut}_{safe_sdp_name}"
 
-        mode = getattr(cut, "image_mode", "txt2img")
-        source_image_path = getattr(cut, "reference_image_path", "")
-        if not source_image_path or mode == "txt2img":
-            mode = "txt2img"
-            source_image_path = ""
-        denoising_strength = sd_params.denoising_strength if mode != "txt2img" else None
+            # ★ プロンプト名に SDParam 名を追加
+            task_name = f"{prompt_data.name} | SDP[{safe_sdp_name}]"
 
-        task = ImageGenerationTask(
-            prompt=prompt_data.positive,
-            negative_prompt=prompt_data.negative,
-            steps=sd_params.steps,
-            sampler_name=sd_params.sampler_name,
-            cfg_scale=sd_params.cfg_scale,
-            seed=sd_params.seed,
-            width=sd_params.width,
-            height=sd_params.height,
-            mode=mode,
-            filename_prefix=filename_prefix,
-            source_image_path=source_image_path,
-            denoising_strength=denoising_strength,
-            metadata=BatchMetadata(),  # ★ 空のメタデータを初期値として設定 (main_windowで上書き)
-        )
-        tasks.append(task)
+            # (GeneratedPrompt の 'cut' フィールドをタスクインデックスとして上書き)
+            prompt_data.cut = task_index
+            task_index += 1
+
+            mode = getattr(cut, "image_mode", "txt2img")
+            source_image_path = getattr(cut, "reference_image_path", "")
+            if not source_image_path or mode == "txt2img":
+                mode = "txt2img"
+                source_image_path = ""
+            denoising_strength = (
+                sd_params.denoising_strength if mode != "txt2img" else None
+            )
+
+            task = ImageGenerationTask(
+                prompt=prompt_data.positive,
+                negative_prompt=prompt_data.negative,
+                steps=sd_params.steps,
+                sampler_name=sd_params.sampler_name,
+                cfg_scale=sd_params.cfg_scale,
+                seed=sd_params.seed,
+                width=sd_params.width,
+                height=sd_params.height,
+                mode=mode,
+                filename_prefix=filename_prefix,
+                source_image_path=source_image_path,
+                denoising_strength=denoising_strength,
+                metadata=BatchMetadata(),  # main_windowで上書き
+            )
+            tasks.append(task)
+
     return tasks
 
 

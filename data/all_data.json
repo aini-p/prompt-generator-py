@@ -88,6 +88,17 @@
       "base_costume_id": "costume_default_shirt",
       "base_pose_id": "pose_default_standing",
       "base_expression_id": "expr_default_neutral"
+    },
+    "actor_1761762861": {
+      "id": "actor_1761762861",
+      "name": "a",
+      "tags": [],
+      "prompt": "a",
+      "negative_prompt": "ugly, watermark",
+      "character_id": "char_default_female",
+      "base_costume_id": "costume_colored_dress",
+      "base_pose_id": "pose_default_standing",
+      "base_expression_id": "expr_default_neutral"
     }
   },
   "cuts": {
@@ -126,7 +137,7 @@
     "cut_1761761643": {
       "id": "cut_1761761643",
       "name": "a",
-      "prompt_template": "[R1] and [R2]",
+      "prompt_template": "[R1] and [R2], standing",
       "negative_template": "a",
       "roles": [
         {
@@ -151,7 +162,9 @@
       ],
       "background_id": "bg_default_white",
       "lighting_id": "light_default_studio",
-      "composition_id": "comp_default_medium",
+      "composition_ids": [
+        "comp_default_medium"
+      ],
       "cut_id": "cut_default_pair_1",
       "role_assignments": [
         {
@@ -182,7 +195,9 @@
         }
       ],
       "style_id": "style_anime",
-      "sd_param_id": "sdp_default_1",
+      "sd_param_ids": [
+        "sdp_default_1"
+      ],
       "state_categories": [
         "wet",
         "damaged"
@@ -200,7 +215,7 @@
       ],
       "background_id": "",
       "lighting_id": "",
-      "composition_id": "",
+      "composition_ids": [],
       "cut_id": "cut_default_solo_1",
       "role_assignments": [
         {
@@ -211,7 +226,9 @@
         }
       ],
       "style_id": "style_default",
-      "sd_param_id": "sdp_default_1",
+      "sd_param_ids": [
+        "sdp_default_1"
+      ],
       "state_categories": [],
       "additional_prompt_ids": []
     },
@@ -224,7 +241,9 @@
       ],
       "background_id": "bg_default_white",
       "lighting_id": "light_default_studio",
-      "composition_id": "comp_default_medium",
+      "composition_ids": [
+        "comp_default_medium"
+      ],
       "cut_id": "cut_default_solo_1",
       "role_assignments": [
         {
@@ -235,7 +254,9 @@
         }
       ],
       "style_id": "style_anime",
-      "sd_param_id": "sdp_default_1",
+      "sd_param_ids": [
+        "sdp_default_1"
+      ],
       "state_categories": [
         "casual"
       ],
@@ -251,7 +272,9 @@
       ],
       "background_id": "bg_default_white",
       "lighting_id": "light_default_studio",
-      "composition_id": "comp_default_medium",
+      "composition_ids": [
+        "comp_default_medium"
+      ],
       "cut_id": "cut_default_solo_1",
       "role_assignments": [
         {
@@ -270,7 +293,9 @@
         }
       ],
       "style_id": "style_default",
-      "sd_param_id": "sdp_default_1",
+      "sd_param_ids": [
+        "sdp_default_1"
+      ],
       "state_categories": [
         "damaged"
       ],
@@ -286,13 +311,17 @@
       ],
       "background_id": "bg_default_white",
       "lighting_id": "light_default_studio",
-      "composition_id": "comp_default_medium",
+      "composition_ids": [
+        "comp_default_medium",
+        "composition_1762236438"
+      ],
       "cut_id": "cut_1761761643",
       "role_assignments": [
         {
           "role_id": "r1",
           "costume_ids": [
-            "costume_colored_dress"
+            "costume_colored_dress",
+            "costume_default_shirt"
           ],
           "pose_ids": [],
           "expression_ids": []
@@ -307,13 +336,84 @@
         }
       ],
       "style_id": "style_default",
-      "sd_param_id": "sdp_default_1",
+      "sd_param_ids": [
+        "sdParam_copy_1761763916269",
+        "sdp_1762241157"
+      ],
       "state_categories": [
         "damaged"
       ],
       "additional_prompt_ids": [
         "ap_effect_1"
       ]
+    },
+    "scene_copy_1761815008533": {
+      "id": "scene_copy_1761815008533",
+      "name": "re (Copy)",
+      "tags": [
+        "re"
+      ],
+      "background_id": "bg_default_white",
+      "lighting_id": "light_default_studio",
+      "composition_ids": [
+        "comp_default_medium"
+      ],
+      "cut_id": "cut_1761761643",
+      "role_assignments": [
+        {
+          "role_id": "r1",
+          "costume_ids": [],
+          "pose_ids": [],
+          "expression_ids": []
+        },
+        {
+          "role_id": "r2",
+          "costume_ids": [
+            "costume_default_shirt"
+          ],
+          "pose_ids": [],
+          "expression_ids": []
+        }
+      ],
+      "style_id": "style_default",
+      "sd_param_ids": [
+        "sdParam_copy_1761763916269"
+      ],
+      "state_categories": [
+        "damaged"
+      ],
+      "additional_prompt_ids": [
+        "ap_effect_1"
+      ]
+    },
+    "scene_1761833589": {
+      "id": "scene_1761833589",
+      "name": "test",
+      "tags": [],
+      "background_id": "",
+      "lighting_id": "",
+      "composition_ids": [],
+      "cut_id": "cut_1761761643",
+      "role_assignments": [
+        {
+          "role_id": "r1",
+          "costume_ids": [],
+          "pose_ids": [],
+          "expression_ids": []
+        },
+        {
+          "role_id": "r2",
+          "costume_ids": [],
+          "pose_ids": [],
+          "expression_ids": []
+        }
+      ],
+      "style_id": null,
+      "sd_param_ids": [
+        "sdp_default_1"
+      ],
+      "state_categories": [],
+      "additional_prompt_ids": []
     }
   },
   "costumes": {
@@ -403,6 +503,13 @@
       "tags": [],
       "prompt": "medium shot",
       "negative_prompt": "close-up, long shot"
+    },
+    "composition_1762236438": {
+      "id": "composition_1762236438",
+      "name": "ヘンな間取り",
+      "tags": [],
+      "prompt": "henna madori",
+      "negative_prompt": ""
     }
   },
   "styles": {
@@ -434,9 +541,46 @@
       "width": 512,
       "height": 512,
       "denoising_strength": 0.6
+    },
+    "sdParam_copy_1761763916269": {
+      "id": "sdParam_copy_1761763916269",
+      "name": "Default (Euler a, 512x512) (Copy)",
+      "steps": 20,
+      "sampler_name": "Euler a",
+      "cfg_scale": 7.0,
+      "seed": -1,
+      "width": 1024,
+      "height": 512,
+      "denoising_strength": 0.6
+    },
+    "sdp_1762241157": {
+      "id": "sdp_1762241157",
+      "name": "New SD Params1024",
+      "steps": 20,
+      "sampler_name": "Euler a",
+      "cfg_scale": 7.0,
+      "seed": -1,
+      "width": 1024,
+      "height": 512,
+      "denoising_strength": 0.6
     }
   },
-  "sequences": {},
+  "sequences": {
+    "seq_1761832120802": {
+      "id": "seq_1761832120802",
+      "name": "実験",
+      "scene_entries": [
+        {
+          "scene_id": "scene_1761761677",
+          "is_enabled": true
+        },
+        {
+          "scene_id": "scene_1761833589",
+          "is_enabled": true
+        }
+      ]
+    }
+  },
   "states": {
     "state_damaged_1": {
       "id": "state_damaged_1",

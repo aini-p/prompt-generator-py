@@ -333,6 +333,12 @@ class MainWindow(QMainWindow):
                     item_dict["additional_prompt_ids"] = list(
                         item_dict.get("additional_prompt_ids", [])
                     )
+                item_dict["composition_ids"] = list(
+                    item_dict.get("composition_ids", [])
+                )
+                item_dict["sd_param_ids"] = list(
+                    item_dict.get("sd_param_ids", [])
+                )  # ★ 追加
             elif db_key == "sequences" and "scene_entries" in item_dict:
                 item_dict["scene_entries"] = [
                     SequenceSceneEntry(**se.__dict__)
