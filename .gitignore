@@ -82,4 +82,5 @@ logs/
 
 # Output files (if generated within the project structure)
 data/tasks.json
+src/data/config.json
 preference.json
