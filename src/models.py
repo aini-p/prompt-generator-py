@@ -130,11 +130,11 @@ class Scene:
     tags: List[str] = field(default_factory=list)
     background_id: str = ""
     lighting_id: str = ""
-    composition_id: str = ""
-    cut_id: Optional[str] = None  # ★ cut_id に変更済み
+    composition_ids: List[str] = field(default_factory=list)  # ★ 変更 (id -> ids)
+    cut_id: Optional[str] = None
     role_assignments: List[RoleAppearanceAssignment] = field(default_factory=list)
-    style_id: Optional[str] = None  # ★ Style ID を追加
-    sd_param_id: Optional[str] = None  # ★ SD Param ID を追加
+    style_id: Optional[str] = None
+    sd_param_id: Optional[str] = None
     state_categories: List[str] = field(default_factory=list)
     additional_prompt_ids: List[str] = field(default_factory=list)
 

@@ -1,15 +1,8 @@
 {
-  "last_scene_id": "scene_copy_1761815008533",
+  "last_scene_id": "scene_1761761677",
   "last_assignments": {
     "r1": "actor_default_female",
-    "r2": "actor_default_male"
+    "r2": "actor_default_female"
   },
-  "last_overrides": {
-    "r1": {
-      "costume_id": "costume_colored_dress"
-    },
-    "r2": {
-      "pose_id": "pose_default_standing"
-    }
-  }
+  "last_overrides": {}
 }

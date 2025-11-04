@@ -109,7 +109,7 @@ def initialize_db():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS scenes (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
-                background_id TEXT, lighting_id TEXT, composition_id TEXT,
+                background_id TEXT, lighting_id TEXT, composition_ids TEXT,
                 cut_id TEXT,
                 role_assignments TEXT,
                 style_id TEXT,
@@ -278,6 +278,12 @@ def _load_items(table_name: str, class_type: Type[T]) -> Dict[str, T]:
         if not item_id:
             continue
 
+        # ★ 古い composition_id がDBに残っていたら composition_ids に移行
+        if table_name == "scenes" and "composition_id" in row_dict_raw:
+            old_comp_id = row_dict_raw.pop("composition_id", None)
+            if old_comp_id and not row_dict_raw.get("composition_ids"):
+                row_dict_raw["composition_ids"] = list_to_json_str([old_comp_id])
+
         # dataclass に存在するフィールドのみを抽出
         row_dict = {k: v for k, v in row_dict_raw.items() if k in class_fields}
 
@@ -300,6 +306,10 @@ def _load_items(table_name: str, class_type: Type[T]) -> Dict[str, T]:
             if "role_assignments" in row_dict:
                 row_dict["role_assignments"] = json_str_to_dataclass_list(
                     row_dict.get("role_assignments"), RoleAppearanceAssignment
+                )
+            if "composition_ids" in row_dict:
+                row_dict["composition_ids"] = json_str_to_list(
+                    row_dict.get("composition_ids"), str
                 )
         if class_type == Costume and "state_ids" in row_dict:
             row_dict["state_ids"] = json_str_to_list(row_dict.get("state_ids"), str)
@@ -416,7 +426,8 @@ def save_scene(scene: Scene):
     data["state_categories"] = list_to_json_str(data.get("state_categories", []))
     data["additional_prompt_ids"] = list_to_json_str(
         data.get("additional_prompt_ids", [])
-    )  # ★ 追加済み
+    )
+    data["composition_ids"] = list_to_json_str(data.get("composition_ids", []))
     _save_item("scenes", data)
 
 
