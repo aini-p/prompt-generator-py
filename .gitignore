@@ -81,4 +81,5 @@ logs/
 *.tmp
 
 # Output files (if generated within the project structure)
-# tasks_*.json # Uncomment if you want
+data/tasks.json
+preference.json
