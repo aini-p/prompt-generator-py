@@ -328,12 +328,25 @@ class SceneEditorDialog(BaseEditorDialog):
         self.form_layout.addRow("スタイル:", style_ref_widget)
         self.form_layout.addRow("SD Params:", sd_param_ref_widget)
 
-        # --- ▼▼▼ 構図 (Composition) UI をリスト管理に変更 ▼▼▼ ---
-        # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-        # ★ エラーの原因となった古い composition_id の
-        # ★ _create_reference_editor_widget 呼び出しを削除
-        # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+        # --- Cut 選択 ---
+        self.form_layout.addRow(QLabel("--- カット設定 ---"))
+        cut_ref_widget = self._create_reference_editor_widget(
+            field_name="cut_id",
+            current_id=getattr(self.initial_data, "cut_id", None),
+            reference_db_key="cuts",
+            reference_modal_type="CUT",
+            allow_none=False,
+            none_text="- カットを選択 -",
+        )
+        self.form_layout.addRow("カット:", cut_ref_widget)
 
+        cut_combo_box_widget = self._reference_widgets.get("cut_id", {}).get("combo")
+        if isinstance(cut_combo_box_widget, QComboBox):
+            cut_combo_box_widget.currentIndexChanged.connect(
+                self._on_cut_selection_changed
+            )
+
+        # --- ▼▼▼ 構図 (Composition) UI をリスト管理に変更 ▼▼▼ ---
         self.form_layout.addRow(QLabel("--- 構図 (Compositions) ---"))
         self.selected_comp_list = QListWidget()
         self.selected_comp_list.setSelectionMode(
@@ -358,25 +371,6 @@ class SceneEditorDialog(BaseEditorDialog):
 
         self.form_layout.addRow(self.selected_comp_list)
         self.form_layout.addRow(comp_btn_layout)
-        # --- ▲▲▲ 変更ここまで ▲▲▲ ---
-
-        # --- Cut 選択 ---
-        self.form_layout.addRow(QLabel("--- カット設定 ---"))
-        cut_ref_widget = self._create_reference_editor_widget(
-            field_name="cut_id",
-            current_id=getattr(self.initial_data, "cut_id", None),
-            reference_db_key="cuts",
-            reference_modal_type="CUT",
-            allow_none=False,
-            none_text="- カットを選択 -",
-        )
-        self.form_layout.addRow("カット:", cut_ref_widget)
-
-        cut_combo_box_widget = self._reference_widgets.get("cut_id", {}).get("combo")
-        if isinstance(cut_combo_box_widget, QComboBox):
-            cut_combo_box_widget.currentIndexChanged.connect(
-                self._on_cut_selection_changed
-            )
 
         # --- 配役ごとの Appearance 設定 UI ---
         self.assignment_group = QGroupBox("配役ごとの見た目設定")
