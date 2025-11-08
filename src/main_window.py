@@ -2,6 +2,7 @@
 import sys, os, json, time, traceback
 import copy
 import math
+import csv
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -244,7 +245,7 @@ class MainWindow(QMainWindow):
             lambda: self.data_handler.export_data(self.db_data, self.batch_queue)
         )
         self.data_management_panel.importClicked.connect(self._handle_import)
-
+        self.data_management_panel.syncCsvClicked.connect(self._handle_sync_csv)
         # Prompt Panel
         self.prompt_panel.generatePromptsClicked.connect(self.generate_prompts)
         self.prompt_panel.executeGenerationClicked.connect(self.execute_generation)
@@ -1270,7 +1271,228 @@ class MainWindow(QMainWindow):
         """ワーカーからの生ログをコンソールに出力します"""
         print(f"[Worker] {message}")
 
-    # --- ▲▲▲ 追加ここまで ▲▲▲ ---
+    @Slot()
+    def _handle_sync_csv(self):
+        """
+        「Sync from CSV」ボタンが押されたときの処理。
+        作品CSVとキャラクターCSVの2ファイルを選択させ、同期処理を実行する。
+        """
+        QMessageBox.information(
+            self,
+            "CSV同期 (1/2)",
+            "まず、[作品 (Work)] のCSVファイルを選択してください。",
+        )
+        work_file_path, _ = QFileDialog.getOpenFileName(
+            self, "作品 (Work) のCSVファイルを選択", "", "CSV Files (*.csv)"
+        )
+
+        if not work_file_path:
+            QMessageBox.warning(
+                self, "キャンセル", "作品ファイルの選択がキャンセルされました。"
+            )
+            return
+
+        QMessageBox.information(
+            self,
+            "CSV同期 (2/2)",
+            "次に、[キャラクター (Character)] のCSVファイルを選択してください。",
+        )
+        char_file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "キャラクター (Character) のCSVファイルを選択",
+            "",
+            "CSV Files (*.csv)",
+        )
+
+        if not char_file_path:
+            QMessageBox.warning(
+                self, "キャンセル", "キャラクターファイルの選択がキャンセルされました。"
+            )
+            return
+
+        try:
+            # 1. 作品CSVの同期
+            work_created, work_updated = self._sync_works_from_csv(work_file_path)
+
+            # 2. キャラクターCSVの同期
+            char_created, char_updated, char_skipped = self._sync_characters_from_csv(
+                char_file_path
+            )
+
+            # 3. UIの更新
+            self.update_ui_after_data_change()
+
+            # 4. 結果報告
+            summary_message = (
+                f"CSV同期が完了しました。\n\n"
+                f"作品 (Work):\n"
+                f"  新規作成: {work_created}件\n"
+                f"  更新: {work_updated}件\n\n"
+                f"キャラクター (Character):\n"
+                f"  新規作成: {char_created}件\n"
+                f"  更新: {char_updated}件\n"
+                f"  スキップ (登場作品不明): {char_skipped}件\n\n"
+                f"ライブラリパネルが更新されます。"
+            )
+            QMessageBox.information(self, "同期完了", summary_message)
+
+        except Exception as e:
+            QMessageBox.critical(
+                self, "同期エラー", f"CSVの処理中にエラーが発生しました:\n{e}"
+            )
+            traceback.print_exc()
+
+    def _sync_works_from_csv(self, file_path: str) -> Tuple[int, int]:
+        """作品CSVを読み込み、DBとメモリを更新する"""
+        created_count = 0
+        updated_count = 0
+
+        try:
+            with open(file_path, "r", encoding="utf-8-sig") as f:
+                reader = csv.reader(f)
+                header = next(reader)
+
+                # 必要なカラムのインデックスを取得
+                try:
+                    idx_title_jp = header.index("フルタイトル日本語")
+                    idx_title_en = header.index("フルタイトル英語")
+                    idx_fs_jp = header.index("ファイルセーフ日本語")
+                    idx_fs_en = header.index("ファイルセーフ英語")
+                    idx_short_jp = header.index("ショートタイトル日本語")
+                    idx_short_en = header.index("ショートタイトル英語")
+                    idx_hash_jp = header.index("ハッシュタグ日本語")
+                    idx_hash_en = header.index("ハッシュタグ英語")
+                except ValueError as e:
+                    raise Exception(f"作品CSVのヘッダーが不正です。不足カラム: {e}")
+
+                if "works" not in self.db_data:
+                    self.db_data["works"] = {}
+
+                for row in reader:
+                    if not row or not row[idx_fs_en]:
+                        continue
+
+                    work_id = row[idx_fs_en]  # ファイルセーフ英語をIDとして使用
+
+                    tags_list = [
+                        row[idx_fs_jp],
+                        row[idx_fs_en],
+                        row[idx_short_jp],
+                        row[idx_short_en],
+                        row[idx_hash_jp],
+                    ]
+
+                    if work_id in self.db_data["works"]:
+                        # 更新
+                        work_obj = self.db_data["works"][work_id]
+                        updated_count += 1
+                    else:
+                        # 新規作成
+                        work_obj = Work(id=work_id)
+                        created_count += 1
+
+                    work_obj.title_jp = row[idx_title_jp]
+                    work_obj.title_en = row[idx_title_en]
+                    work_obj.sns_tags = row[idx_hash_en]
+                    work_obj.tags = [t for t in tags_list if t]  # 空のタグを除外
+
+                    # DBとメモリを更新
+                    db.save_work(work_obj)
+                    self.db_data["works"][work_id] = work_obj
+
+        except FileNotFoundError:
+            raise Exception(f"作品CSVファイルが見つかりません: {file_path}")
+        except Exception as e:
+            raise Exception(f"作品CSVの処理エラー: {e}")
+
+        return created_count, updated_count
+
+    def _sync_characters_from_csv(self, file_path: str) -> Tuple[int, int, int]:
+        """キャラクターCSVを読み込み、DBとメモリを更新する"""
+        created_count = 0
+        updated_count = 0
+        skipped_count = 0
+
+        # 作品名 (日本語) から Work ID (ファイルセーフ英語) へのマッピングを作成
+        work_title_to_id_map = {
+            work.title_jp: work.id
+            for work in self.db_data.get("works", {}).values()
+            if work.title_jp
+        }
+
+        try:
+            with open(file_path, "r", encoding="utf-8-sig") as f:
+                reader = csv.reader(f)
+                header = next(reader)
+
+                # 必要なカラムのインデックスを取得
+                try:
+                    idx_name_jp = header.index("ファイルセーフ日本語")
+                    idx_fs_en = header.index("ファイルセーフ英語")
+                    idx_work_title = header.index("登場作品")
+                    # オプションのタグ用
+                    idx_full_jp = header.index("フルネーム日本語")
+                    idx_full_en = header.index("フルネーム英語")
+                    idx_short_jp = header.index("ショートネーム日本語")
+                    idx_hash_jp = header.index("ハッシュタグ日本語")
+                except ValueError as e:
+                    raise Exception(
+                        f"キャラクターCSVのヘッダーが不正です。不足カラム: {e}"
+                    )
+
+                if "characters" not in self.db_data:
+                    self.db_data["characters"] = {}
+
+                for row in reader:
+                    if not row or not row[idx_fs_en]:
+                        continue
+
+                    work_title_jp = row[idx_work_title]
+                    work_id = work_title_to_id_map.get(work_title_jp)
+
+                    if not work_id:
+                        print(
+                            f"[WARN] Character '{row[idx_name_jp]}' skipped: Work '{work_title_jp}' not found in DB."
+                        )
+                        skipped_count += 1
+                        continue
+
+                    char_id = row[idx_fs_en]  # ファイルセーフ英語をIDとして使用
+                    char_name = row[
+                        idx_name_jp
+                    ]  # ファイルセーフ日本語を名前に使用 (ユーザー指示)
+
+                    tags_list = [
+                        row[idx_full_jp],
+                        row[idx_full_en],
+                        row[idx_short_jp],
+                        row[idx_hash_jp],
+                    ]
+
+                    if char_id in self.db_data["characters"]:
+                        # 更新
+                        char_obj = self.db_data["characters"][char_id]
+                        updated_count += 1
+                    else:
+                        # 新規作成
+                        char_obj = Character(id=char_id)
+                        created_count += 1
+
+                    char_obj.name = char_name
+                    char_obj.work_id = work_id
+                    char_obj.tags = [t for t in tags_list if t]  # 空のタグを除外
+                    # CSVにない他のフィールド(personal_colorなど)はデフォルト値または既存値のまま
+
+                    # DBとメモリを更新
+                    db.save_character(char_obj)
+                    self.db_data["characters"][char_id] = char_obj
+
+        except FileNotFoundError:
+            raise Exception(f"キャラクターCSVファイルが見つかりません: {file_path}")
+        except Exception as e:
+            raise Exception(f"キャラクターCSVの処理エラー: {e}")
+
+        return created_count, updated_count, skipped_count
 
 
 # --- (main 関数実行部分は変更なし) ---

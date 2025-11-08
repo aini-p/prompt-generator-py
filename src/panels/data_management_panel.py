@@ -9,6 +9,7 @@ class DataManagementPanel(QWidget):
     saveClicked = Signal()
     exportClicked = Signal()
     importClicked = Signal()
+    syncCsvClicked = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -30,8 +31,12 @@ class DataManagementPanel(QWidget):
         import_btn = QPushButton("📥 Import JSON")
         import_btn.clicked.connect(self.importClicked)  # シグナル発行
 
+        sync_btn = QPushButton("🔄 Sync from CSV")
+        sync_btn.clicked.connect(self.syncCsvClicked)
+
         layout.addWidget(save_btn)
         layout.addWidget(export_btn)
         layout.addWidget(import_btn)
+        layout.addWidget(sync_btn)
 
         main_layout.addWidget(group)
