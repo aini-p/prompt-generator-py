@@ -155,7 +155,7 @@ class GenerationWorker(QObject):
         env["FORGE_WINDOW_TITLE"] = "Stable Diffusion Forge"
         env["LAUNCH_OPTIONS"] = launch_options_str
         env["CHECK_TIMEOUT"] = "600"
-        env["CHECK_INTERVAL"] = "5"
+        env["CHECK_INTERVAL"] = "20"
 
         self.log_message.emit(f"Setting ENV: API_URL={env['API_URL']}")
         self.log_message.emit(f"Setting ENV: FORGE_DIR={env['FORGE_DIR']}")
