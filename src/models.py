@@ -179,6 +179,8 @@ class ImageGenerationTask:
     filename_prefix: str
     source_image_path: str
     denoising_strength: Optional[float]
+    batch_size: int = 2
+    n_iter: int = 1
     metadata: BatchMetadata = field(default_factory=BatchMetadata)
 
 

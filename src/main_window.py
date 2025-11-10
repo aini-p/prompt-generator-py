@@ -98,6 +98,7 @@ from .widgets.sequence_editor_dialog import SequenceEditorDialog
 from .widgets.actor_assignment_dialog import ActorAssignmentDialog
 from .widgets.state_editor_dialog import StateEditorDialog
 from .widgets.generic_selection_dialog import GenericSelectionDialog
+from .widgets.generation_options_dialog import GenerationOptionsDialog
 
 # ------------------------------------
 from .prompt_generator import generate_batch_prompts, create_image_generation_tasks
@@ -571,23 +572,18 @@ class MainWindow(QMainWindow):
             )
             return
 
+        # --- ▼▼▼ ADDED: Show Options Dialog ▼▼▼ ---
+        options_dialog = GenerationOptionsDialog(self)
+        if options_dialog.exec() != QDialog.DialogCode.Accepted:
+            return  # ユーザーがキャンセルした
+
+        batch_size, n_iter, seed = options_dialog.get_values()
+        # --- ▲▲▲ ADDED ▲▲▲ ---
+
         try:
-            sd_param_id = getattr(current_scene, "sd_param_id", None)
-            current_sd_params = (
-                self.db_data.get("sdParams", {}).get(sd_param_id)
-                if sd_param_id
-                else None
-            )
-            if not current_sd_params:
-                current_sd_params = next(
-                    iter(self.db_data.get("sdParams", {}).values()),
-                    StableDiffusionParams(
-                        id="default_fallback", name="Default Fallback"
-                    ),
-                )
-                print(
-                    f"[WARN] SD Params not found for scene or globally, using fallback: {current_sd_params.name}"
-                )
+            # (sd_param_id は scene.py で sd_param_ids に移行したため、ロジックを修正)
+            sd_param_ids = getattr(current_scene, "sd_param_ids", [])
+            # (create_image_generation_tasks が sd_param_ids を処理するはずなので、ここでは何もしない)
 
             full_db = FullDatabase(**self.db_data)
             tasks = create_image_generation_tasks(
@@ -633,14 +629,20 @@ class MainWindow(QMainWindow):
                         task.width = 64
                     if task.height < 64:
                         task.height = 64
+
+                # --- ▼▼▼ ADDED: Apply Dialog Options ▼▼▼ ---
+                task.batch_size = batch_size
+                task.n_iter = n_iter
+                if seed != -1:
+                    task.seed = seed
+                # --- ▲▲▲ ADDED ▲▲▲ ---
+
                 task.metadata = metadata
 
             self.batch_panel.set_buttons_enabled(False)
             self.prompt_panel.execute_btn.setEnabled(False)
             self.batch_panel.set_status("Starting single generation...", 0)
-            self.start_worker_generation.emit(
-                tasks, self.image_output_base_dir
-            )  # ★ 引数変更
+            self.start_worker_generation.emit(tasks, self.image_output_base_dir)
 
         except Exception as e:
             QMessageBox.critical(
@@ -650,8 +652,6 @@ class MainWindow(QMainWindow):
             traceback.print_exc()
             self.batch_panel.set_buttons_enabled(True)
             self.prompt_panel.execute_btn.setEnabled(True)
-
-    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
     def update_prompt_display(self):
         print("[DEBUG] update_prompt_display called.")
@@ -1107,6 +1107,14 @@ class MainWindow(QMainWindow):
             )
             return
 
+        # --- ▼▼▼ ADDED: Show Options Dialog ▼▼▼ ---
+        options_dialog = GenerationOptionsDialog(self)
+        if options_dialog.exec() != QDialog.DialogCode.Accepted:
+            return  # ユーザーがキャンセルした
+
+        batch_size, n_iter, seed = options_dialog.get_values()
+        # --- ▲▲▲ ADDED ▲▲▲ ---
+
         self.batch_panel.set_buttons_enabled(False)
         self.prompt_panel.execute_btn.setEnabled(False)
         self.batch_panel.set_status("Starting batch generation...", 0)
@@ -1204,6 +1212,14 @@ class MainWindow(QMainWindow):
                                 task.width = 64
                             if task.height < 64:
                                 task.height = 64
+
+                        # --- ▼▼▼ ADDED: Apply Dialog Options ▼▼▼ ---
+                        task.batch_size = batch_size
+                        task.n_iter = n_iter
+                        if seed != -1:
+                            task.seed = seed
+                        # --- ▲▲▲ ADDED ▲▲▲ ---
+
                         task.metadata = metadata_for_scene
 
                     all_tasks.extend(tasks_for_scene)
@@ -1241,8 +1257,6 @@ class MainWindow(QMainWindow):
             self.batch_panel.set_status(f"Error: {e}", 0)
             self.batch_panel.set_buttons_enabled(True)
             self.prompt_panel.execute_btn.setEnabled(True)
-
-    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
     # --- ▼▼▼ ワーカーからのシグナルを受け取るスロット (変更なし) ▼▼▼ ---
     @Slot(int, int, str)
