@@ -81,35 +81,36 @@ class GenerationWorker(QObject):
                 return False
 
         try:
-            self.log_message.emit(f"Checking API status at: {self.api_url}")
+            # ★ ログはポーリング側で出すので、ここでは静かにチェックする
+            # self.log_message.emit(f"Checking API status at: {self.api_url}")
             response = requests.get(f"{self.api_url}/", timeout=3)
             if response.status_code == 200 or response.status_code == 404:
-                self.log_message.emit(
-                    f"Forge API 接続成功 (Status: {response.status_code}): {self.api_url}"
-                )
+                # self.log_message.emit(
+                #     f"Forge API 接続成功 (Status: {response.status_code}): {self.api_url}"
+                # )
                 return True
             else:
-                self.log_message.emit(
-                    f"Forge API 接続失敗 (Status: {response.status_code}): {self.api_url}"
-                )
+                # self.log_message.emit(
+                #     f"Forge API 接続失敗 (Status: {response.status_code}): {self.api_url}"
+                # )
                 return False
         except requests.exceptions.ConnectionError:
-            self.log_message.emit(
-                f"Forge API に接続できません (ConnectionError): {self.api_url}"
-            )
+            # self.log_message.emit(
+            #     f"Forge API に接続できません (ConnectionError): {self.api_url}"
+            # )
             return False
         except requests.exceptions.Timeout:
-            self.log_message.emit(f"Forge API がタイムアウトしました: {self.api_url}")
+            # self.log_message.emit(f"Forge API がタイムアウトしました: {self.api_url}")
             return False
         except Exception as e:
-            self.log_message.emit(f"Forge API 確認中にエラー: {e}")
+            # self.log_message.emit(f"Forge API 確認中にエラー: {e}")
             return False
 
     # --- ▼▼▼ 修正箇所 ▼▼▼ ---
     def _launch_forge(self) -> bool:
         """
         _launch_forge_if_needed.bat を実行してForgeを起動する。
-        バッチファイルの終了（＝API準備完了）を待つ。
+        プロセスをデタッチし、ワーカースレッドがAPIのポーリングを行う。
         """
         if not os.path.exists(_LAUNCH_FORGE_BAT):
             self.log_message.emit(
@@ -159,56 +160,71 @@ class GenerationWorker(QObject):
         self.log_message.emit(f"Setting ENV: API_URL={env['API_URL']}")
         self.log_message.emit(f"Setting ENV: FORGE_DIR={env['FORGE_DIR']}")
         self.log_message.emit(f"Setting ENV: LAUNCH_OPTIONS={env['LAUNCH_OPTIONS']}")
-        self.log_message.emit(f"Setting ENV: CHECK_TIMEOUT={env['CHECK_TIMEOUT']}")
-        self.log_message.emit(f"Setting ENV: CHECK_INTERVAL={env['CHECK_INTERVAL']}")
 
         try:
+            self.log_message.emit(f"Executing detached: {_LAUNCH_FORGE_BAT}")
+
+            # ★★★ START MODIFICATION ★★★
+            # WindowsのDETACHED_PROCESSフラグを使用して、バッチファイルを
+            # 独立したプロセスとして起動し、このワーカーから切り離します。
+            # 標準出力/エラーは DEVNULL (Windowsの 'NUL') に捨て、
+            # パイプのデッドロックを防ぎます。
+            DETACHED_PROCESS = 0x00000008
+
             self.process = subprocess.Popen(
                 [_LAUNCH_FORGE_BAT],
                 cwd=_CLIENT_DIR,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="ignore",
-                # bufsize=1, # communicate() を使う場合は不要
+                stdout=subprocess.DEVNULL,  # 出力を無視
+                stderr=subprocess.DEVNULL,  # エラーを無視
                 shell=True,
                 env=env,
+                creationflags=DETACHED_PROCESS,  # ★ プロセスをデタッチ
             )
 
-            # ★ 堅牢な communicate() を使って出力全体を取得し、終了を待つ
-            stdout_data, stderr_data = self.process.communicate()
+            # Popenはすぐに返ってくるはずです。プロセスハンドルは不要なので破棄します。
+            self.process = None
 
-            # 取得した出力データをログに出力
-            if stdout_data:
-                for line in stdout_data.strip().splitlines():
-                    line = line.strip()
-                    if line:
-                        self.log_message.emit(f"[Forge Launcher] {line}")
+            # プロセスを起動した（はず）なので、APIの準備ができるまで
+            # このワーカースレッドがポーリング（定期確認）します。
+            self.log_message.emit("Forge launch initiated. Polling API readiness...")
+            timeout = int(env.get("CHECK_TIMEOUT", "600"))
+            interval = int(env.get("CHECK_INTERVAL", "5"))
+            start_time = time.time()
 
-            # ★ communicate() 後に returncode を取得
-            return_code = self.process.returncode
-
-            if return_code == 0:
+            api_ready = False
+            while time.time() - start_time < timeout:
                 self.log_message.emit(
-                    "Forge 起動バッチが正常に終了しました。APIを再確認します。"
+                    f"Polling API... (time elapsed: {int(time.time() - start_time)}s)"
                 )
-                time.sleep(5)  # APIが完全に起動するのを少し待つ
-                return self._check_api_ready()
+                if self._check_api_ready():
+                    self.log_message.emit("API is ready! (Polled by worker)")
+                    api_ready = True
+                    break
+
+                # QThreadがイベントループを持つため、
+                # time.sleep() はブロッキングですが、
+                # GUIスレッドとは別なので問題ありません。
+                time.sleep(interval)
+
+            if api_ready:
+                self.log_message.emit("API polling successful. Proceeding.")
+                return True
             else:
-                self.log_message.emit(
-                    f"エラー: Forge 起動バッチが異常終了しました (コード: {return_code})。"
-                )
+                self.log_message.emit("Forge API failed to start within the timeout.")
                 return False
+            # ★★★ END MODIFICATION ★★★
 
         except Exception as e:
             self.log_message.emit(f"Forge起動プロセス実行中にエラー: {e}")
-            return False
-        finally:
+            traceback.print_exc()
+            if self.process:
+                self.process.terminate()
             self.process = None
+            return False
 
     # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
+    # ( _run_genimage 関数は変更なし )
     def _run_genimage(self, tasks: List[ImageGenerationTask], base_dir: str) -> bool:
         """
         GenImage.py を実行し、進捗を監視する。
@@ -312,6 +328,7 @@ class GenerationWorker(QObject):
         finally:
             self.process = None
 
+    # ( start_generation 関数は変更なし )
     @Slot(list, str)
     def start_generation(self, tasks: List[ImageGenerationTask], base_dir: str):
         """
