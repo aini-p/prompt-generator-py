@@ -388,19 +388,18 @@ def generate_batch_prompts(
 
         generated_prompts.append(
             GeneratedPrompt(
-                cut=global_prompt_index,  # ★ この時点でのインデックス
+                cut=global_prompt_index,
                 name=f"{cut_base_name}: {combo_name}",
                 positive=final_positive,
                 negative=final_negative,
                 firstActorInfo=first_actor_info,
+                composition=composition,
+                component_name_str=combo_name,
             )
         )
         global_prompt_index += 1
 
     return generated_prompts
-
-
-# --- ▲▲▲ generate_batch_prompts 置き換えここまで ▲▲▲ ---
 
 
 def _sanitize_filename(name: Optional[str]) -> str:
@@ -415,7 +414,6 @@ def _sanitize_filename(name: Optional[str]) -> str:
     return name if name else "unknown"
 
 
-# --- ▼▼▼ create_image_generation_tasks を全置き換え ▼▼▼ ---
 def create_image_generation_tasks(
     generated_prompts: List[GeneratedPrompt],
     cut: Optional[Cut],
@@ -437,11 +435,10 @@ def create_image_generation_tasks(
             if sdp:
                 sd_params_list.append(sdp)
 
-    # 1つも有効なものがない場合、フォールバック
     if not sd_params_list:
         default_sdp = next(
             iter(db.sdParams.values()),
-            StableDiffusionParams(id="fallback", name="Fallback_Default"),  # デフォルト
+            StableDiffusionParams(id="fallback", name="Fallback_Default"),
         )
         sd_params_list.append(default_sdp)
         print(
@@ -471,14 +468,37 @@ def create_image_generation_tasks(
                 getattr(sd_params, "name", "default_sdp")
             )
 
-            # ★ ファイル名に (prompt_data.cut) と (sd_param名) を含める
-            filename_prefix = f"{safe_work}_{safe_char}_{safe_scene_name}_p{prompt_data.cut}_{safe_sdp_name}"
+            # --- ▼▼▼ 修正箇所 ▼▼▼ ---
 
-            # ★ プロンプト名に SDParam 名を追加
+            # 1. GeneratedPrompt から component_name_str を取得
+            base_comp_name = getattr(
+                prompt_data, "component_name_str", f"p{prompt_data.cut}"
+            )
+
+            # 2. ファイル名用にクリーンアップ
+            # "Actor[Costume/Pose/Expr] & Comp[CompName]" を
+            # "Actor-Costume_Pose_Expr_&_Comp-CompName" のように変換
+            clean_comp_name = (
+                base_comp_name.replace("/", "_")
+                .replace("[", "-")
+                .replace("]", "")
+                .replace(
+                    " & ", "_and_"
+                )  # "&" はファイル名として使える場合もあるが、避けるのが無難
+                .replace(" ", "")
+            )
+
+            # 3. 最終的なサニタイズ（Windowsの禁止文字などを処理）
+            component_suffix = _sanitize_filename(clean_comp_name)
+
+            # 4. filename_prefix を構築
+            filename_prefix = f"{safe_work}_{safe_char}_{safe_scene_name}_{component_suffix}_{safe_sdp_name}"
+
+            # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+
             task_name = f"{prompt_data.name} | SDP[{safe_sdp_name}]"
 
-            # (GeneratedPrompt の 'cut' フィールドをタスクインデックスとして上書き)
-            prompt_data.cut = task_index
+            prompt_data.cut = task_index  # 最終タスクインデックスとして上書き
             task_index += 1
 
             mode = getattr(cut, "image_mode", "txt2img")
@@ -500,14 +520,12 @@ def create_image_generation_tasks(
                 width=sd_params.width,
                 height=sd_params.height,
                 mode=mode,
-                filename_prefix=filename_prefix,
+                filename_prefix=filename_prefix,  # ★ 修正された filename_prefix
                 source_image_path=source_image_path,
                 denoising_strength=denoising_strength,
-                metadata=BatchMetadata(),  # main_windowで上書き
+                metadata=BatchMetadata(),
+                # n_iter と batch_size は MainWindow 側で設定される
             )
             tasks.append(task)
 
     return tasks
-
-
-# --- ▲▲▲ create_image_generation_tasks 置き換えここまで ▲▲▲ ---

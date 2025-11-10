@@ -193,6 +193,7 @@ class GeneratedPrompt:
     negative: str
     firstActorInfo: Optional[Dict[str, Any]] = None
     composition: Optional[Composition] = None
+    component_name_str: str = ""
 
 
 @dataclass
