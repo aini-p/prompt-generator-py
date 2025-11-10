@@ -105,6 +105,7 @@ class GenerationWorker(QObject):
             self.log_message.emit(f"Forge API 確認中にエラー: {e}")
             return False
 
+    # --- ▼▼▼ 修正箇所 ▼▼▼ ---
     def _launch_forge(self) -> bool:
         """
         _launch_forge_if_needed.bat を実行してForgeを起動する。
@@ -170,27 +171,29 @@ class GenerationWorker(QObject):
                 text=True,
                 encoding="utf-8",
                 errors="ignore",
-                bufsize=1,
+                # bufsize=1, # communicate() を使う場合は不要
                 shell=True,
                 env=env,
             )
 
-            if self.process.stdout:
-                for line in iter(self.process.stdout.readline, ""):
-                    if not line:
-                        break
+            # ★ 堅牢な communicate() を使って出力全体を取得し、終了を待つ
+            stdout_data, stderr_data = self.process.communicate()
+
+            # 取得した出力データをログに出力
+            if stdout_data:
+                for line in stdout_data.strip().splitlines():
                     line = line.strip()
                     if line:
                         self.log_message.emit(f"[Forge Launcher] {line}")
 
-            self.process.stdout.close()
-            return_code = self.process.wait()
+            # ★ communicate() 後に returncode を取得
+            return_code = self.process.returncode
 
             if return_code == 0:
                 self.log_message.emit(
                     "Forge 起動バッチが正常に終了しました。APIを再確認します。"
                 )
-                time.sleep(5)
+                time.sleep(5)  # APIが完全に起動するのを少し待つ
                 return self._check_api_ready()
             else:
                 self.log_message.emit(
@@ -204,7 +207,8 @@ class GenerationWorker(QObject):
         finally:
             self.process = None
 
-    # --- ▼▼▼ _run_genimage を修正 (base_dir を引数に追加し、command に反映) ▼▼▼ ---
+    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+
     def _run_genimage(self, tasks: List[ImageGenerationTask], base_dir: str) -> bool:
         """
         GenImage.py を実行し、進捗を監視する。
@@ -228,16 +232,10 @@ class GenerationWorker(QObject):
             "json",
             "--localTaskFile",
             _OUTPUT_JSON_PATH,
-            "--jpeg_metadata_only",  # ★ jpeg_metadata_only を True で渡す
+            "--jpeg_metadata_only",
         ]
 
-        # ★ base_dir が指定されている場合のみ --output_base_dir を追加
         if base_dir:
-            # config.json のパスはプロジェクトルート(run_app.bat)からの相対パス
-            # GenImage.py (StableDiffusionClient下) から実行されるため、
-            # GenImage.py に渡すパスは、GenImage.py の場所からの相対パスか絶対パスである必要がある
-
-            # _PROJECT_ROOT (srcの親) からの絶対パスに変換して渡す
             abs_base_dir = os.path.abspath(os.path.join(_PROJECT_ROOT, base_dir))
             command.extend(["--output_base_dir", abs_base_dir])
 
@@ -314,9 +312,6 @@ class GenerationWorker(QObject):
         finally:
             self.process = None
 
-    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
-
-    # --- ▼▼▼ start_generation を修正 (Slotの引数を変更し、_run_genimage に base_dir を渡す) ▼▼▼ ---
     @Slot(list, str)
     def start_generation(self, tasks: List[ImageGenerationTask], base_dir: str):
         """
@@ -349,7 +344,7 @@ class GenerationWorker(QObject):
                 return
 
             # 4. GenImage.py 実行
-            if self._run_genimage(tasks, base_dir):  # ★ base_dir を渡す
+            if self._run_genimage(tasks, base_dir):
                 self.finished.emit(True, "バッチ処理が正常に完了しました。")
             else:
                 self.finished.emit(False, "画像生成プロセスでエラーが発生しました。")
@@ -358,5 +353,3 @@ class GenerationWorker(QObject):
             self.log_message.emit(f"ワーカー実行中に致命的なエラーが発生しました: {e}")
             traceback.print_exc()
             self.finished.emit(False, f"ワーカー実行エラー: {e}")
-
-    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
