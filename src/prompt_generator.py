@@ -373,28 +373,41 @@ def generate_batch_prompts(
         final_positive = _clean_prompt(_combine_prompts(*common_pos_parts))
         final_negative = _clean_prompt(_combine_prompts(*common_neg_parts))
 
-        combo_name_parts = []
+        # 1. UI表示用の名前 (従来通り、アクター名を含む)
+        combo_name_parts_ui = []
         for role in valid_roles_in_scene:
             actor = db.actors.get(actor_assignments[role.id])
             appearance_name = appearance_names_per_role.get(role.id, "N/A")
-            combo_name_parts.append(
+            combo_name_parts_ui.append(
                 f"{getattr(actor, 'name', role.id)}[{appearance_name}]"
             )
-
         comp_name = getattr(composition, "name", "BaseComp")
-        combo_name_parts.append(f"Comp[{comp_name}]")
+        combo_name_parts_ui.append(f"Comp[{comp_name}]")
+        combo_name_ui = " & ".join(combo_name_parts_ui)
 
-        combo_name = " & ".join(combo_name_parts)
+        # 2. ★ ファイル名用のコンポーネント文字列 (アクター名なし、シンプルな結合)
+        combo_name_parts_file = []
+        for role in valid_roles_in_scene:
+            appearance_name = appearance_names_per_role.get(role.id, "N/A")
+            # ★ アクター名を削除し、ロールID（r1, r2）とコンポーネントのみにする
+            combo_name_parts_file.append(f"{role.id}[{appearance_name}]")
+
+        # ★ "BaseComp" はファイル名に含めない
+        if comp_name != "BaseComp":
+            combo_name_parts_file.append(comp_name)
+
+        # ★ "_" で結合
+        component_name_for_file = "_".join(combo_name_parts_file)
 
         generated_prompts.append(
             GeneratedPrompt(
                 cut=global_prompt_index,
-                name=f"{cut_base_name}: {combo_name}",
+                name=f"{cut_base_name}: {combo_name_ui}",  # ★ UI表示用
                 positive=final_positive,
                 negative=final_negative,
                 firstActorInfo=first_actor_info,
                 composition=composition,
-                component_name_str=combo_name,
+                component_name_str=component_name_for_file,  # ★ ファイル名用
             )
         )
         global_prompt_index += 1
@@ -453,17 +466,13 @@ def create_image_generation_tasks(
     for prompt_data in generated_prompts:
         for sd_params in sd_params_list:
             work_title = "unknown_work"
-            char_name = "unknown_character"
+            # ★ 修正: キャラクター名はファイル名に使わないが、作品名は使う
             if prompt_data.firstActorInfo:
-                char = prompt_data.firstActorInfo.get("character")
                 work = prompt_data.firstActorInfo.get("work")
-                if char:
-                    char_name = getattr(char, "name", char_name)
                 if work:
                     work_title = getattr(work, "title_jp", work_title)
 
             safe_work = _sanitize_filename(work_title)
-            safe_char = _sanitize_filename(char_name)
             safe_sdp_name = _sanitize_filename(
                 getattr(sd_params, "name", "default_sdp")
             )
@@ -471,28 +480,30 @@ def create_image_generation_tasks(
             # --- ▼▼▼ 修正箇所 ▼▼▼ ---
 
             # 1. GeneratedPrompt から component_name_str を取得
+            # (例: "r1[Costume/Pose/Expr]_CompName" or "p123")
             base_comp_name = getattr(
                 prompt_data, "component_name_str", f"p{prompt_data.cut}"
             )
 
             # 2. ファイル名用にクリーンアップ
-            # "Actor[Costume/Pose/Expr] & Comp[CompName]" を
-            # "Actor-Costume_Pose_Expr_&_Comp-CompName" のように変換
+            # "r1[Costume/Pose/Expr]_CompName" を
+            # "r1-Costume_Pose_Expr_CompName" のように変換
             clean_comp_name = (
-                base_comp_name.replace("/", "_")
-                .replace("[", "-")
-                .replace("]", "")
-                .replace(
-                    " & ", "_and_"
-                )  # "&" はファイル名として使える場合もあるが、避けるのが無難
-                .replace(" ", "")
+                base_comp_name.replace(
+                    "/", "_"
+                )  # Costume/Pose/Expr -> Costume_Pose_Expr
+                .replace("[", "-")  # r1[ -> r1-
+                .replace("]", "")  # ...Expr] -> ...Expr
+                .replace(" ", "")  # スペース削除
             )
 
             # 3. 最終的なサニタイズ（Windowsの禁止文字などを処理）
             component_suffix = _sanitize_filename(clean_comp_name)
 
-            # 4. filename_prefix を構築
-            filename_prefix = f"{safe_work}_{safe_char}_{safe_scene_name}_{component_suffix}_{safe_sdp_name}"
+            # 4. filename_prefix を構築 (★ safe_char を削除)
+            filename_prefix = (
+                f"{safe_work}_{safe_scene_name}_{component_suffix}_{safe_sdp_name}"
+            )
 
             # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
