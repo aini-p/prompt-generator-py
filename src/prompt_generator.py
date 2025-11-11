@@ -128,7 +128,7 @@ def _clean_prompt(text: str) -> str:
 # ==============================================================================
 # Main Prompt Generation Logic
 # ==============================================================================
-# --- ▼▼▼ generate_batch_prompts (構図のデカルト積まで) ▼▼▼ ---
+# --- ▼▼▼ generate_batch_prompts (component_name_str の生成ロジックを修正) ▼▼▼ ---
 def generate_batch_prompts(
     scene_id: str,
     actor_assignments: ActorAssignments,
@@ -274,7 +274,6 @@ def generate_batch_prompts(
     cut_base_name = cut_obj.name or f"Cut{scene.cut_id or 'N/A'}"
     global_prompt_index = 1
 
-    # --- 構図(composition_list)もデカルト積に含める ---
     all_combinations_product = itertools.product(overall_combinations, composition_list)
 
     for combo_product in all_combinations_product:
@@ -354,7 +353,7 @@ def generate_batch_prompts(
             final_positive,
             getattr(background, "prompt", ""),
             getattr(lighting, "prompt", ""),
-            getattr(composition, "prompt", ""),  # ★ 構図プロンプト
+            getattr(composition, "prompt", ""),
             *[ap.prompt for ap in additional_prompts_list if ap.prompt],
         ]
         common_neg_parts = [
@@ -362,7 +361,7 @@ def generate_batch_prompts(
             final_negative,
             getattr(background, "negative_prompt", ""),
             getattr(lighting, "negative_prompt", ""),
-            getattr(composition, "negative_prompt", ""),  # ★ 構図ネガティブ
+            getattr(composition, "negative_prompt", ""),
             *[
                 ap.negative_prompt
                 for ap in additional_prompts_list
@@ -372,6 +371,8 @@ def generate_batch_prompts(
 
         final_positive = _clean_prompt(_combine_prompts(*common_pos_parts))
         final_negative = _clean_prompt(_combine_prompts(*common_neg_parts))
+
+        # --- ▼▼▼ 修正箇所 ▼▼▼ ---
 
         # 1. UI表示用の名前 (従来通り、アクター名を含む)
         combo_name_parts_ui = []
@@ -385,12 +386,18 @@ def generate_batch_prompts(
         combo_name_parts_ui.append(f"Comp[{comp_name}]")
         combo_name_ui = " & ".join(combo_name_parts_ui)
 
-        # 2. ★ ファイル名用のコンポーネント文字列 (アクター名なし、シンプルな結合)
+        # 2. ★ ファイル名用のコンポーネント文字列 (アクター名を使用)
         combo_name_parts_file = []
         for role in valid_roles_in_scene:
             appearance_name = appearance_names_per_role.get(role.id, "N/A")
-            # ★ アクター名を削除し、ロールID（r1, r2）とコンポーネントのみにする
-            combo_name_parts_file.append(f"{role.id}[{appearance_name}]")
+            # ★ アクター名を取得して含める
+            actor = db.actors.get(actor_assignments[role.id])
+            actor_name = getattr(
+                actor, "name", role.id
+            )  # アクター名を取得、なければロールID
+            combo_name_parts_file.append(
+                f"{actor_name}[{appearance_name}]"  # ★ actor_name を使用
+            )
 
         # ★ "BaseComp" はファイル名に含めない
         if comp_name != "BaseComp":
@@ -398,6 +405,8 @@ def generate_batch_prompts(
 
         # ★ "_" で結合
         component_name_for_file = "_".join(combo_name_parts_file)
+
+        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
         generated_prompts.append(
             GeneratedPrompt(
@@ -415,6 +424,9 @@ def generate_batch_prompts(
     return generated_prompts
 
 
+# --- ▲▲▲ generate_batch_prompts 修正ここまで ▲▲▲ ---
+
+
 def _sanitize_filename(name: Optional[str]) -> str:
     """ファイル名として安全な文字列に変換する"""
     if not name:
@@ -427,6 +439,7 @@ def _sanitize_filename(name: Optional[str]) -> str:
     return name if name else "unknown"
 
 
+# --- ▼▼▼ create_image_generation_tasks (ファイル名生成部分を修正) ▼▼▼ ---
 def create_image_generation_tasks(
     generated_prompts: List[GeneratedPrompt],
     cut: Optional[Cut],
@@ -465,8 +478,8 @@ def create_image_generation_tasks(
     # --- 2. (プロンプト x SDParams) のデカルト積ループ ---
     for prompt_data in generated_prompts:
         for sd_params in sd_params_list:
+            # --- ▼▼▼ 修正箇所 (作品名のみ取得) ▼▼▼ ---
             work_title = "unknown_work"
-            # ★ 修正: キャラクター名はファイル名に使わないが、作品名は使う
             if prompt_data.firstActorInfo:
                 work = prompt_data.firstActorInfo.get("work")
                 if work:
@@ -476,23 +489,22 @@ def create_image_generation_tasks(
             safe_sdp_name = _sanitize_filename(
                 getattr(sd_params, "name", "default_sdp")
             )
-
-            # --- ▼▼▼ 修正箇所 ▼▼▼ ---
+            # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
             # 1. GeneratedPrompt から component_name_str を取得
-            # (例: "r1[Costume/Pose/Expr]_CompName" or "p123")
+            # (例: "ActorName[Costume/Pose/Expr]_CompName")
             base_comp_name = getattr(
                 prompt_data, "component_name_str", f"p{prompt_data.cut}"
             )
 
             # 2. ファイル名用にクリーンアップ
-            # "r1[Costume/Pose/Expr]_CompName" を
-            # "r1-Costume_Pose_Expr_CompName" のように変換
+            # "ActorName[Costume/Pose/Expr]_CompName" を
+            # "ActorName-Costume_Pose_Expr_CompName" のように変換
             clean_comp_name = (
                 base_comp_name.replace(
                     "/", "_"
                 )  # Costume/Pose/Expr -> Costume_Pose_Expr
-                .replace("[", "-")  # r1[ -> r1-
+                .replace("[", "-")  # ActorName[ -> ActorName-
                 .replace("]", "")  # ...Expr] -> ...Expr
                 .replace(" ", "")  # スペース削除
             )
@@ -500,7 +512,7 @@ def create_image_generation_tasks(
             # 3. 最終的なサニタイズ（Windowsの禁止文字などを処理）
             component_suffix = _sanitize_filename(clean_comp_name)
 
-            # 4. filename_prefix を構築 (★ safe_char を削除)
+            # 4. filename_prefix を構築 (★ safe_char は含まない)
             filename_prefix = (
                 f"{safe_work}_{safe_scene_name}_{component_suffix}_{safe_sdp_name}"
             )
@@ -540,3 +552,6 @@ def create_image_generation_tasks(
             tasks.append(task)
 
     return tasks
+
+
+# --- ▲▲▲ create_image_generation_tasks 修正ここまで ▲▲img2img_polish
