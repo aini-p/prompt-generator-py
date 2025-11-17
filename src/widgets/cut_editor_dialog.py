@@ -42,10 +42,13 @@ class CutEditorDialog(BaseEditorDialog):
 
         # --- 基本フィールド ---
         self.name_edit = QLineEdit(getattr(self.initial_data, "name", ""))
-        self.prompt_template_edit = QTextEdit(
+        self.prompt_template_edit = QTextEdit()
+        self.prompt_template_edit.setPlainText(
             getattr(self.initial_data, "prompt_template", "")
-        )
-        self.negative_template_edit = QTextEdit(
+        )  # ★ 変更
+
+        self.negative_template_edit = QTextEdit()
+        self.negative_template_edit.setPlainText(
             getattr(self.initial_data, "negative_template", "")
         )
         self.ref_image_edit = QLineEdit(

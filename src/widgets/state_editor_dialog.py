@@ -32,9 +32,14 @@ class StateEditorDialog(BaseEditorDialog):  # ★ クラス名を変更
         self.category_edit.setPlaceholderText("例: damaged, wet, casual")
         # ▲▲▲ 追加ここまで ▲▲▲
         self.tags_edit = QLineEdit(", ".join(getattr(self.initial_data, "tags", [])))
-        self.prompt_edit = QTextEdit(getattr(self.initial_data, "prompt", ""))
+        self.prompt_edit = QTextEdit()
+        self.prompt_edit.setPlainText(
+            getattr(self.initial_data, "prompt", "")
+        )  # ★ 変更
         self.prompt_edit.setFixedHeight(60)
-        self.negative_prompt_edit = QTextEdit(
+
+        self.negative_prompt_edit = QTextEdit()
+        self.negative_prompt_edit.setPlainText(
             getattr(self.initial_data, "negative_prompt", "")
         )
         self.negative_prompt_edit.setFixedHeight(60)

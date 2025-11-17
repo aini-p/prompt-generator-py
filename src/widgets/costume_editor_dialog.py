@@ -65,9 +65,14 @@ class CostumeEditorDialog(BaseEditorDialog):
         # --- Common fields (BaseInspector のロジックを流用) ---
         name_edit = QLineEdit(getattr(self.initial_data, "name", ""))
         tags_edit = QLineEdit(", ".join(getattr(self.initial_data, "tags", [])))
-        prompt_edit = QTextEdit(getattr(self.initial_data, "prompt", ""))
+        prompt_edit = QTextEdit()
+        prompt_edit.setPlainText(getattr(self.initial_data, "prompt", ""))  # ★ 変更
         prompt_edit.setFixedHeight(60)
-        neg_prompt_edit = QTextEdit(getattr(self.initial_data, "negative_prompt", ""))
+
+        neg_prompt_edit = QTextEdit()
+        neg_prompt_edit.setPlainText(
+            getattr(self.initial_data, "negative_prompt", "")
+        )  # ★ 変更
         neg_prompt_edit.setFixedHeight(60)
 
         # 基底クラスの form_layout を使用

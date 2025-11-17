@@ -30,11 +30,16 @@ class DirectionEditorDialog(BaseEditorDialog):
         # UI Elements (変更なし)
         self.name_edit = QLineEdit(getattr(self.initial_data, "name", ""))
         self.tags_edit = QLineEdit(", ".join(getattr(self.initial_data, "tags", [])))
-        self.prompt_edit = QTextEdit(getattr(self.initial_data, "prompt", ""))
+        self.prompt_edit = QTextEdit()
+        self.prompt_edit.setPlainText(
+            getattr(self.initial_data, "prompt", "")
+        )  # ★ 変更
         self.prompt_edit.setFixedHeight(60)
-        self.negative_prompt_edit = QTextEdit(
+
+        self.negative_prompt_edit = QTextEdit()
+        self.negative_prompt_edit.setPlainText(
             getattr(self.initial_data, "negative_prompt", "")
-        )
+        )  # ★ 変更
         self.negative_prompt_edit.setFixedHeight(60)
 
         # --- ▼▼▼ Combo Boxes を _create_reference_editor_widget に変更 ▼▼▼ ---
