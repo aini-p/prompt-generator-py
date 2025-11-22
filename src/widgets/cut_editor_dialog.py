@@ -194,10 +194,16 @@ class CutEditorDialog(BaseEditorDialog):
 
         if self.initial_data:  # 更新
             updated_cut = self.initial_data
-            self._update_object_from_widgets(updated_cut)
-            updated_cut.roles = self.current_roles  # 更新されたRoleリストを設定
-            updated_cut.reference_image_path = final_ref_image_path  # ★ 更新
-            updated_cut.image_mode = final_image_mode  # ★ 更新
+            # self._update_object_from_widgets(updated_cut) # 呼び出しを削除
+            # 手動で属性を設定
+            updated_cut.name = self.name_edit.text().strip()
+            updated_cut.prompt_template = self.prompt_template_edit.toPlainText().strip()
+            updated_cut.negative_template = (
+                self.negative_template_edit.toPlainText().strip()
+            )
+            updated_cut.roles = self.current_roles
+            updated_cut.reference_image_path = final_ref_image_path
+            updated_cut.image_mode = final_image_mode
             return updated_cut
         else:  # 新規作成
             name = self.name_edit.text().strip()
