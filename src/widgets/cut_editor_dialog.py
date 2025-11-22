@@ -85,6 +85,20 @@ class CutEditorDialog(BaseEditorDialog):
         self._widgets["reference_image_path"] = self.ref_image_edit
         self._widgets["image_mode"] = self.image_mode_combo
 
+        # --- シグナル接続 ---
+        self.ref_image_edit.textChanged.connect(self._on_ref_image_changed)
+
+    @Slot(str)
+    def _on_ref_image_changed(self, text: str):
+        """参考画像パスの変更をハンドルし、image_modeを自動で切り替える"""
+        if text.strip():
+            # パスが入力されたら、現在のモードが txt2img の場合のみ img2img に切り替える
+            if self.image_mode_combo.currentText() == "txt2img":
+                self.image_mode_combo.setCurrentText("img2img")
+        else:
+            # パスが空になったら txt2img に切り替える
+            self.image_mode_combo.setCurrentText("txt2img")
+
     def rebuild_roles_ui(self):
         """配役リストのUIを再構築する"""
         while self.roles_layout.count():
@@ -194,13 +208,7 @@ class CutEditorDialog(BaseEditorDialog):
 
         if self.initial_data:  # 更新
             updated_cut = self.initial_data
-            # self._update_object_from_widgets(updated_cut) # 呼び出しを削除
-            # 手動で属性を設定
-            updated_cut.name = self.name_edit.text().strip()
-            updated_cut.prompt_template = self.prompt_template_edit.toPlainText().strip()
-            updated_cut.negative_template = (
-                self.negative_template_edit.toPlainText().strip()
-            )
+            self._update_object_from_widgets(updated_cut)
             updated_cut.roles = self.current_roles
             updated_cut.reference_image_path = final_ref_image_path
             updated_cut.image_mode = final_image_mode
