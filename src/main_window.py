@@ -600,19 +600,30 @@ class MainWindow(QMainWindow):
                 sequence_name="Test",
                 scene_name=getattr(current_scene, "name", "N/A"),
             )
-            char_names = set()
+
+            char_names = []
             work_titles = set()
-            for role_id, actor_id in self.actor_assignments.items():
-                actor = self.db_data.get("actors", {}).get(actor_id)
-                if actor:
-                    char = self.db_data.get("characters", {}).get(actor.character_id)
-                    if char:
-                        char_names.add(getattr(char, "name", ""))
-                        work = self.db_data.get("works", {}).get(char.work_id)
-                        if work:
-                            work_titles.add(getattr(work, "title_jp", ""))
-            metadata.character_names = sorted(list(filter(None, char_names)))
-            metadata.work_titles = sorted(list(filter(None, work_titles)))
+            if current_cut:
+                for role in current_cut.roles:
+                    actor_id = self.actor_assignments.get(role.id)
+                    if actor_id:
+                        actor = self.db_data.get("actors", {}).get(actor_id)
+                        if actor:
+                            char = self.db_data.get("characters", {}).get(
+                                actor.character_id
+                            )
+                            if char:
+                                char_name = getattr(char, "name", "")
+                                if char_name:
+                                    char_names.append(char_name)
+                                work = self.db_data.get("works", {}).get(char.work_id)
+                                if work:
+                                    work_title = getattr(work, "title_jp", "")
+                                    if work_title:
+                                        work_titles.add(work_title)
+
+            metadata.character_names = char_names
+            metadata.work_titles = sorted(list(work_titles))
 
             is_debug_mode = self.prompt_panel.is_debug_mode_enabled()
             if is_debug_mode:
@@ -1140,7 +1151,6 @@ class MainWindow(QMainWindow):
                 )
                 QApplication.processEvents()
 
-                char_names_for_seq = set()
                 work_titles_for_seq = set()
                 for role_id, actor_id in queue_item.actor_assignments.items():
                     actor = self.db_data.get("actors", {}).get(actor_id)
@@ -1149,13 +1159,12 @@ class MainWindow(QMainWindow):
                             actor.character_id
                         )
                         if char:
-                            char_names_for_seq.add(getattr(char, "name", ""))
                             work = self.db_data.get("works", {}).get(char.work_id)
                             if work:
-                                work_titles_for_seq.add(getattr(work, "title_jp", ""))
-
-                char_names_list = sorted(list(filter(None, char_names_for_seq)))
-                work_titles_list = sorted(list(filter(None, work_titles_for_seq)))
+                                work_title = getattr(work, "title_jp", "")
+                                if work_title:
+                                    work_titles_for_seq.add(work_title)
+                work_titles_list = sorted(list(work_titles_for_seq))
 
                 for scene_entry in sequence.scene_entries:
                     if not scene_entry.is_enabled:
@@ -1172,6 +1181,21 @@ class MainWindow(QMainWindow):
                             f"[WARN] Cut '{cut_id}' not found for Scene '{getattr(scene, 'name', 'N/A')}', skipping task generation."
                         )
                         continue
+
+                    # --- シーンごとのキャラクター名を役割順に生成 ---
+                    char_names_for_scene = []
+                    for role in cut.roles:
+                        actor_id = queue_item.actor_assignments.get(role.id)
+                        if actor_id:
+                            actor = self.db_data.get("actors", {}).get(actor_id)
+                            if actor:
+                                char = self.db_data.get("characters", {}).get(
+                                    actor.character_id
+                                )
+                                if char:
+                                    char_name = getattr(char, "name", "")
+                                    if char_name:
+                                        char_names_for_scene.append(char_name)
 
                     prompts_for_scene = generate_batch_prompts(
                         scene_id=scene_id,
@@ -1197,7 +1221,7 @@ class MainWindow(QMainWindow):
                     metadata_for_scene = BatchMetadata(
                         sequence_name=getattr(sequence, "name", "N/A"),
                         scene_name=getattr(scene, "name", "N/A"),
-                        character_names=char_names_list,
+                        character_names=char_names_for_scene, # ★ 役割順のリストを使用
                         work_titles=work_titles_list,
                     )
 
