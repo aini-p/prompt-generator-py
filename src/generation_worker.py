@@ -139,12 +139,6 @@ class GenerationWorker(QObject):
                     launch_options_list.append(f"--{k}")
                 elif isinstance(v, str) and v:
                     launch_options_list.append(f'--{k} "{v}"')
-            
-            # Add extra models directory from config
-            extra_models_dir = config.get("extra_models_dir")
-            if extra_models_dir and os.path.isdir(extra_models_dir):
-                self.log_message.emit(f"Adding extra models directory: {extra_models_dir}")
-                launch_options_list.append(f'--ckpt-dir "{extra_models_dir}"')
 
             launch_options_str = " ".join(launch_options_list)
 
