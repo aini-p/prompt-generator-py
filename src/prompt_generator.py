@@ -572,6 +572,7 @@ def create_image_generation_tasks(
                 filename_prefix=filename_prefix,  # ★ 修正された filename_prefix
                 source_image_path=source_image_path,
                 denoising_strength=denoising_strength,
+                model=sd_params.model,
                 # n_iter と batch_size は MainWindow 側で設定される
             )
             tasks.append(task)

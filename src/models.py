@@ -151,6 +151,7 @@ class StableDiffusionParams:
     width: int = 512
     height: int = 512
     denoising_strength: float = 0.6
+    model: Optional[str] = None
 
 
 @dataclass
@@ -180,6 +181,7 @@ class ImageGenerationTask:
     filename_prefix: str
     source_image_path: str
     denoising_strength: Optional[float]
+    model: Optional[str] = None
     batch_size: int = 2
     n_iter: int = 1
     metadata: BatchMetadata = field(default_factory=BatchMetadata)

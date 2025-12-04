@@ -50,6 +50,7 @@ class SDParamsEditorDialog(BaseEditorDialog):
                 QDoubleSpinBox,
                 {"minimum": 0.0, "maximum": 1.0, "singleStep": 0.05},
             ),
+            "model": (QLineEdit, {}),
         }
 
         # initial_data が None の場合はデフォルト値を使う
@@ -115,6 +116,7 @@ class SDParamsEditorDialog(BaseEditorDialog):
                     width=self._widgets["width"].value(),
                     height=self._widgets["height"].value(),
                     denoising_strength=self._widgets["denoising_strength"].value(),
+                    model=self._widgets["model"].text().strip() or None,  # None if empty
                 )
                 print("[DEBUG] New SD Params created from dialog.")
                 return new_params
