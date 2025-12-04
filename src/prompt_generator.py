@@ -265,6 +265,29 @@ def generate_batch_prompts(
             )
         ]
 
+    # Collect all character names and work titles in the scene, preserving order of first appearance
+    all_character_names_list: List[str] = []
+    all_work_titles_list: List[str] = []
+    seen_character_ids = set()
+    seen_work_ids = set()
+
+    for role in valid_roles_in_scene:
+        actor_id = actor_assignments.get(role.id)
+        actor = db.actors.get(actor_id)
+        if actor and actor.character_id:
+            character = db.characters.get(actor.character_id)
+            if character:
+                if character.id not in seen_character_ids:
+                    if character.name:
+                        all_character_names_list.append(character.name)
+                    seen_character_ids.add(character.id)
+
+                if character.work_id and character.work_id not in seen_work_ids:
+                    work = db.works.get(character.work_id)
+                    if work and (work.title_jp or work.title_en):
+                        all_work_titles_list.append(work.title_jp if work.title_jp else work.title_en)
+                        seen_work_ids.add(work.id)
+
     list_of_role_combination_lists = [
         role_appearance_combinations[role.id] for role in valid_roles_in_scene
     ]
@@ -417,6 +440,9 @@ def generate_batch_prompts(
                 firstActorInfo=first_actor_info,
                 composition=composition,
                 component_name_str=component_name_for_file,  # ★ ファイル名用
+                all_character_names=all_character_names_list,
+                scene_name=scene.name,
+                all_work_titles=all_work_titles_list,
             )
         )
         global_prompt_index += 1
@@ -546,7 +572,6 @@ def create_image_generation_tasks(
                 filename_prefix=filename_prefix,  # ★ 修正された filename_prefix
                 source_image_path=source_image_path,
                 denoising_strength=denoising_strength,
-                metadata=BatchMetadata(),
                 # n_iter と batch_size は MainWindow 側で設定される
             )
             tasks.append(task)

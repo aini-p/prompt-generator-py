@@ -1218,10 +1218,14 @@ class MainWindow(QMainWindow):
                         processed_scenes_count += 1
                         continue
 
+                    main_char_for_scene = char_names_for_scene[0] if char_names_for_scene else None
+                    sub_chars_for_scene = char_names_for_scene[1:] if char_names_for_scene else []
+
                     metadata_for_scene = BatchMetadata(
                         sequence_name=getattr(sequence, "name", "N/A"),
                         scene_name=getattr(scene, "name", "N/A"),
-                        character_names=char_names_for_scene, # ★ 役割順のリストを使用
+                        main_character=main_char_for_scene,
+                        sub_characters=sub_chars_for_scene,
                         work_titles=work_titles_list,
                     )
 

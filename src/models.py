@@ -161,7 +161,8 @@ class BatchMetadata:
 
     sequence_name: str = ""
     scene_name: str = ""
-    character_names: List[str] = field(default_factory=list)
+    main_character: Optional[str] = None
+    sub_characters: List[str] = field(default_factory=list)
     work_titles: List[str] = field(default_factory=list)
 
 
@@ -194,6 +195,9 @@ class GeneratedPrompt:
     firstActorInfo: Optional[Dict[str, Any]] = None
     composition: Optional[Composition] = None
     component_name_str: str = ""
+    all_character_names: List[str] = field(default_factory=list)
+    scene_name: str = ""
+    all_work_titles: List[str] = field(default_factory=list)
 
 
 @dataclass
