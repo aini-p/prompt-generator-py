@@ -155,7 +155,8 @@ def initialize_db():
                 id TEXT PRIMARY KEY, name TEXT NOT NULL,
                 steps INTEGER, sampler_name TEXT, cfg_scale REAL,
                 seed INTEGER, width INTEGER, height INTEGER,
-                denoising_strength REAL
+                denoising_strength REAL,
+                model TEXT
             )""")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS sequences (
@@ -174,6 +175,18 @@ def initialize_db():
         # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
         print("[INFO] Database tables ensured.")
+
+        # --- スキーママイグレーション ---
+        try:
+            # sd_paramsテーブルにmodelカラムがなければ追加
+            cursor.execute("PRAGMA table_info(sd_params)")
+            columns = [column[1] for column in cursor.fetchall()]
+            if "model" not in columns:
+                print("[INFO] Migrating 'sd_params' table: Adding 'model' column.")
+                cursor.execute("ALTER TABLE sd_params ADD COLUMN model TEXT")
+                print("[INFO] 'model' column added to 'sd_params' successfully.")
+        except sqlite3.Error as e:
+            print(f"[WARN] An error occurred during schema migration: {e}")
 
         # --- ▼▼▼ works テーブルが存在しなかった場合のみ初期データを挿入 ▼▼▼ ---
         if not works_table_existed_before:

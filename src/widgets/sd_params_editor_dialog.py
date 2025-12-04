@@ -90,38 +90,39 @@ class SDParamsEditorDialog(BaseEditorDialog):
     # --- ▼▼▼ get_data を修正 (新規作成・編集対応) ▼▼▼ ---
     def get_data(self) -> Optional[StableDiffusionParams]:
         """UIからデータを取得し、新規作成または更新されたオブジェクトを返します。"""
-
         name = self.name_edit.text().strip()
         if not name:
             QMessageBox.warning(self, "入力エラー", "Name は必須です。")
             return None
 
-        if self.initial_data:  # 更新
-            updated_params = self.initial_data
-            if self._update_object_from_widgets(updated_params):
-                print("[DEBUG] SD Params updated from dialog.")
-                return updated_params
+        try:
+            # 更新か新規作成かでオブジェクトを準備
+            if self.initial_data:
+                params = self.initial_data
+                print("[DEBUG] Updating existing SD Params from dialog.")
             else:
-                print("[DEBUG] Failed to update SD Params from dialog.")
-                return None  # 更新失敗
-        else:  # 新規作成
-            try:
-                new_params = StableDiffusionParams(
-                    id=f"sdp_{int(time.time())}",
-                    name=name,
-                    steps=self._widgets["steps"].value(),
-                    sampler_name=self._widgets["sampler_name"].text().strip(),
-                    cfg_scale=self._widgets["cfg_scale"].value(),
-                    seed=self._widgets["seed"].value(),
-                    width=self._widgets["width"].value(),
-                    height=self._widgets["height"].value(),
-                    denoising_strength=self._widgets["denoising_strength"].value(),
-                    model=self._widgets["model"].text().strip() or None,  # None if empty
-                )
-                print("[DEBUG] New SD Params created from dialog.")
-                return new_params
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to create SD Params: {e}")
-                return None
+                params = StableDiffusionParams(
+                    id=f"sdp_{int(time.time())}", name="temp"
+                )  # nameは後で上書き
+                print("[DEBUG] Creating new SD Params from dialog.")
+
+            # ウィジェットの値でオブジェクトを更新
+            params.name = name
+            params.steps = self._widgets["steps"].value()
+            params.sampler_name = self._widgets["sampler_name"].text().strip()
+            params.cfg_scale = self._widgets["cfg_scale"].value()
+            params.seed = self._widgets["seed"].value()
+            params.width = self._widgets["width"].value()
+            params.height = self._widgets["height"].value()
+            params.denoising_strength = self._widgets["denoising_strength"].value()
+
+            model_text = self._widgets["model"].text().strip()
+            params.model = model_text if model_text else None
+
+            return params
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to get SD Params data: {e}")
+            return None
 
     # --- ▲▲▲ 修正ここまで ▲▲▲ ---
