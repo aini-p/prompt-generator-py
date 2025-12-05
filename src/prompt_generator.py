@@ -285,7 +285,9 @@ def generate_batch_prompts(
                 if character.work_id and character.work_id not in seen_work_ids:
                     work = db.works.get(character.work_id)
                     if work and (work.title_jp or work.title_en):
-                        all_work_titles_list.append(work.title_jp if work.title_jp else work.title_en)
+                        all_work_titles_list.append(
+                            work.title_jp if work.title_jp else work.title_en
+                        )
                         seen_work_ids.add(work.id)
 
     list_of_role_combination_lists = [
@@ -573,6 +575,7 @@ def create_image_generation_tasks(
                 source_image_path=source_image_path,
                 denoising_strength=denoising_strength,
                 model=sd_params.model,
+                metadata=BatchMetadata(),
                 # n_iter と batch_size は MainWindow 側で設定される
             )
             tasks.append(task)
