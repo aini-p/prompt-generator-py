@@ -596,11 +596,6 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Execute", "生成タスクがありません。")
                 return
 
-            metadata = BatchMetadata(
-                sequence_name="Test",
-                scene_name=getattr(current_scene, "name", "N/A"),
-            )
-
             char_names = []
             work_titles = set()
             if current_cut:
@@ -622,8 +617,16 @@ class MainWindow(QMainWindow):
                                     if work_title:
                                         work_titles.add(work_title)
 
-            metadata.character_names = char_names
-            metadata.work_titles = sorted(list(work_titles))
+            main_char = char_names[0] if char_names else ""
+            sub_chars = char_names[1:] if char_names else []
+
+            metadata = BatchMetadata(
+                sequence_name="Test",
+                scene_name=getattr(current_scene, "name", "N/A"),
+                main_character=main_char,
+                sub_characters=sub_chars,
+                work_titles=sorted(list(work_titles)),
+            )
 
             is_debug_mode = self.prompt_panel.is_debug_mode_enabled()
             if is_debug_mode:
@@ -1218,7 +1221,7 @@ class MainWindow(QMainWindow):
                         processed_scenes_count += 1
                         continue
 
-                    main_char_for_scene = char_names_for_scene[0] if char_names_for_scene else None
+                    main_char_for_scene = char_names_for_scene[0] if char_names_for_scene else ""
                     sub_chars_for_scene = char_names_for_scene[1:] if char_names_for_scene else []
 
                     metadata_for_scene = BatchMetadata(
