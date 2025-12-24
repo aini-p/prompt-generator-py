@@ -318,6 +318,11 @@ def generate_batch_prompts(
             appearance: Dict[str, Optional[PromptPartBase]] = overall_combo[i]
             actor_id = actor_assignments[role_id]
             actor = db.actors.get(actor_id)
+            # --- DEBUG PRINT ---
+            print(
+                f"[DEBUG] Actor '{getattr(actor, 'name', 'N/A')}' (ID: {actor_id}) Negative Prompt: '{getattr(actor, 'negative_prompt', 'NOT FOUND')}'"
+            )
+            # -------------------
             character = (
                 db.characters.get(actor.character_id)
                 if actor and actor.character_id
