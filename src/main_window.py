@@ -691,8 +691,14 @@ class MainWindow(QMainWindow):
         self.prompt_display_area.setPlainText(display_text)
         print("[DEBUG] Prompt display area updated.")
 
-    def update_ui_after_data_change(self):
-        print("[DEBUG] update_ui_after_data_change called.")
+    def update_ui_after_data_change(self, updated_db_key: Optional[DatabaseKey] = None):
+        """
+        データ変更後にUIを更新します。
+        updated_db_key に基づいて、更新範囲を限定します。
+        """
+        print(f"[DEBUG] update_ui_after_data_change called for db_key: {updated_db_key}")
+
+        # --- ライブラリパネルの更新 (常に実行) ---
         current_list_selection_id = None
         current_item = self.library_panel.library_list_widget.currentItem()
         if current_item:
@@ -710,8 +716,18 @@ class MainWindow(QMainWindow):
         if current_list_selection_id:
             self.library_panel.select_item_by_id(current_list_selection_id)
 
-        self.prompt_panel.set_data_reference(self.db_data)
+        # --- プロンプトパネルの更新 (条件付きで実行) ---
+        self.prompt_panel.set_data_reference(self.db_data)  # データ参照のみ更新
 
+        if not updated_db_key or updated_db_key == "scenes":
+            # キー指定なし(全体更新) or シーンリスト自体の変更時
+            self.prompt_panel.update_scene_combo()
+        elif updated_db_key in ["actors", "cuts", "characters", "works"]:
+            # アクター/カット/キャラ/作品の変更時は、役割割り当てUIのみ再構築
+            # (アクターコンボの中身や、ロールの定義が変わる可能性があるため)
+            self.prompt_panel.build_role_assignment_ui()
+
+        # --- バッチパネルの更新 (常に実行) ---
         self.batch_panel.set_data_reference(
             self.db_data.get("sequences", {}), self.batch_queue
         )
@@ -850,7 +866,7 @@ class MainWindow(QMainWindow):
                                     "[ERROR] Could not find parent BaseEditorDialog..."
                                 )
                         else:
-                            self.update_ui_after_data_change()
+                            self.update_ui_after_data_change(db_key)
                             if item_id_to_select:
                                 if db_key == "sequences":
                                     self.batch_panel.sequence_list.blockSignals(True)

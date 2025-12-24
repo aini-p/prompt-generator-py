@@ -46,7 +46,7 @@ class PromptPanel(QWidget):
 
     def set_data_reference(self, db_data: Dict[str, Dict[str, Any]]):
         self._db_data_ref = db_data
-        self.update_scene_combo()
+        # self.update_scene_combo() # This call is removed to give MainWindow control over UI updates
 
     def set_current_scene(self, scene_id: Optional[str]):
         """MainWindow から現在のシーンIDが変更されたときに呼ばれます。"""
