@@ -722,10 +722,12 @@ class MainWindow(QMainWindow):
 
         if not updated_db_key or updated_db_key == "scenes":
             # キー指定なし(全体更新) or シーンリスト自体の変更時
+            self.prompt_panel.set_assignments(self.actor_assignments)
             self.prompt_panel.update_scene_combo()
         elif updated_db_key in ["actors", "cuts", "characters", "works"]:
             # アクター/カット/キャラ/作品の変更時は、役割割り当てUIのみ再構築
             # (アクターコンボの中身や、ロールの定義が変わる可能性があるため)
+            self.prompt_panel.set_assignments(self.actor_assignments)
             self.prompt_panel.build_role_assignment_ui()
 
         # --- バッチパネルの更新 (常に実行) ---
