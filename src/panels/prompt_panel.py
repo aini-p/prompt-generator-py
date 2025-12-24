@@ -465,7 +465,6 @@ class PromptPanel(QWidget):
             print(f"[DEBUG] PromptPanel: Scene selection changed to {new_scene_id}")
             self._current_scene_id = new_scene_id
             self.sceneChanged.emit(new_scene_id or "")
-            self.build_role_assignment_ui()
 
     @Slot(str, str)
     def _on_actor_assigned(self, role_id: str, actor_id: str):

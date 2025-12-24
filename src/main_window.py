@@ -406,6 +406,10 @@ class MainWindow(QMainWindow):
             self.update_prompt_display()
             self.appearance_overrides.clear()
             self.prompt_panel._current_overrides = self.appearance_overrides
+
+            # Instruct the prompt panel to update its UI based on the new scene
+            self.prompt_panel.set_current_scene(self.current_scene_id)
+
             self.data_handler.save_config(
                 self.current_scene_id,
                 self.actor_assignments,
