@@ -318,11 +318,6 @@ def generate_batch_prompts(
             appearance: Dict[str, Optional[PromptPartBase]] = overall_combo[i]
             actor_id = actor_assignments[role_id]
             actor = db.actors.get(actor_id)
-            # --- DEBUG PRINT ---
-            print(
-                f"[DEBUG] Actor '{getattr(actor, 'name', 'N/A')}' (ID: {actor_id}) Negative Prompt: '{getattr(actor, 'negative_prompt', 'NOT FOUND')}'"
-            )
-            # -------------------
             character = (
                 db.characters.get(actor.character_id)
                 if actor and actor.character_id
@@ -347,12 +342,21 @@ def generate_batch_prompts(
             role_neg = _combine_prompts(
                 *(getattr(p, "negative_prompt", "") for p in valid_parts)
             )
+            print(
+                f"[DEBUG-STEP1] Role '{role.name_in_scene}' | Initial role_neg: '{role_neg}'"
+            )
 
             role_pos, role_neg = _apply_state_prompts(
                 role_pos, role_neg, costume_obj, scene, db
             )
+            print(
+                f"[DEBUG-STEP2] Role '{role.name_in_scene}' | After state_prompts, role_neg: '{role_neg}'"
+            )
             role_pos = _apply_color_palette(role_pos, costume_obj, character)
             role_neg = _apply_color_palette(role_neg, costume_obj, character)
+            print(
+                f"[DEBUG-STEP3] Role '{role.name_in_scene}' | After color_palette, role_neg: '{role_neg}'"
+            )
 
             positive_prompts_per_role[role_id] = role_pos
             negative_prompts_per_role[role_id] = role_neg
@@ -366,6 +370,10 @@ def generate_batch_prompts(
 
         final_positive = cut_obj.prompt_template
         final_negative = cut_obj.negative_template
+        print(f"[DEBUG-STEP4] Initial final_negative from template: '{final_negative}'")
+        print(
+            f"[DEBUG-STEP4] negative_prompts_per_role dictionary: {negative_prompts_per_role}"
+        )
 
         for role_id, role_pos_prompt in positive_prompts_per_role.items():
             placeholder = f"[{role_id.upper()}]"
@@ -374,9 +382,11 @@ def generate_batch_prompts(
         for role_id, role_neg_prompt in negative_prompts_per_role.items():
             placeholder = f"[{role_id.upper()}]"
             final_negative = final_negative.replace(placeholder, f"({role_neg_prompt})")
+        print(f"[DEBUG-STEP5] After replacing placeholders: '{final_negative}'")
 
         final_positive = re.sub(r"\[R\d+\]", "", final_positive)
         final_negative = re.sub(r"\[R\d+\]", "", final_negative)
+        print(f"[DEBUG-STEP6] After cleaning unused placeholders: '{final_negative}'")
 
         common_pos_parts = [
             getattr(style, "prompt", ""),
@@ -401,6 +411,7 @@ def generate_batch_prompts(
 
         final_positive = _clean_prompt(_combine_prompts(*common_pos_parts))
         final_negative = _clean_prompt(_combine_prompts(*common_neg_parts))
+        print(f"[DEBUG-STEP7] Final combined negative prompt: '{final_negative}'")
 
         # --- ▼▼▼ 修正箇所 ▼▼▼ ---
 
