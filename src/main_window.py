@@ -185,6 +185,7 @@ class MainWindow(QMainWindow):
         prompt_tab_layout.addWidget(self.data_management_panel)
         self.prompt_panel = PromptPanel()
         self.prompt_panel.set_data_reference(self.db_data)
+        self.prompt_panel.update_scene_combo()
         prompt_tab_layout.addWidget(self.prompt_panel)
         prompt_tab_layout.addStretch()
         left_tab_widget.addTab(prompt_tab, "Prompt Generation")
