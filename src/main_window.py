@@ -697,7 +697,9 @@ class MainWindow(QMainWindow):
         データ変更後にUIを更新します。
         updated_db_key に基づいて、更新範囲を限定します。
         """
-        print(f"[DEBUG] update_ui_after_data_change called for db_key: {updated_db_key}")
+        print(
+            f"[DEBUG] update_ui_after_data_change called for db_key: {updated_db_key}"
+        )
 
         # --- ライブラリパネルの更新 (常に実行) ---
         current_list_selection_id = None
@@ -1244,8 +1246,12 @@ class MainWindow(QMainWindow):
                         processed_scenes_count += 1
                         continue
 
-                    main_char_for_scene = char_names_for_scene[0] if char_names_for_scene else ""
-                    sub_chars_for_scene = char_names_for_scene[1:] if char_names_for_scene else []
+                    main_char_for_scene = (
+                        char_names_for_scene[0] if char_names_for_scene else ""
+                    )
+                    sub_chars_for_scene = (
+                        char_names_for_scene[1:] if char_names_for_scene else []
+                    )
 
                     metadata_for_scene = BatchMetadata(
                         sequence_name=getattr(sequence, "name", "N/A"),
@@ -1481,11 +1487,11 @@ class MainWindow(QMainWindow):
         updated_count = 0
         skipped_count = 0
 
-        # 作品名 (日本語) から Work ID (ファイルセーフ英語) へのマッピングを作成
-        work_title_to_id_map = {
-            work.title_jp: work.id
+        # 作品のファイルセーフ日本語から Work ID (ファイルセーフ英語) へのマッピングを作成
+        work_fs_jp_to_id_map = {
+            work.tags[0].strip(): work.id
             for work in self.db_data.get("works", {}).values()
-            if work.title_jp
+            if work.tags and len(work.tags) > 0 and work.tags[0] # tagsが存在し、かつ最初の要素が存在することを確認
         }
 
         try:
@@ -1515,8 +1521,9 @@ class MainWindow(QMainWindow):
                     if not row or not row[idx_fs_en]:
                         continue
 
-                    work_title_jp = row[idx_work_title]
-                    work_id = work_title_to_id_map.get(work_title_jp)
+                    # キャラクターCSVの「登場作品」列（作品のファイルセーフ日本語）を検索キーにする
+                    work_fs_jp_from_char_csv = row[idx_work_title].strip()
+                    work_id = work_fs_jp_to_id_map.get(work_fs_jp_from_char_csv)
 
                     if not work_id:
                         print(
