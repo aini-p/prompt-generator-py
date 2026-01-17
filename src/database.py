@@ -4,6 +4,8 @@ import json
 import os
 from typing import Dict, List, Type, TypeVar, Any
 
+T = TypeVar("T")  # ジェネリック型
+
 # モデルとヘルパー関数をインポート
 from .models import (
     Work,
@@ -42,17 +44,33 @@ from .data.mocks import initialMockDatabase
 
 # --- 定数定義 ---
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(_BASE_DIR, "..", "data", "prompt_data.db")
-T = TypeVar("T")  # ジェネリック型
+# DB_PATH は直接使わず、get_db_path() を介して取得する
+_db_path = None
 
-# data ディレクトリ作成
-os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+
+def set_db_path(path: str):
+    """データベースへのパスを設定します。"""
+    global _db_path
+    _db_path = path
+    # パスが設定されたら、ディレクトリが存在することを確認
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+
+def get_db_path() -> str:
+    """現在設定されているデータベースのパスを取得します。"""
+    if not _db_path:
+        # デフォルトパスを構築
+        return os.path.join(_BASE_DIR, "..", "data", "prompt_data.db")
+    return _db_path
 
 
 # --- データベース接続 ---
 def get_connection():
     """データベース接続を取得します。"""
-    return sqlite3.connect(DB_PATH)
+    path = get_db_path()
+    if not path:
+        raise ValueError("データベースパスが設定されていません。set_db_path()を呼び出してください。")
+    return sqlite3.connect(path)
 
 
 # --- データベース初期化 ---
@@ -61,11 +79,12 @@ def initialize_db():
     データベースファイルが存在しない場合は作成し、必要なテーブルが存在しない場合は作成します。
     テーブルが新規に作成された場合のみ、初期データを挿入します。
     """
+    db_path = get_db_path()
     # ▼▼▼ ファイル削除処理を削除 ▼▼▼
-    # if os.path.exists(DB_PATH):
-    #     print(f"[INFO] Deleting existing database file: {DB_PATH}")
+    # if os.path.exists(db_path):
+    #     print(f"[INFO] Deleting existing database file: {db_path}")
     #     try:
-    #         os.remove(DB_PATH)
+    #         os.remove(db_path)
     #     except OSError as e:
     #         print(f"[ERROR] Could not delete existing database file: {e}")
     #         raise
@@ -244,7 +263,7 @@ def initialize_db():
         conn.rollback()
     finally:
         conn.close()
-    print(f"データベースの準備が完了しました: {DB_PATH}")
+    print(f"データベースの準備が完了しました: {get_db_path()}")
 
 
 # --- ▲▲▲ 修正ここまで ▲▲▲
