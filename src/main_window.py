@@ -581,7 +581,10 @@ class MainWindow(QMainWindow):
         DialogClass, db_key = dialog_info
 
         try:
-            dialog = DialogClass(item_data, self.db_data, self)
+            if DialogClass == SimplePartEditorDialog:
+                dialog = DialogClass(item_data, modal_type, self.db_data, self)
+            else:
+                dialog = DialogClass(item_data, self.db_data, self)
             if isinstance(dialog, BaseEditorDialog):
                 dialog.request_open_editor.connect(self._handle_open_nested_editor)
         except Exception as e:

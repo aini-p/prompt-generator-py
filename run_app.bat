@@ -71,29 +71,6 @@ if %errorlevel% neq 0 (
 echo "ライブラリのインストール完了。"
 echo.
 
-REM --- 4. データベースの初期化確認 ---
-echo "データベースファイルを確認しています (data\prompt_data.db)..."
-set DB_FILE=%~dp0data\prompt_data.db
-if not exist "%DB_FILE%" (
-    echo "データベースファイルが見つかりません。初期化を実行します..."
-    REM ★★★ PYTHONPATH を設定して実行 ★★★
-    set "PYTHONPATH=%~dp0;%PYTHONPATH%"
-    python -c "from src.database import initialize_db; initialize_db()"
-    set "PYTHONPATH=" REM 一時的な設定を解除 (任意だが推奨)
-    if %errorlevel% neq 0 (
-        echo "[エラー] データベースの初期化に失敗しました。"
-        echo "(src/database.py が存在するか確認してください)"
-        goto :error
-    )
-    if not exist "%DB_FILE%" (
-        echo "[エラー] 初期化後もデータベースファイルが見つかりません。"
-        goto :error
-    )
-    echo "データベースを初期化しました。"
-) else (
-    echo "データベースファイルが存在します。"
-)
-
 REM --- 5. アプリケーションの起動 ---
 echo "アプリケーションを起動します (python main.py)..."
 python "%~dp0main.py"

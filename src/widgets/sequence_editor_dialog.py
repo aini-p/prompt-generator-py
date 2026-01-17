@@ -183,3 +183,10 @@ class SequenceEditorDialog(QDialog):
                 name=name,
                 scene_entries=new_entries,
             )
+
+    def accept(self):
+        """Save a new sequence and update the list of sequences."""
+        data = self.get_data()
+        if data:
+            self.saved_data = data
+            super().accept()

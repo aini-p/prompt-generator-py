@@ -157,12 +157,22 @@ class DataHandler:
             print(f"[ERROR] Failed to save config file {_CONFIG_FILE_PATH}: {e}")
 
         # 2. 新しい設定ファイル (_PREFERENCE_FILE_PATH) を保存
-        pref_data = {
-            "image_output_base_dir": output_base_dir,
-        }
+        pref_data = {}
+        try:
+            if os.path.exists(_PREFERENCE_FILE_PATH):
+                with open(_PREFERENCE_FILE_PATH, "r", encoding="utf-8") as f:
+                    pref_data = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            print(
+                f"[WARN] Could not load preference file at {_PREFERENCE_FILE_PATH} before saving: {e}. A new file will be created."
+            )
+            pref_data = {}
+
+        pref_data["image_output_base_dir"] = output_base_dir
+
         try:
             with open(_PREFERENCE_FILE_PATH, "w", encoding="utf-8") as f:
-                json.dump(pref_data, f, indent=2, ensure_ascii=False)
+                json.dump(pref_data, f, indent=4, ensure_ascii=False)
             print(f"[DEBUG] Preferences saved to {_PREFERENCE_FILE_PATH}")
         except (OSError, TypeError) as e:
             print(
