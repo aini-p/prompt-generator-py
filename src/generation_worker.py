@@ -73,10 +73,9 @@ class GenerationWorker(QObject):
                 "--localTaskFile", _OUTPUT_JSON_PATH
             ]
             
-            # This logic is now handled inside GenImage.py based on output_base_dir
-            # if base_dir:
-            #     abs_base_dir = os.path.abspath(os.path.join(_PROJECT_ROOT, base_dir))
-            #     command.extend(["--output_base_dir", abs_base_dir])
+            if base_dir:
+                abs_base_dir = os.path.abspath(os.path.join(_PROJECT_ROOT, base_dir))
+                command.extend(["--output_base_dir", abs_base_dir])
 
             self.log_message.emit(f"Executing main process: {' '.join(command)}")
 
