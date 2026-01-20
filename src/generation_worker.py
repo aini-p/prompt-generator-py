@@ -89,49 +89,22 @@ class GenerationWorker(QObject):
             self.process = subprocess.Popen(
                 command,
                 cwd=_CLIENT_DIR,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="ignore",
-                bufsize=1,
                 shell=True, # Batch files need shell=True
                 env=env,
             )
 
-            # Read output line by line and emit logs
-            if self.process.stdout:
-                for line in iter(self.process.stdout.readline, ""):
-                    if not line:
-                        break
-                    line = line.strip()
-                    if line:
-                        self.log_message.emit(line)
-                        
-                        # --- Parse progress from GenImage.py output ---
-                        match_task_start = re.search(r"--- Task (\d+)/(\d+) starting ---", line)
-                        if match_task_start:
-                            current = int(match_task_start.group(1))
-                            total = int(match_task_start.group(2))
-                            self.progress_updated.emit(total, current - 1, f"Processing Task {current}/{total}...")
-                        
-                        match_task_finish = re.search(r"--- Task (\d+) on .* finished successfully ---", line)
-                        if match_task_finish:
-                            current = int(match_task_finish.group(1))
-                            self.progress_updated.emit(total_tasks, current, f"Completed Task {current}/{total_tasks}")
+            # --- Output is no longer piped, so we can't read it here. ---
+            # The user will see progress in the spawned console windows.
+            # We will just wait for the main process to complete.
 
-
-            self.process.stdout.close()
             return_code = self.process.wait()
 
             if return_code == 0:
                 self.progress_updated.emit(total_tasks, total_tasks, "Generation Complete.")
                 self.log_message.emit("Main process completed successfully.")
                 self.finished.emit(True, "Batch process completed successfully.")
-            elif return_code == 5:
-                # This error code is used to signal a timeout from GenImage.py
-                self.log_message.emit("Error: The generation process timed out and requires a restart.")
-                self.finished.emit(False, "Process timed out. Please try again.")
+            # NOTE: We can no longer detect the special '5' error code from GenImage.py
+            # because we are not capturing the output. The user will see it in the console.
             else:
                 self.log_message.emit(f"Error: Main process exited with error code {return_code}.")
                 self.finished.emit(False, f"Process failed with error code: {return_code}.")
