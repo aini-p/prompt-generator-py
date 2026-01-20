@@ -1,37 +1,27 @@
-# src/generation_worker.py
+
 import subprocess
 import os
 import json
 import re
-import requests
-import time
 import traceback
 from typing import List, Optional
 from PySide6.QtCore import QObject, Signal, Slot
 from dataclasses import asdict
 from .models import ImageGenerationTask
 
-# --- 1. パス設定 (プロジェクト構造に基づき) ---
+# --- Paths based on project structure ---
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _CLIENT_DIR = os.path.join(_PROJECT_ROOT, "StableDiffusionClient")
-_FORGE_VENV_PYTHON = os.path.join(
-    _CLIENT_DIR, "stable-diffusion-webui-forge", "venv", "Scripts", "python.exe"
-)
-_GENIMAGE_PY = os.path.join(_CLIENT_DIR, "GenImage.py")
 _DATA_DIR = os.path.join(_PROJECT_ROOT, "data")
 _OUTPUT_JSON_PATH = os.path.join(_DATA_DIR, "tasks.json")
-
-# --- Forge起動関連のパス ---
-_CONFIG_FILE = os.path.join(_CLIENT_DIR, "config.json")
-_LAUNCH_FORGE_BAT = os.path.join(_CLIENT_DIR, "_launch_forge_if_needed.bat")
-_FORGE_DIR_PATH = os.path.join(_CLIENT_DIR, "stable-diffusion-webui-forge")
+_START_ALL_BAT = os.path.join(_CLIENT_DIR, "start_all.bat")
 
 
 class GenerationWorker(QObject):
     """
-    GenImage.py を別スレッドで実行し、進捗をシグナルで送信するワーカー
+    A worker that runs the entire Stable Diffusion client process in a separate thread
+    and reports progress via signals.
     """
-
     progress_updated = Signal(int, int, str)
     finished = Signal(bool, str)
     log_message = Signal(str)
@@ -39,231 +29,63 @@ class GenerationWorker(QObject):
     def __init__(self):
         super().__init__()
         self.process: Optional[subprocess.Popen] = None
-        self.api_url: str = ""
 
     def _write_tasks_json(self, tasks: List[ImageGenerationTask]) -> bool:
-        """
-        tasks.json (固定パス) にタスクリストを書き込む。
-        """
+        """Writes the list of tasks to the tasks.json file."""
         try:
             os.makedirs(_DATA_DIR, exist_ok=True)
+            tasks_dict_list = [asdict(task) for task in tasks]
             with open(_OUTPUT_JSON_PATH, "w", encoding="utf-8") as f:
-                tasks_dict_list = [asdict(task) for task in tasks]
                 json.dump(tasks_dict_list, f, indent=2, ensure_ascii=False)
-            self.log_message.emit(f"tasks.json を出力しました: {_OUTPUT_JSON_PATH}")
+            self.log_message.emit(f"Successfully wrote tasks to: {_OUTPUT_JSON_PATH}")
             return True
         except Exception as e:
-            self.log_message.emit(f"エラー: tasks.json の書き込みに失敗しました: {e}")
+            self.log_message.emit(f"Error: Failed to write tasks.json: {e}")
             return False
 
-    def _check_api_ready(self) -> bool:
-        """config.jsonからURLを読み込み、APIが応答するか確認する"""
-        if not self.api_url:
-            self.log_message.emit("API URLが未設定です。config.jsonを確認します。")
-            try:
-                if not os.path.exists(_CONFIG_FILE):
-                    self.log_message.emit(
-                        f"エラー: config.json が見つかりません。\n{_CONFIG_FILE}"
-                    )
-                    return False
-                with open(_CONFIG_FILE, "r", encoding="utf-8") as f:
-                    config = json.load(f)
-                self.api_url = config.get("stableDiffusionURL")
-                if not self.api_url:
-                    self.log_message.emit(
-                        "エラー: config.json に stableDiffusionURL が設定されていません。"
-                    )
-                    return False
-            except Exception as e:
-                self.log_message.emit(
-                    f"エラー: config.json の読み込みに失敗しました: {e}"
-                )
-                return False
+    @Slot(list, str)
+    def start_generation(self, tasks: List[ImageGenerationTask], base_dir: str):
+        """
+        The main execution function for the worker thread.
+        It prepares the tasks and then runs the main `start_all.bat` script.
+        """
+        if not tasks:
+            self.finished.emit(False, "No tasks to generate.")
+            return
 
         try:
-            # ★ ログはポーリング側で出すので、ここでは静かにチェックする
-            # self.log_message.emit(f"Checking API status at: {self.api_url}")
-            response = requests.get(f"{self.api_url}/", timeout=3)
-            if response.status_code == 200 or response.status_code == 404:
-                # self.log_message.emit(
-                #     f"Forge API 接続成功 (Status: {response.status_code}): {self.api_url}"
-                # )
-                return True
-            else:
-                # self.log_message.emit(
-                #     f"Forge API 接続失敗 (Status: {response.status_code}): {self.api_url}"
-                # )
-                return False
-        except requests.exceptions.ConnectionError:
-            # self.log_message.emit(
-            #     f"Forge API に接続できません (ConnectionError): {self.api_url}"
-            # )
-            return False
-        except requests.exceptions.Timeout:
-            # self.log_message.emit(f"Forge API がタイムアウトしました: {self.api_url}")
-            return False
-        except Exception as e:
-            # self.log_message.emit(f"Forge API 確認中にエラー: {e}")
-            return False
+            # 1. Prepare the tasks.json file
+            if not self._write_tasks_json(tasks):
+                self.finished.emit(False, "Failed to write tasks.json.")
+                return
 
-    # --- ▼▼▼ 修正箇所 ▼▼▼ ---
-    def _launch_forge(self) -> bool:
-        """
-        _launch_forge_if_needed.bat を実行してForgeを起動する。
-        プロセスをデタッチし、ワーカースレッドがAPIのポーリングを行う。
-        """
-        if not os.path.exists(_LAUNCH_FORGE_BAT):
-            self.log_message.emit(
-                f"エラー: 起動バッチファイルが見つかりません。\n{_LAUNCH_FORGE_BAT}"
-            )
-            return False
+            # 2. Prepare and execute the main batch script
+            if not os.path.exists(_START_ALL_BAT):
+                self.log_message.emit(f"Error: Main batch file not found at {_START_ALL_BAT}")
+                self.finished.emit(False, "Main batch file not found.")
+                return
 
-        self.log_message.emit("Forge (Stable Diffusion) の起動を開始します...")
+            # Construct the command to run the batch script.
+            # We pass the task source info so GenImage.py knows what to do.
+            command = [
+                _START_ALL_BAT,
+                "--taskSourceType", "json",
+                "--localTaskFile", _OUTPUT_JSON_PATH
+            ]
+            
+            # This logic is now handled inside GenImage.py based on output_base_dir
+            # if base_dir:
+            #     abs_base_dir = os.path.abspath(os.path.join(_PROJECT_ROOT, base_dir))
+            #     command.extend(["--output_base_dir", abs_base_dir])
 
-        try:
-            with open(_CONFIG_FILE, "r", encoding="utf-8") as f:
-                config = json.load(f)
+            self.log_message.emit(f"Executing main process: {' '.join(command)}")
 
-            if not self.api_url:
-                self.api_url = config.get("stableDiffusionURL")
-                if not self.api_url:
-                    self.log_message.emit(
-                        "エラー: config.json に stableDiffusionURL がありません。"
-                    )
-                    return False
+            total_tasks = len(tasks)
+            self.progress_updated.emit(total_tasks, 0, "Image Generation Process Started...")
 
-            launch_args = config.get("launchArgs", {})
-            launch_options_list = []
-            for k, v in launch_args.items():
-                if isinstance(v, bool) and v:
-                    launch_options_list.append(f"--{k}")
-                elif isinstance(v, str) and v:
-                    launch_options_list.append(f'--{k} "{v}"')
+            env = os.environ.copy()
+            env["PYTHONIOENCODING"] = "utf-8"
 
-            launch_options_str = " ".join(launch_options_list)
-
-        except Exception as e:
-            self.log_message.emit(
-                f"Forge 起動エラー: config.json の読み込みに失敗: {e}"
-            )
-            return False
-
-        env = os.environ.copy()
-        env["PYTHONIOENCODING"] = "utf-8"
-        env["API_URL"] = self.api_url
-        env["FORGE_DIR"] = _FORGE_DIR_PATH
-        env["FORGE_WINDOW_TITLE"] = "Stable Diffusion Forge"
-        env["LAUNCH_OPTIONS"] = launch_options_str
-        env["CHECK_TIMEOUT"] = "600"
-        env["CHECK_INTERVAL"] = "20"
-
-        self.log_message.emit(f"Setting ENV: API_URL={env['API_URL']}")
-        self.log_message.emit(f"Setting ENV: FORGE_DIR={env['FORGE_DIR']}")
-        self.log_message.emit(f"Setting ENV: LAUNCH_OPTIONS={env['LAUNCH_OPTIONS']}")
-
-        try:
-            self.log_message.emit(f"Executing detached: {_LAUNCH_FORGE_BAT}")
-
-            # ★★★ START MODIFICATION ★★★
-            # WindowsのDETACHED_PROCESSフラグを使用して、バッチファイルを
-            # 独立したプロセスとして起動し、このワーカーから切り離します。
-            # 標準出力/エラーは DEVNULL (Windowsの 'NUL') に捨て、
-            # パイプのデッドロックを防ぎます。
-            DETACHED_PROCESS = 0x00000008
-
-            self.process = subprocess.Popen(
-                [_LAUNCH_FORGE_BAT],
-                cwd=_CLIENT_DIR,
-                stdout=subprocess.DEVNULL,  # 出力を無視
-                stderr=subprocess.DEVNULL,  # エラーを無視
-                shell=True,
-                env=env,
-                creationflags=DETACHED_PROCESS,  # ★ プロセスをデタッチ
-            )
-
-            # Popenはすぐに返ってくるはずです。プロセスハンドルは不要なので破棄します。
-            self.process = None
-
-            # プロセスを起動した（はず）なので、APIの準備ができるまで
-            # このワーカースレッドがポーリング（定期確認）します。
-            self.log_message.emit("Forge launch initiated. Polling API readiness...")
-            timeout = int(env.get("CHECK_TIMEOUT", "600"))
-            interval = int(env.get("CHECK_INTERVAL", "5"))
-            start_time = time.time()
-
-            api_ready = False
-            while time.time() - start_time < timeout:
-                self.log_message.emit(
-                    f"Polling API... (time elapsed: {int(time.time() - start_time)}s)"
-                )
-                if self._check_api_ready():
-                    self.log_message.emit("API is ready! (Polled by worker)")
-                    api_ready = True
-                    break
-
-                # QThreadがイベントループを持つため、
-                # time.sleep() はブロッキングですが、
-                # GUIスレッドとは別なので問題ありません。
-                time.sleep(interval)
-
-            if api_ready:
-                self.log_message.emit("API polling successful. Proceeding.")
-                return True
-            else:
-                self.log_message.emit("Forge API failed to start within the timeout.")
-                return False
-            # ★★★ END MODIFICATION ★★★
-
-        except Exception as e:
-            self.log_message.emit(f"Forge起動プロセス実行中にエラー: {e}")
-            traceback.print_exc()
-            if self.process:
-                self.process.terminate()
-            self.process = None
-            return False
-
-    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
-
-    # ( _run_genimage 関数は変更なし )
-    def _run_genimage(self, tasks: List[ImageGenerationTask], base_dir: str) -> bool:
-        """
-        GenImage.py を実行し、進捗を監視する。
-        """
-        if not os.path.exists(_FORGE_VENV_PYTHON):
-            self.log_message.emit(
-                f"エラー: ForgeのPython実行ファイルが見つかりません。\n{_FORGE_VENV_PYTHON}"
-            )
-            return False
-        if not os.path.exists(_GENIMAGE_PY):
-            self.log_message.emit(
-                f"エラー: GenImage.py が見つかりません。\n{_GENIMAGE_PY}"
-            )
-            return False
-
-        # --- コマンド構築 ---
-        command = [
-            _FORGE_VENV_PYTHON,
-            _GENIMAGE_PY,
-            "--taskSourceType",
-            "json",
-            "--localTaskFile",
-            _OUTPUT_JSON_PATH,
-            "--jpeg_metadata_only",
-        ]
-
-        if base_dir:
-            abs_base_dir = os.path.abspath(os.path.join(_PROJECT_ROOT, base_dir))
-            command.extend(["--output_base_dir", abs_base_dir])
-
-        self.log_message.emit(f"GenImage.py 実行: {' '.join(command)}")
-
-        total_tasks = len(tasks)
-        self.progress_updated.emit(total_tasks, 0, "Image Generation Started...")
-
-        env = os.environ.copy()
-        env["PYTHONIOENCODING"] = "utf-8"
-
-        try:
             self.process = subprocess.Popen(
                 command,
                 cwd=_CLIENT_DIR,
@@ -273,10 +95,11 @@ class GenerationWorker(QObject):
                 encoding="utf-8",
                 errors="ignore",
                 bufsize=1,
-                shell=False,
+                shell=True, # Batch files need shell=True
                 env=env,
             )
 
+            # Read output line by line and emit logs
             if self.process.stdout:
                 for line in iter(self.process.stdout.readline, ""):
                     if not line:
@@ -284,89 +107,39 @@ class GenerationWorker(QObject):
                     line = line.strip()
                     if line:
                         self.log_message.emit(line)
+                        
+                        # --- Parse progress from GenImage.py output ---
+                        match_task_start = re.search(r"--- Task (\d+)/(\d+) starting ---", line)
+                        if match_task_start:
+                            current = int(match_task_start.group(1))
+                            total = int(match_task_start.group(2))
+                            self.progress_updated.emit(total, current - 1, f"Processing Task {current}/{total}...")
+                        
+                        match_task_finish = re.search(r"--- Task (\d+) on .* finished successfully ---", line)
+                        if match_task_finish:
+                            current = int(match_task_finish.group(1))
+                            self.progress_updated.emit(total_tasks, current, f"Completed Task {current}/{total_tasks}")
 
-                        match = re.search(r"--- タスク (\d+)/(\d+) を処理中 ---", line)
-                        if match:
-                            current = int(match.group(1))
-                            total = int(match.group(2))
-                            self.progress_updated.emit(
-                                total,
-                                current - 1,
-                                f"Processing Task {current}/{total}...",
-                            )
-
-                        match_progress = re.search(r"\[進捗: (\d+)/(\d+)", line)
-                        if match_progress:
-                            current = int(match_progress.group(1))
-                            total = int(match_progress.group(2))
-                            self.progress_updated.emit(
-                                total, current, f"Completed Task {current}/{total}"
-                            )
 
             self.process.stdout.close()
             return_code = self.process.wait()
 
             if return_code == 0:
-                self.progress_updated.emit(
-                    total_tasks, total_tasks, "Generation Complete."
-                )
-                self.log_message.emit("GenImage.py が正常に完了しました。")
-                return True
+                self.progress_updated.emit(total_tasks, total_tasks, "Generation Complete.")
+                self.log_message.emit("Main process completed successfully.")
+                self.finished.emit(True, "Batch process completed successfully.")
             elif return_code == 5:
-                self.log_message.emit("エラー: GenImage.py がタイムアウトしました。")
-                return False
+                # This error code is used to signal a timeout from GenImage.py
+                self.log_message.emit("Error: The generation process timed out and requires a restart.")
+                self.finished.emit(False, "Process timed out. Please try again.")
             else:
-                self.log_message.emit(
-                    f"エラー: GenImage.py が異常終了しました (コード: {return_code})。"
-                )
-                return False
+                self.log_message.emit(f"Error: Main process exited with error code {return_code}.")
+                self.finished.emit(False, f"Process failed with error code: {return_code}.")
 
         except Exception as e:
-            self.log_message.emit(f"GenImage.py 実行中にエラー: {e}")
+            self.log_message.emit(f"A critical error occurred in the worker: {e}")
             traceback.print_exc()
-            return False
+            self.finished.emit(False, f"Worker error: {e}")
         finally:
             self.process = None
 
-    # ( start_generation 関数は変更なし )
-    @Slot(list, str)
-    def start_generation(self, tasks: List[ImageGenerationTask], base_dir: str):
-        """
-        スレッド開始時に呼び出されるメインの実行関数
-        1. Forge API確認
-        2. (必要なら) Forge起動
-        3. tasks.json 書き込み
-        4. GenImage.py 実行
-        """
-        if not tasks:
-            self.finished.emit(False, "生成するタスクがありません。")
-            return
-
-        try:
-            # 1. Forge API確認
-            self.log_message.emit("Checking Forge API status...")
-            if not self._check_api_ready():
-                self.log_message.emit(
-                    "Forge API not responding. Attempting to launch..."
-                )
-                # 2. Forge起動
-                if not self._launch_forge():
-                    self.finished.emit(False, "Forgeの起動に失敗しました。")
-                    return
-                self.log_message.emit("Forge launch successful.")
-
-            # 3. tasks.json 書き込み
-            if not self._write_tasks_json(tasks):
-                self.finished.emit(False, "tasks.json の書き込みに失敗しました。")
-                return
-
-            # 4. GenImage.py 実行
-            if self._run_genimage(tasks, base_dir):
-                self.finished.emit(True, "バッチ処理が正常に完了しました。")
-            else:
-                self.finished.emit(False, "画像生成プロセスでエラーが発生しました。")
-
-        except Exception as e:
-            self.log_message.emit(f"ワーカー実行中に致命的なエラーが発生しました: {e}")
-            traceback.print_exc()
-            self.finished.emit(False, f"ワーカー実行エラー: {e}")
