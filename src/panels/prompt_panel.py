@@ -97,6 +97,11 @@ class PromptPanel(QWidget):
         )
         self.prompt_gen_layout.addWidget(self.debug_mode_checkbox)
 
+        self.task_count_label = QLabel("Pending Tasks: 0")
+        self.task_count_label.setAlignment(Qt.AlignCenter)
+        self.task_count_label.setStyleSheet("font-weight: bold; color: #17a2b8;")
+        self.prompt_gen_layout.addWidget(self.task_count_label)
+
         generate_preview_btn = QPushButton("🔄 Generate Prompt Preview")
         generate_preview_btn.setStyleSheet("background-color: #ffc107;")
         generate_preview_btn.clicked.connect(self.generatePromptsClicked)
@@ -108,6 +113,10 @@ class PromptPanel(QWidget):
         self.prompt_gen_layout.addWidget(generate_preview_btn)
         self.prompt_gen_layout.addWidget(self.execute_btn)
         main_layout.addWidget(group)
+
+    def update_task_count(self, count: int):
+        """Updates the task count label."""
+        self.task_count_label.setText(f"Pending Tasks: {count}")
 
     def is_debug_mode_enabled(self) -> bool:
         return self.debug_mode_checkbox.isChecked()

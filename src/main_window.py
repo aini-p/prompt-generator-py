@@ -102,6 +102,7 @@ from .widgets.generation_options_dialog import GenerationOptionsDialog
 
 # ------------------------------------
 from .prompt_generator import generate_batch_prompts, create_image_generation_tasks
+from collections import deque
 from .generation_worker import GenerationWorker
 
 
@@ -112,6 +113,11 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Object-Oriented Prompt Builder")
         self.setGeometry(100, 100, 1200, 800)
+
+        # --- Task Queue ---
+        self.task_queue = deque()
+        self.is_worker_running = False
+        self.total_tasks_in_batch = 0
 
         self.editor_dialog_mapping: Dict[str, Tuple[Type[QDialog], DatabaseKey]] = {
             "WORK": (WorkEditorDialog, "works"),
@@ -218,7 +224,7 @@ class MainWindow(QMainWindow):
         self.worker = GenerationWorker()
         self.worker.moveToThread(self.worker_thread)
         self.worker.progress_updated.connect(self.on_worker_progress)
-        self.worker.finished.connect(self.on_worker_finished)
+        self.worker.finished.connect(self.on_task_finished)
         self.worker.log_message.connect(self.on_worker_log)
         self.start_worker_generation.connect(self.worker.start_generation)
         self.worker_thread.start()
@@ -230,6 +236,7 @@ class MainWindow(QMainWindow):
         self.prompt_panel._current_overrides = self.appearance_overrides
         self.prompt_panel.update_scene_combo() # これでUIが構築される
         self.prompt_panel.set_current_scene(self.current_scene_id) # これで選択状態が合う
+        self.prompt_panel.update_task_count(len(self.task_queue))
 
         self.batch_panel.set_data_reference(
             self.db_data.get("sequences", {}), self.batch_queue
@@ -466,6 +473,9 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def execute_generation(self):
+        if self.is_worker_running:
+            QMessageBox.information(self, "Execute", "現在、画像生成タスクが実行中です。タスクがキューに追加されます。")
+
         if not self.generated_prompts:
             QMessageBox.warning(self, "Execute", "先に 'Generate Prompt Preview' を実行してください。")
             return
@@ -503,7 +513,7 @@ class MainWindow(QMainWindow):
                        (work_title := getattr(work, "title_jp", "")): work_titles.add(work_title)
 
             metadata = BatchMetadata(
-                sequence_name="Test",
+                sequence_name="Single Scene",
                 scene_name=getattr(current_scene, "name", "N/A"),
                 main_character=char_names[0] if char_names else "",
                 sub_characters=char_names[1:] if len(char_names) > 1 else [],
@@ -520,15 +530,17 @@ class MainWindow(QMainWindow):
                 if seed != -1: task.seed = seed
                 task.metadata = metadata
 
-            self.batch_panel.set_buttons_enabled(False)
-            self.prompt_panel.execute_btn.setEnabled(False)
-            self.batch_panel.set_status("Starting single generation...", 0)
-            self.start_worker_generation.emit(tasks, self.image_output_base_dir)
+            self.task_queue.extend(tasks)
+            if not self.is_worker_running:
+                self.total_tasks_in_batch = len(self.task_queue)
+            
+            self.prompt_panel.update_task_count(len(self.task_queue))
+            self.batch_panel.set_status(f"{len(tasks)} tasks added to queue.", 0)
+            self._trigger_worker_if_idle()
+
         except Exception as e:
             QMessageBox.critical(self, "Execution Error", f"予期せぬエラーが発生しました: {e}")
             traceback.print_exc()
-            self.batch_panel.set_buttons_enabled(True)
-            self.prompt_panel.execute_btn.setEnabled(True)
 
     def update_prompt_display(self):
         if not self.generated_prompts:
@@ -705,14 +717,14 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def execute_batch_generation(self):
+        if self.is_worker_running:
+            QMessageBox.information(self, "Execute", "現在、画像生成タスクが実行中です。タスクがキューに追加されます。")
+
         if not self.batch_queue: return
 
         options_dialog = GenerationOptionsDialog(self)
         if options_dialog.exec() != QDialog.DialogCode.Accepted: return
         batch_size, n_iter, seed = options_dialog.get_values()
-
-        self.batch_panel.set_buttons_enabled(False)
-        self.prompt_panel.execute_btn.setEnabled(False)
         
         try:
             full_db = FullDatabase(**self.db_data)
@@ -734,15 +746,38 @@ class MainWindow(QMainWindow):
                     all_tasks.extend(tasks)
 
             if all_tasks:
-                self.start_worker_generation.emit(all_tasks, self.image_output_base_dir)
+                self.task_queue.extend(all_tasks)
+                if not self.is_worker_running:
+                    self.total_tasks_in_batch = len(self.task_queue)
+                
+                self.prompt_panel.update_task_count(len(self.task_queue))
+                self.batch_panel.set_status(f"{len(all_tasks)} tasks added to queue.", 0)
+                self._trigger_worker_if_idle()
             else:
-                self.batch_panel.set_buttons_enabled(True)
-                self.prompt_panel.execute_btn.setEnabled(True)
+                QMessageBox.information(self, "Batch Run", "No tasks to run.")
+
         except Exception as e:
             QMessageBox.critical(self, "Batch Run Error", f"An unexpected error occurred: {e}")
             traceback.print_exc()
-            self.batch_panel.set_buttons_enabled(True)
-            self.prompt_panel.execute_btn.setEnabled(True)
+
+    def _trigger_worker_if_idle(self):
+        if not self.is_worker_running and self.task_queue:
+            self.is_worker_running = True
+            
+            # Get the next task
+            task = self.task_queue.popleft()
+            
+            # Update UI before starting
+            current_progress = self.total_tasks_in_batch - len(self.task_queue) -1
+            self.on_worker_progress(
+                self.total_tasks_in_batch,
+                current_progress,
+                f"Processing task {current_progress + 1}/{self.total_tasks_in_batch}...",
+            )
+            self.prompt_panel.update_task_count(len(self.task_queue) + 1) # "Executing" task
+            
+            # Start the worker
+            self.start_worker_generation.emit([task], self.image_output_base_dir)
 
     @Slot(int, int, str)
     def on_worker_progress(self, total: int, current: int, message: str):
@@ -751,12 +786,31 @@ class MainWindow(QMainWindow):
         self.batch_panel.status_label.setText(f"Status: {message}")
 
     @Slot(bool, str)
-    def on_worker_finished(self, success: bool, message: str):
-        self.batch_panel.set_buttons_enabled(True)
-        self.prompt_panel.execute_btn.setEnabled(True)
-        msg_box = QMessageBox.information if success else QMessageBox.critical
-        msg_box(self, "Generation " + ("Complete" if success else "Error"), message)
-        self.batch_panel.set_status("Generation " + ("completed." if success else f"Error: {message}"), 100 if success else 0)
+    def on_task_finished(self, success: bool, message: str):
+        self.is_worker_running = False
+        
+        if not success:
+            print(f"[ERROR] Task failed: {message}")
+            # Optionally, clear the queue on failure or allow to continue
+            # self.task_queue.clear()
+        
+        remaining_tasks = len(self.task_queue)
+        self.prompt_panel.update_task_count(remaining_tasks)
+
+        if remaining_tasks > 0:
+            self._trigger_worker_if_idle()
+        else:
+            # All tasks are finished
+            self.total_tasks_in_batch = 0
+            self.batch_panel.set_buttons_enabled(True)
+            self.prompt_panel.execute_btn.setEnabled(True)
+            
+            final_message = "All generation tasks completed successfully." if success else f"Generation finished with errors. Last message: {message}"
+            msg_box = QMessageBox.information if success else QMessageBox.critical
+            msg_box(self, "Generation Complete", final_message)
+            
+            current_progress = self.batch_panel.progress_bar.maximum()
+            self.on_worker_progress(current_progress, current_progress, "Finished.")
 
     @Slot(str)
     def on_worker_log(self, message: str):
