@@ -1,4 +1,3 @@
-
 import subprocess
 import os
 import json
@@ -22,6 +21,7 @@ class GenerationWorker(QObject):
     A worker that runs the entire Stable Diffusion client process in a separate thread
     and reports progress via signals.
     """
+
     progress_updated = Signal(int, int, str)
     finished = Signal(bool, str)
     log_message = Signal(str)
@@ -61,7 +61,9 @@ class GenerationWorker(QObject):
 
             # 2. Prepare and execute the main batch script
             if not os.path.exists(_START_ALL_BAT):
-                self.log_message.emit(f"Error: Main batch file not found at {_START_ALL_BAT}")
+                self.log_message.emit(
+                    f"Error: Main batch file not found at {_START_ALL_BAT}"
+                )
                 self.finished.emit(False, "Main batch file not found.")
                 return
 
@@ -69,10 +71,13 @@ class GenerationWorker(QObject):
             # We pass the task source info so GenImage.py knows what to do.
             command = [
                 _START_ALL_BAT,
-                "--taskSourceType", "json",
-                "--localTaskFile", _OUTPUT_JSON_PATH
+                "--taskSourceType",
+                "json",
+                "--localTaskFile",
+                _OUTPUT_JSON_PATH,
+                "--jpeg_metadata_only",
             ]
-            
+
             if base_dir:
                 abs_base_dir = os.path.abspath(os.path.join(_PROJECT_ROOT, base_dir))
                 command.extend(["--output_base_dir", abs_base_dir])
@@ -80,7 +85,9 @@ class GenerationWorker(QObject):
             self.log_message.emit(f"Executing main process: {' '.join(command)}")
 
             total_tasks = len(tasks)
-            self.progress_updated.emit(total_tasks, 0, "Image Generation Process Started...")
+            self.progress_updated.emit(
+                total_tasks, 0, "Image Generation Process Started..."
+            )
 
             env = os.environ.copy()
             env["PYTHONIOENCODING"] = "utf-8"
@@ -88,7 +95,7 @@ class GenerationWorker(QObject):
             self.process = subprocess.Popen(
                 command,
                 cwd=_CLIENT_DIR,
-                shell=True, # Batch files need shell=True
+                shell=True,  # Batch files need shell=True
                 env=env,
             )
 
@@ -99,14 +106,20 @@ class GenerationWorker(QObject):
             return_code = self.process.wait()
 
             if return_code == 0:
-                self.progress_updated.emit(total_tasks, total_tasks, "Generation Complete.")
+                self.progress_updated.emit(
+                    total_tasks, total_tasks, "Generation Complete."
+                )
                 self.log_message.emit("Main process completed successfully.")
                 self.finished.emit(True, "Batch process completed successfully.")
             # NOTE: We can no longer detect the special '5' error code from GenImage.py
             # because we are not capturing the output. The user will see it in the console.
             else:
-                self.log_message.emit(f"Error: Main process exited with error code {return_code}.")
-                self.finished.emit(False, f"Process failed with error code: {return_code}.")
+                self.log_message.emit(
+                    f"Error: Main process exited with error code {return_code}."
+                )
+                self.finished.emit(
+                    False, f"Process failed with error code: {return_code}."
+                )
 
         except Exception as e:
             self.log_message.emit(f"A critical error occurred in the worker: {e}")
@@ -114,4 +127,3 @@ class GenerationWorker(QObject):
             self.finished.emit(False, f"Worker error: {e}")
         finally:
             self.process = None
-
