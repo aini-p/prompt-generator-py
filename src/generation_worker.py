@@ -1,7 +1,7 @@
 import subprocess
 import os
 import json
-import re
+import time
 import traceback
 from typing import List, Optional
 from PySide6.QtCore import QObject, Signal, Slot
@@ -11,119 +11,91 @@ from .models import ImageGenerationTask
 # --- Paths based on project structure ---
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _CLIENT_DIR = os.path.join(_PROJECT_ROOT, "StableDiffusionClient")
-_DATA_DIR = os.path.join(_PROJECT_ROOT, "data")
-_OUTPUT_JSON_PATH = os.path.join(_DATA_DIR, "tasks.json")
+# The new task queue directory, as defined in GenImage.py
+_TASK_QUEUE_DIR = os.path.join(_CLIENT_DIR, "data", "tasks_queue")
 _START_ALL_BAT = os.path.join(_CLIENT_DIR, "start_all.bat")
 
 
-class GenerationWorker(QObject):
-    """
-    A worker that runs the entire Stable Diffusion client process in a separate thread
-    and reports progress via signals.
-    """
-
-    progress_updated = Signal(int, int, str)
-    finished = Signal(bool, str)
+class BackendManager(QObject):
+    """A simple worker to start or stop the backend process."""
     log_message = Signal(str)
+    finished = Signal(bool, str)
 
     def __init__(self):
         super().__init__()
         self.process: Optional[subprocess.Popen] = None
 
-    def _write_tasks_json(self, tasks: List[ImageGenerationTask]) -> bool:
-        """Writes the list of tasks to the tasks.json file."""
-        try:
-            os.makedirs(_DATA_DIR, exist_ok=True)
-            tasks_dict_list = [asdict(task) for task in tasks]
-            with open(_OUTPUT_JSON_PATH, "w", encoding="utf-8") as f:
-                json.dump(tasks_dict_list, f, indent=2, ensure_ascii=False)
-            self.log_message.emit(f"Successfully wrote tasks to: {_OUTPUT_JSON_PATH}")
-            return True
-        except Exception as e:
-            self.log_message.emit(f"Error: Failed to write tasks.json: {e}")
-            return False
-
-    @Slot(list, str)
-    def start_generation(self, tasks: List[ImageGenerationTask], base_dir: str):
-        """
-        The main execution function for the worker thread.
-        It prepares the tasks and then runs the main `start_all.bat` script.
-        """
-        if not tasks:
-            self.finished.emit(False, "No tasks to generate.")
+    @Slot()
+    def start_backend(self):
+        if self.process and self.process.poll() is None:
+            self.log_message.emit("Backend is already running.")
+            self.finished.emit(True, "Already running.")
             return
 
         try:
-            # 1. Prepare the tasks.json file
-            if not self._write_tasks_json(tasks):
-                self.finished.emit(False, "Failed to write tasks.json.")
-                return
-
-            # 2. Prepare and execute the main batch script
-            if not os.path.exists(_START_ALL_BAT):
-                self.log_message.emit(
-                    f"Error: Main batch file not found at {_START_ALL_BAT}"
-                )
-                self.finished.emit(False, "Main batch file not found.")
-                return
-
-            # Construct the command to run the batch script.
-            # We pass the task source info so GenImage.py knows what to do.
-            command = [
-                _START_ALL_BAT,
-                "--taskSourceType",
-                "json",
-                "--localTaskFile",
-                _OUTPUT_JSON_PATH,
-                "--jpeg_metadata_only",
-            ]
-
-            if base_dir:
-                abs_base_dir = os.path.abspath(os.path.join(_PROJECT_ROOT, base_dir))
-                command.extend(["--output_base_dir", abs_base_dir])
-
-            self.log_message.emit(f"Executing main process: {' '.join(command)}")
-
-            total_tasks = len(tasks)
-            self.progress_updated.emit(
-                total_tasks, 0, "Image Generation Process Started..."
-            )
-
-            env = os.environ.copy()
-            env["PYTHONIOENCODING"] = "utf-8"
-
+            self.log_message.emit("Starting backend process (start_all.bat)...")
+            # We run start_all.bat which now contains the persistent dispatcher
             self.process = subprocess.Popen(
-                command,
+                [_START_ALL_BAT],
                 cwd=_CLIENT_DIR,
-                shell=True,  # Batch files need shell=True
-                env=env,
+                shell=True,
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
             )
+            self.log_message.emit(f"Backend process started with PID: {self.process.pid}")
+            self.finished.emit(True, "Backend process started.")
+        except Exception as e:
+            error_msg = f"Failed to start backend: {e}"
+            self.log_message.emit(error_msg)
+            traceback.print_exc()
+            self.finished.emit(False, error_msg)
 
-            # --- Output is no longer piped, so we can't read it here. ---
-            # The user will see progress in the spawned console windows.
-            # We will just wait for the main process to complete.
+    def stop_backend(self):
+        # This is a bit more complex as it might require terminating a process tree.
+        # For now, we leave it to the user to close the console window.
+        if self.process:
+            self.log_message.emit("Requesting backend termination (please close the console window).")
+            # self.process.terminate() # This might not be enough
+            self.process = None
 
-            return_code = self.process.wait()
 
-            if return_code == 0:
-                self.progress_updated.emit(
-                    total_tasks, total_tasks, "Generation Complete."
-                )
-                self.log_message.emit("Main process completed successfully.")
-                self.finished.emit(True, "Batch process completed successfully.")
-            # NOTE: We can no longer detect the special '5' error code from GenImage.py
-            # because we are not capturing the output. The user will see it in the console.
-            else:
-                self.log_message.emit(
-                    f"Error: Main process exited with error code {return_code}."
-                )
-                self.finished.emit(
-                    False, f"Process failed with error code: {return_code}."
-                )
+class TaskSubmitter(QObject):
+    """
+    A worker that submits tasks to the queue directory for the dispatcher to pick up.
+    """
+    log_message = Signal(str)
+    finished = Signal(bool, str) # Signals once all tasks in the batch are submitted
+
+    @Slot(list)
+    def submit_tasks(self, tasks: List[ImageGenerationTask]):
+        """
+        Takes a list of tasks and writes each one as a separate JSON file
+        into the shared task queue directory.
+        """
+        if not tasks:
+            self.finished.emit(False, "No tasks to submit.")
+            return
+
+        try:
+            os.makedirs(_TASK_QUEUE_DIR, exist_ok=True)
+            num_submitted = 0
+            for task in tasks:
+                task_dict = asdict(task)
+                timestamp = int(time.time() * 1000)
+                # Generate a unique filename
+                filename = f"task_{timestamp}_{num_submitted}.json"
+                filepath = os.path.join(_TASK_QUEUE_DIR, filename)
+                
+                with open(filepath, "w", encoding="utf-8") as f:
+                    json.dump(task_dict, f, indent=2, ensure_ascii=False)
+                
+                self.log_message.emit(f"Submitted task to queue: {filename}")
+                num_submitted += 1
+            
+            self.finished.emit(True, f"Successfully submitted {num_submitted} tasks to the queue.")
 
         except Exception as e:
-            self.log_message.emit(f"A critical error occurred in the worker: {e}")
+            error_msg = f"Error: Failed to submit tasks: {e}"
+            self.log_message.emit(error_msg)
             traceback.print_exc()
-            self.finished.emit(False, f"Worker error: {e}")
-        finally:
-            self.process = None
+            self.finished.emit(False, error_msg)
+
