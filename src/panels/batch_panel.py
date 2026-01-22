@@ -113,14 +113,10 @@ class BatchPanel(QWidget):
         self.progress_bar = QProgressBar()
         self.progress_bar.setValue(0)
         self.status_label = QLabel("Status: Idle")  # 実行状況表示用
-        self.log_area = QTextEdit()  # ★ New log area
-        self.log_area.setReadOnly(True)
-        self.log_area.setMaximumHeight(150)  # Adjust size as needed
 
         exec_layout.addWidget(self.run_batch_btn)
         exec_layout.addWidget(self.progress_bar)
         exec_layout.addWidget(self.status_label)
-        exec_layout.addWidget(self.log_area)  # ★ Add to layout
         main_layout.addWidget(exec_group)
 
         main_layout.addStretch()
@@ -169,7 +165,6 @@ class BatchPanel(QWidget):
 
     def set_status(self, text: str, progress: Optional[int] = None):
         self.status_label.setText(f"Status: {text}")
-        self.log_area.append(text)  # Append the raw message to the log area
         if progress is not None:
             self.progress_bar.setValue(progress)
         # 実行完了時以外は 0 にリセットしない (ワーカーが細かい粒度で更新するため)

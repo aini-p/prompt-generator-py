@@ -41,7 +41,7 @@ class LogReader(QObject):
                 # Log the error and stop
                 self.new_log_line.emit(f"LogReader Error: {e}")
                 break
-        print("LogReader finished.")
+        print("[DEBUG] LogReader finished.") # Changed to DEBUG for visibility, but could be removed entirely.
 
     def stop(self):
         self._is_running = False
