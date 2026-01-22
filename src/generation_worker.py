@@ -25,8 +25,8 @@ class BackendManager(QObject):
         super().__init__()
         self.process: Optional[subprocess.Popen] = None
 
-    @Slot()
-    def start_backend(self):
+    @Slot(str)
+    def start_backend(self, output_dir: str):
         if self.process and self.process.poll() is None:
             self.log_message.emit("Backend is already running.")
             self.finished.emit(True, "Already running.")
@@ -34,9 +34,17 @@ class BackendManager(QObject):
 
         try:
             self.log_message.emit("Starting backend process (start_all.bat)...")
+
+            command = [_START_ALL_BAT]
+            if output_dir:
+                # Ensure the path is absolute and correctly formatted for the shell.
+                abs_output_dir = os.path.abspath(output_dir)
+                command.extend(["--output_base_dir", abs_output_dir])
+                self.log_message.emit(f"  - Using output directory: {abs_output_dir}")
+
             # We run start_all.bat which now contains the persistent dispatcher
             self.process = subprocess.Popen(
-                [_START_ALL_BAT],
+                command,
                 cwd=_CLIENT_DIR,
                 shell=True,
                 creationflags=subprocess.CREATE_NEW_CONSOLE,

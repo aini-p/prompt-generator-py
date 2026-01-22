@@ -106,7 +106,7 @@ from .generation_worker import BackendManager, TaskSubmitter
 
 
 class MainWindow(QMainWindow):
-    start_backend_signal = Signal()
+    start_backend_signal = Signal(str)
     submit_tasks_signal = Signal(list)
 
     def __init__(self):
@@ -484,7 +484,7 @@ class MainWindow(QMainWindow):
     @Slot()
     def _handle_start_backend(self):
         self.on_worker_log("Requesting to start backend...")
-        self.start_backend_signal.emit()
+        self.start_backend_signal.emit(self.image_output_base_dir)
 
     def _submit_tasks(self, tasks: List[ImageGenerationTask]):
         if not tasks:
