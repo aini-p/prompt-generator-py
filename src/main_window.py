@@ -258,7 +258,7 @@ class MainWindow(QMainWindow):
         )
         self.task_count_timer = QTimer(self)
         self.task_count_timer.timeout.connect(self.update_pending_task_count)
-        self.task_count_timer.start(3000)  # Update every 3 seconds
+        self.task_count_timer.start(5000)  # Update every 5 seconds
 
     @Slot()
     def update_pending_task_count(self):
