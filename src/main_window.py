@@ -233,6 +233,9 @@ class MainWindow(QMainWindow):
 
         self.update_prompt_display()
 
+        # --- 8. バックエンドを自動起動 ---
+        self._handle_start_backend()
+
     def _setup_workers(self):
         # Backend Manager Worker
         self.backend_thread = QThread(self)
