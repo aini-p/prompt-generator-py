@@ -75,6 +75,9 @@ class BackendManager(QObject):
                 command.extend(["--output_base_dir", abs_output_dir])
                 self.log_message.emit(f"  - Using output directory: {abs_output_dir}")
 
+            env = os.environ.copy()
+            env["PYTHONIOENCODING"] = "utf-8"
+
             self.process = subprocess.Popen(
                 command,
                 cwd=_CLIENT_DIR,
@@ -85,6 +88,7 @@ class BackendManager(QObject):
                 errors="replace",
                 shell=False,  # Important for security and argument handling
                 creationflags=subprocess.CREATE_NO_WINDOW,  # No new console
+                env=env, # ★ Set environment for the child process
             )
 
             # --- Setup log reader thread ---
