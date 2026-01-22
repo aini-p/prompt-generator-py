@@ -34,7 +34,6 @@ class DataManagementPanel(QWidget):
         sync_btn = QPushButton("🔄 Sync from CSV")
         sync_btn.clicked.connect(self.syncCsvClicked)
 
-        layout.addWidget(start_backend_btn)
         layout.addStretch()
         layout.addWidget(save_btn)
         layout.addWidget(export_btn)
