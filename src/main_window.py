@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QFormLayout,
 )
-from PySide6.QtCore import Qt, Slot, QModelIndex, QMimeData, QThread, Signal
+from PySide6.QtCore import Qt, Slot, QModelIndex, QMimeData, QThread, Signal, QTimer
 from PySide6.QtGui import QCloseEvent, QDragEnterEvent, QDropEvent, QDragMoveEvent
 from .widgets.base_editor_dialog import BaseEditorDialog
 from . import database as db
@@ -224,7 +224,7 @@ class MainWindow(QMainWindow):
         self.prompt_panel._current_overrides = self.appearance_overrides
         self.prompt_panel.update_scene_combo() # これでUIが構築される
         self.prompt_panel.set_current_scene(self.current_scene_id) # これで選択状態が合う
-        self.prompt_panel.update_task_count(0) 
+        self.update_pending_task_count() 
 
         self.batch_panel.set_data_reference(
             self.db_data.get("sequences", {}), self.batch_queue
@@ -250,6 +250,34 @@ class MainWindow(QMainWindow):
         self.task_submitter.finished.connect(self.on_submission_finished)
         self.submit_tasks_signal.connect(self.task_submitter.submit_tasks)
         self.submitter_thread.start()
+
+        # Task Count Timer
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.task_queue_dir = os.path.join(
+            project_root, "StableDiffusionClient", "data", "tasks_queue"
+        )
+        self.task_count_timer = QTimer(self)
+        self.task_count_timer.timeout.connect(self.update_pending_task_count)
+        self.task_count_timer.start(3000)  # Update every 3 seconds
+
+    @Slot()
+    def update_pending_task_count(self):
+        count = 0
+        try:
+            # Ensure the directory exists before trying to list its contents
+            if os.path.isdir(self.task_queue_dir):
+                count = len(
+                    [
+                        f
+                        for f in os.listdir(self.task_queue_dir)
+                        if f.endswith(".json")
+                    ]
+                )
+        except Exception as e:
+            # In case of any error (e.g., permission denied), log it and default to 0
+            print(f"Error counting tasks in queue: {e}")
+            count = 0
+        self.prompt_panel.update_task_count(count)
 
     def _connect_signals(self):
         # Data Management Panel
