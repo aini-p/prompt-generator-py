@@ -535,7 +535,7 @@ class MainWindow(QMainWindow):
                        (work_title := getattr(work, "title_jp", "")): work_titles.add(work_title)
 
             metadata = BatchMetadata(
-                sequence_name="Single Scene",
+                sequence_name="Test",
                 scene_name=getattr(current_scene, "name", "N/A"),
                 main_character=char_names[0] if char_names else "",
                 sub_characters=char_names[1:] if len(char_names) > 1 else [],
