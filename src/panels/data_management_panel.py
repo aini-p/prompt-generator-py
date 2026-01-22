@@ -6,7 +6,6 @@ from typing import Optional
 
 class DataManagementPanel(QWidget):
     # --- シグナル定義 ---
-    startBackendClicked = Signal()
     saveClicked = Signal()
     exportClicked = Signal()
     importClicked = Signal()
@@ -22,11 +21,6 @@ class DataManagementPanel(QWidget):
 
         group = QGroupBox("Data Management")
         layout = QHBoxLayout(group)
-
-        start_backend_btn = QPushButton("🚀 Start Backend")
-        start_backend_btn.setToolTip("Starts the Forge and Dispatcher backend processes in a new console.")
-        start_backend_btn.setStyleSheet("background-color: #007bff; color: white;")
-        start_backend_btn.clicked.connect(self.startBackendClicked)
 
         save_btn = QPushButton("💾 Save to DB")
         save_btn.clicked.connect(self.saveClicked)

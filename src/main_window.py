@@ -284,7 +284,6 @@ class MainWindow(QMainWindow):
 
     def _connect_signals(self):
         # Data Management Panel
-        self.data_management_panel.startBackendClicked.connect(self._handle_start_backend)
         self.data_management_panel.saveClicked.connect(
             lambda: self.data_handler.save_all_data(self.db_data, self.batch_queue)
         )
