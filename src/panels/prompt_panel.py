@@ -217,20 +217,11 @@ class PromptPanel(QWidget):
 
             assigned_actor_id = self._current_assignments.get(role_id)
             current_index = 0
-            # --- DEBUG-UI PRINTS ---
-            print(f"[DEBUG-UI] Processing Role ID: '{role_id}'")
-            print(f"[DEBUG-UI]   - Assigned Actor ID (from _current_assignments): '{assigned_actor_id}'")
-            print(f"[DEBUG-UI]   - Available Actor IDs (in valid_actor_ids): {valid_actor_ids}")
-            # --- END DEBUG-UI PRINTS ---
             if assigned_actor_id and assigned_actor_id in valid_actor_ids:
                 try:
-                    current_index = valid_actor_ids.index(assigned_actor_id) + 1
-                    print(f"[DEBUG-UI]   - Calculated QComboBox index: {current_index} for actor '{assigned_actor_id}'")
+                    current_index = valid_actor_ids.index(assigned_actor_id)
                 except ValueError:
-                    print(f"[DEBUG-UI]   - WARN: Assigned actor ID '{assigned_actor_id}' not found in 'valid_actor_ids' for role '{role_id}'. Setting to default.")
                     pass  # Actor not found, will default to index 0
-            else:
-                print(f"[DEBUG-UI]   - No assigned actor or assigned actor not in 'valid_actor_ids'. Setting to default (index 0).")
 
             combo.setCurrentIndex(current_index)
             combo.currentIndexChanged.connect(
