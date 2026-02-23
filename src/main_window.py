@@ -630,16 +630,26 @@ class MainWindow(QMainWindow):
             # print(f"[DEBUG] Editor for {editor_id} finished. Removing from tracking.")
             del self.open_editors[editor_id]
 
-    def open_edit_dialog(
-        self,
-        modal_type: str,
-        item_data: Optional[Any],
-    ):
+    def open_edit_dialog(self, modal_type: str, item_data: Optional[Any]):
         dialog_info = self.editor_dialog_mapping.get(modal_type)
         if not dialog_info: return
 
         DialogClass, db_key = dialog_info
-        
+
+        # SequenceEditorDialog は特殊ケースとしてモーダルで処理
+        if DialogClass == SequenceEditorDialog:
+            dialog = SequenceEditorDialog(item_data, self.db_data, self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                saved_data = dialog.get_data()
+                if saved_data and (item_id_to_select := getattr(saved_data, "id", None)):
+                    self.db_data[db_key][item_id_to_select] = saved_data
+                    self.data_handler.save_single_item(db_key, saved_data)
+                    self.update_ui_after_data_change(db_key)
+                    if items := self.batch_panel.sequence_list.findItems(f"({item_id_to_select})", Qt.MatchFlag.MatchContains):
+                        self.batch_panel.sequence_list.setCurrentItem(items[0])
+            return
+
+        # 他のダイアログはノンモーダルで処理
         editor_id = getattr(item_data, "id", f"new_{modal_type}_{time.time()}")
         if item_data and editor_id in self.open_editors:
             existing_editor = self.open_editors[editor_id]
