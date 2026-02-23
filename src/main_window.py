@@ -726,7 +726,9 @@ class MainWindow(QMainWindow):
         dialog = ActorAssignmentDialog(sequence, initial_assignments, {}, self.db_data, self)
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.data_handler.add_item_to_queue(dialog.get_assignments(), dialog.get_appearance_overrides(), self.batch_queue)
+            self.data_handler.add_item_to_queue(
+                sequence_id, dialog.get_assignments(), dialog.get_appearance_overrides(), self.batch_queue
+            )
             self.batch_panel.update_queue_list()
 
     @Slot(str)
