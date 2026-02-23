@@ -221,14 +221,9 @@ class LibraryPanel(QWidget):
                 else:
                     return getattr(item, "name", "") or getattr(item, "id", "Unnamed")
 
-            sorted_items = sorted(
-                items_dict.values(),
-                key=lambda item: (
-                    getattr(item, "name", None) or getattr(item, "id", "")
-                ).lower(),
-            )
+            items_to_display = list(items_dict.values())
 
-            for item_obj in sorted_items:
+            for item_obj in items_to_display:
                 item_name = get_display_name(item_obj) or "Unnamed"
                 item_id = getattr(item_obj, "id", None)
                 if item_id:

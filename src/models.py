@@ -12,6 +12,7 @@ class State:  # PromptPartBase を継承しない独立したクラス
     tags: List[str] = field(default_factory=list)  # オプションのタグ
     prompt: str = ""
     negative_prompt: str = ""
+    created_at: float = field(default_factory=time.time)
 
 
 # --- (Work, ColorPaletteItem, Character, PromptPartBase, Costume, Pose, Expression, Background, Lighting, Composition, Style, Actor, Direction, SceneRole, Cut, RoleDirection, Scene は変更なし) ---
@@ -22,6 +23,7 @@ class Work:
     title_en: str = ""
     tags: List[str] = field(default_factory=list)
     sns_tags: str = ""
+    created_at: float = field(default_factory=time.time)
 
 
 @dataclass
@@ -38,6 +40,7 @@ class Character:
     tags: List[str] = field(default_factory=list)
     personal_color: str = ""
     underwear_color: str = ""
+    created_at: float = field(default_factory=time.time)
 
 
 @dataclass
@@ -47,6 +50,7 @@ class PromptPartBase:
     tags: List[str] = field(default_factory=list)
     prompt: str = ""
     negative_prompt: str = ""
+    created_at: float = field(default_factory=time.time)
 
 
 @dataclass
@@ -113,6 +117,7 @@ class Cut:
     roles: List[SceneRole] = field(default_factory=list)
     reference_image_path: str = ""
     image_mode: str = "txt2img"
+    created_at: float = field(default_factory=time.time)
 
 
 @dataclass
@@ -137,6 +142,7 @@ class Scene:
     sd_param_ids: List[str] = field(default_factory=list)
     state_categories: List[str] = field(default_factory=list)
     additional_prompt_ids: List[str] = field(default_factory=list)
+    created_at: float = field(default_factory=time.time)
 
 
 # --- ▼▼▼ StableDiffusionParams を修正 ▼▼▼ ---
@@ -152,6 +158,7 @@ class StableDiffusionParams:
     height: int = 512
     denoising_strength: float = 0.6
     model: Optional[str] = None
+    created_at: float = field(default_factory=time.time)
 
 
 @dataclass
@@ -214,6 +221,7 @@ class Sequence:
     id: str
     name: str
     scene_entries: List[SequenceSceneEntry] = field(default_factory=list)
+    created_at: float = field(default_factory=time.time)
 
 
 @dataclass

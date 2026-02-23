@@ -74,46 +74,47 @@ def get_connection():
 
 
 # --- データベース初期化 ---
+def _add_created_at_if_not_exists(cursor: sqlite3.Cursor, table_name: str):
+    """テーブルに created_at カラムがなければ追加するヘルパー関数"""
+    try:
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        columns = [column[1] for column in cursor.fetchall()]
+        if "created_at" not in columns:
+            print(f"[INFO] Migrating '{table_name}' table: Adding 'created_at' column.")
+            # time.time() のような float を格納するため REAL を使用
+            cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN created_at REAL DEFAULT 0")
+            print(f"[INFO] 'created_at' column added to '{table_name}' successfully.")
+    except sqlite3.Error as e:
+        print(f"[WARN] An error occurred during schema migration for '{table_name}': {e}")
+
 def initialize_db():
     """
     データベースファイルが存在しない場合は作成し、必要なテーブルが存在しない場合は作成します。
     テーブルが新規に作成された場合のみ、初期データを挿入します。
     """
     db_path = get_db_path()
-    # ▼▼▼ ファイル削除処理を削除 ▼▼▼
-    # if os.path.exists(db_path):
-    #     print(f"[INFO] Deleting existing database file: {db_path}")
-    #     try:
-    #         os.remove(db_path)
-    #     except OSError as e:
-    #         print(f"[ERROR] Could not delete existing database file: {e}")
-    #         raise
-    # ▲▲▲ 削除ここまで ▲▲▲
-
     conn = get_connection()
     cursor = conn.cursor()
-    # --- ▼▼▼ テーブル作成前に works テーブルが存在するか確認 ▼▼▼ ---
+    
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='works'")
     works_table_existed_before = cursor.fetchone() is not None
-    # --- ▲▲▲ 追加ここまで ▲▲▲ ---
-
+    
     try:
         print("[INFO] Ensuring database tables exist...")
-        # --- ▼▼▼ すべての CREATE TABLE 文に IF NOT EXISTS を追加 ▼▼▼ ---
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS works (
                 id TEXT PRIMARY KEY, title_jp TEXT, title_en TEXT,
-                tags TEXT, sns_tags TEXT
+                tags TEXT, sns_tags TEXT, created_at REAL
             )""")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS characters (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, work_id TEXT, tags TEXT,
-                personal_color TEXT, underwear_color TEXT
+                personal_color TEXT, underwear_color TEXT, created_at REAL
             )""")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS actors (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
-                prompt TEXT, negative_prompt TEXT,
+                prompt TEXT, negative_prompt TEXT, created_at REAL,
                 character_id TEXT,
                 base_costume_id TEXT, base_pose_id TEXT, base_expression_id TEXT
             )""")
@@ -123,7 +124,7 @@ def initialize_db():
                 prompt_template TEXT, negative_template TEXT,
                 roles TEXT,
                 reference_image_path TEXT,
-                image_mode TEXT
+                image_mode TEXT, created_at REAL
             )""")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS scenes (
@@ -134,30 +135,25 @@ def initialize_db():
                 role_assignments TEXT,
                 style_id TEXT,
                 sd_param_ids TEXT,
-                state_categories TEXT,additional_prompt_ids TEXT
+                state_categories TEXT,additional_prompt_ids TEXT, created_at REAL
             )""")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS costumes (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
-                prompt TEXT, negative_prompt TEXT,
+                prompt TEXT, negative_prompt TEXT, created_at REAL,
                 color_palette TEXT,
                 state_ids TEXT
             )""")
 
         simple_parts_tables = [
-            "poses",
-            "expressions",
-            "backgrounds",
-            "lighting",
-            "compositions",
-            "styles",
-            "additional_prompts",
+            "poses", "expressions", "backgrounds", "lighting",
+            "compositions", "styles", "additional_prompts",
         ]
         for table_name in simple_parts_tables:
             cursor.execute(f"""
                 CREATE TABLE IF NOT EXISTS {table_name} (
                     id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
-                    prompt TEXT, negative_prompt TEXT
+                    prompt TEXT, negative_prompt TEXT, created_at REAL
                 )""")
 
         cursor.execute("""
@@ -167,7 +163,7 @@ def initialize_db():
                 category TEXT,
                 tags TEXT,
                 prompt TEXT,
-                negative_prompt TEXT
+                negative_prompt TEXT, created_at REAL
             )""")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS sd_params (
@@ -175,13 +171,13 @@ def initialize_db():
                 steps INTEGER, sampler_name TEXT, cfg_scale REAL,
                 seed INTEGER, width INTEGER, height INTEGER,
                 denoising_strength REAL,
-                model TEXT
+                model TEXT, created_at REAL
             )""")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS sequences (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
-                scene_entries TEXT
+                scene_entries TEXT, created_at REAL
             )""")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS batch_queue (
@@ -191,13 +187,19 @@ def initialize_db():
                 item_order INTEGER,
                 appearance_overrides TEXT DEFAULT '{}'
             )""")
-        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
-
+        
         print("[INFO] Database tables ensured.")
 
         # --- スキーママイグレーション ---
+        all_tables = [
+            "works", "characters", "actors", "cuts", "scenes", "costumes",
+            "poses", "expressions", "backgrounds", "lighting", "compositions",
+            "styles", "additional_prompts", "states", "sd_params", "sequences"
+        ]
+        for table in all_tables:
+            _add_created_at_if_not_exists(cursor, table)
+
         try:
-            # sd_paramsテーブルにmodelカラムがなければ追加
             cursor.execute("PRAGMA table_info(sd_params)")
             columns = [column[1] for column in cursor.fetchall()]
             if "model" not in columns:
@@ -207,43 +209,26 @@ def initialize_db():
         except sqlite3.Error as e:
             print(f"[WARN] An error occurred during schema migration: {e}")
 
-        # --- ▼▼▼ works テーブルが存在しなかった場合のみ初期データを挿入 ▼▼▼ ---
         if not works_table_existed_before:
             print(
                 "[INFO] Initializing database with mock data as 'works' table was missing..."
             )
             try:
-                # --- 初期データの挿入 (save_X 関数呼び出し部分は変更なし) ---
-                for work in initialMockDatabase.works.values():
-                    save_work(work)
-                for character in initialMockDatabase.characters.values():
-                    save_character(character)
-                for actor in initialMockDatabase.actors.values():
-                    save_actor(actor)
-                for cut in initialMockDatabase.cuts.values():
-                    save_cut(cut)
-                for scene in initialMockDatabase.scenes.values():
-                    save_scene(scene)
-                for costume in initialMockDatabase.costumes.values():
-                    save_costume(costume)
-                for pose in initialMockDatabase.poses.values():
-                    save_pose(pose)
-                for expression in initialMockDatabase.expressions.values():
-                    save_expression(expression)
-                for background in initialMockDatabase.backgrounds.values():
-                    save_background(background)
-                for lighting in initialMockDatabase.lighting.values():
-                    save_lighting(lighting)
-                for composition in initialMockDatabase.compositions.values():
-                    save_composition(composition)
-                for style in initialMockDatabase.styles.values():
-                    save_style(style)
-                for param in initialMockDatabase.sdParams.values():
-                    save_sd_param(param)
-                for state in initialMockDatabase.states.values():
-                    save_state(state)
-                for ap in initialMockDatabase.additional_prompts.values():
-                    save_additional_prompt(ap)
+                for work in initialMockDatabase.works.values(): save_work(work)
+                for character in initialMockDatabase.characters.values(): save_character(character)
+                for actor in initialMockDatabase.actors.values(): save_actor(actor)
+                for cut in initialMockDatabase.cuts.values(): save_cut(cut)
+                for scene in initialMockDatabase.scenes.values(): save_scene(scene)
+                for costume in initialMockDatabase.costumes.values(): save_costume(costume)
+                for pose in initialMockDatabase.poses.values(): save_pose(pose)
+                for expression in initialMockDatabase.expressions.values(): save_expression(expression)
+                for background in initialMockDatabase.backgrounds.values(): save_background(background)
+                for lighting in initialMockDatabase.lighting.values(): save_lighting(lighting)
+                for composition in initialMockDatabase.compositions.values(): save_composition(composition)
+                for style in initialMockDatabase.styles.values(): save_style(style)
+                for param in initialMockDatabase.sdParams.values(): save_sd_param(param)
+                for state in initialMockDatabase.states.values(): save_state(state)
+                for ap in initialMockDatabase.additional_prompts.values(): save_additional_prompt(ap)
                 print("[INFO] Initial mock data inserted.")
             except Exception as insert_e:
                 print(f"[ERROR] Failed to insert initial data: {insert_e}")
@@ -253,13 +238,10 @@ def initialize_db():
             print(
                 "[INFO] Database tables already exist. Skipping initial data insertion."
             )
-        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
-
+        
         conn.commit()
     except sqlite3.Error as e:
-        print(
-            f"データベース初期化中にエラーが発生しました: {e}"
-        )  # ここで table works already exists が出なくなるはず
+        print(f"データベース初期化中にエラーが発生しました: {e}")
         conn.rollback()
     finally:
         conn.close()
@@ -293,7 +275,12 @@ def _load_items(table_name: str, class_type: Type[T]) -> Dict[str, T]:
     cursor = conn.cursor()
     items: Dict[str, T] = {}
     try:
-        cursor.execute(f"SELECT * FROM {table_name}")
+        # created_at カラムが存在するかチェック
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        columns = [column[1] for column in cursor.fetchall()]
+        order_by_clause = "ORDER BY created_at DESC" if "created_at" in columns else ""
+        
+        cursor.execute(f"SELECT * FROM {table_name} {order_by_clause}")
         rows = cursor.fetchall()
     except sqlite3.OperationalError:
         print(f"テーブル '{table_name}' が見つかりません。空の辞書を返します。")
@@ -320,6 +307,10 @@ def _load_items(table_name: str, class_type: Type[T]) -> Dict[str, T]:
 
         row_dict = {k: v for k, v in row_dict_raw.items() if k in class_fields}
 
+        # 新しい created_at フィールドが DB にまだなく、None になる場合を考慮
+        if "created_at" in class_fields and row_dict.get("created_at") is None:
+            row_dict["created_at"] = 0.0 # デフォルト値
+
         if "tags" in row_dict and isinstance(row_dict["tags"], str):
             try:
                 row_dict["tags"] = json.loads(row_dict["tags"])
@@ -345,13 +336,13 @@ def _load_items(table_name: str, class_type: Type[T]) -> Dict[str, T]:
 
         if class_type == Costume:
             row_dict["state_ids"] = json_str_to_list(row_dict.get("state_ids"), str)
-            row_dict["color_palette"] = json_str_to_list(
+            row_dict["color_palette"] = json_str_to_dataclass_list(
                 row_dict.get("color_palette"), ColorPaletteItem
             )
         if class_type == Cut:
-            row_dict["roles"] = json_str_to_list(row_dict.get("roles"), SceneRole)
+            row_dict["roles"] = json_str_to_dataclass_list(row_dict.get("roles"), SceneRole)
         if class_type == Sequence:
-            row_dict["scene_entries"] = json_str_to_list(
+            row_dict["scene_entries"] = json_str_to_dataclass_list(
                 row_dict.get("scene_entries"), SequenceSceneEntry
             )
 

@@ -32,40 +32,29 @@ def json_str_to_list(json_str: Optional[str], class_type: Type[T]) -> List[T]:
                 f"Warning: Decoded JSON is not a list: {type(data)}. JSON: {json_str}"
             )
             return []
-        if callable(class_type) and is_dataclass(
-            class_type
-        ):  # データクラスの場合のみ**展開
-            return [class_type(**item) for item in data if isinstance(item, dict)]
-        elif callable(class_type):  # 通常のクラスや関数 (あまり使わない想定)
+
+        items = []
+        if callable(class_type) and is_dataclass(class_type):
+            class_fields = {f.name for f in class_type.__dataclass_fields__.values()}
+            for item_data in data:
+                if isinstance(item_data, dict):
+                    # dataclass のフィールドに存在しないキーをフィルタリング
+                    filtered_data = {k: v for k, v in item_data.items() if k in class_fields}
+                    try:
+                        items.append(class_type(**filtered_data))
+                    except TypeError as e:
+                        print(f"Skipping item due to TypeError: {e}. Data: {filtered_data}")
+                else:
+                    # 辞書でない要素は無視
+                    print(f"Skipping non-dict item in list: {item_data}")
+            return items
+        elif callable(class_type):
             return [class_type(item) for item in data]
-        else:  # 型情報がない場合やプリミティブ型の場合
-            print(
-                f"Warning: class_type {class_type} is not callable or not dataclass for JSON list."
-            )
-            return data  # 変換せずにそのまま返す
-    except json.JSONDecodeError:
-        print(
-            f"Error decoding JSON list for {getattr(class_type, '__name__', class_type)}: {json_str}"
-        )
+        else:
+            return data
+    except (json.JSONDecodeError, TypeError) as e:
+        print(f"Error decoding or creating instance for {getattr(class_type, '__name__', class_type)}: {e}")
         return []
-    except TypeError as e:
-        print(
-            f"Error creating instance of {getattr(class_type, '__name__', class_type)}: {e}. JSON part: {json_str[:100]}..."
-        )
-        # エラー時のフォールバック (オプション)
-        valid_items = []
-        try:
-            data = json.loads(json_str)
-            if isinstance(data, list):
-                for item in data:
-                    if isinstance(item, dict) and is_dataclass(class_type):
-                        try:
-                            valid_items.append(class_type(**item))
-                        except TypeError:
-                            pass
-        except:
-            pass
-        return valid_items
 
 
 def dict_to_json_str(data_dict: Dict[str, Any]) -> str:
