@@ -5,7 +5,16 @@ from PySide6.QtCore import Slot
 from typing import Optional, Dict, Any
 
 from .base_editor_dialog import BaseEditorDialog
-from ..models import PromptPartBase  # 型を具体的に
+from ..models import (
+    PromptPartBase,
+    Pose,
+    Expression,
+    Background,
+    Lighting,
+    Composition,
+    Style,
+    AdditionalPrompt,
+)
 
 
 class SimplePartEditorDialog(BaseEditorDialog):
@@ -19,6 +28,15 @@ class SimplePartEditorDialog(BaseEditorDialog):
         # db_dict は使わないが、呼び出し側との互換性のために受け取る
         super().__init__(initial_data, db_dict, objectType.capitalize(), parent)
         self.object_type_key = objectType.lower()  # ID生成用に保持
+        self.type_map = {
+            "pose": Pose,
+            "expression": Expression,
+            "background": Background,
+            "lighting": Lighting,
+            "composition": Composition,
+            "style": Style,
+            "additional_prompt": AdditionalPrompt,
+        }
 
     def _populate_fields(self):
         self.form_layout = self.setup_form_layout()  # 基底クラスのヘルパーを呼び出す
@@ -63,18 +81,14 @@ class SimplePartEditorDialog(BaseEditorDialog):
             self._update_object_from_widgets(updated_part)
             return updated_part
         else:
-            new_part = PromptPartBase(
+            ObjectClass = self.type_map.get(self.object_type_key, PromptPartBase)
+            new_part = ObjectClass(
                 id=f"{self.object_type_key}_{int(time.time())}",
                 name=name,
                 tags=[t.strip() for t in self.tags_edit.text().split(",") if t.strip()],
                 prompt=self.prompt_edit.toPlainText().strip(),
                 negative_prompt=self.negative_prompt_edit.toPlainText().strip(),
             )
-            # ★注意: 本来は Pose, Expression など具体的な型で返すべきだが、
-            # このフォームは汎用的なので PromptPartBase で返す。
-            # 呼び出し側 (MainWindow) で適切な型に変換するか、
-            # または SimplePartEditorDialog を使わず各モデル専用の Dialog を作る方が望ましい。
-            # ここでは PromptPartBase のまま返す実装とする。
             return new_part
 
 
