@@ -293,11 +293,9 @@ class BaseEditorDialog(QDialog):
             combo.addItem(none_text, None)
             if select_id is None:
                 current_index = 0
-        sorted_items = sorted(
-            items_dict.values(),
-            key=lambda x: getattr(x, display_attr, getattr(x, "id", "")).lower(),
-        )
-        for i, item in enumerate(sorted_items):
+        items_to_display = list(items_dict.values())
+        items_to_display.reverse()
+        for i, item in enumerate(items_to_display):
             item_id = getattr(item, "id", None)
             display_name = getattr(item, display_attr, item_id or "(No Name/ID)")
             combo.addItem(f"{display_name} ({item_id})", item_id)

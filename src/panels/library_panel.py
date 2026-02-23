@@ -222,6 +222,7 @@ class LibraryPanel(QWidget):
                     return getattr(item, "name", "") or getattr(item, "id", "Unnamed")
 
             items_to_display = list(items_dict.values())
+            items_to_display.reverse()
 
             for item_obj in items_to_display:
                 item_name = get_display_name(item_obj) or "Unnamed"
