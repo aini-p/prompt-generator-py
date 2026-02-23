@@ -636,7 +636,6 @@ class MainWindow(QMainWindow):
 
         DialogClass, db_key = dialog_info
 
-        # SequenceEditorDialog は特殊ケースとしてモーダルで処理
         if DialogClass == SequenceEditorDialog:
             dialog = SequenceEditorDialog(item_data, self.db_data, self)
             if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -649,14 +648,15 @@ class MainWindow(QMainWindow):
                         self.batch_panel.sequence_list.setCurrentItem(items[0])
             return
 
-        # 他のダイアログはノンモーダルで処理
-        editor_id = getattr(item_data, "id", f"new_{modal_type}_{time.time()}")
-        if item_data and editor_id in self.open_editors:
-            existing_editor = self.open_editors[editor_id]
-            existing_editor.show()
-            existing_editor.activateWindow()
-            existing_editor.raise_()
+        editor_id = getattr(item_data, "id", None)
+        if editor_id and editor_id in self.open_editors:
+            self.open_editors[editor_id].activateWindow()
+            self.open_editors[editor_id].raise_()
             return
+        
+        # 新規作成の場合は、毎回ユニークなIDを生成
+        if not editor_id:
+            editor_id = f"new_{modal_type}_{time.time()}"
             
         try:
             if DialogClass == SimplePartEditorDialog:
