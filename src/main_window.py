@@ -790,6 +790,24 @@ class MainWindow(QMainWindow):
                     
                     prompts = generate_batch_prompts(scene.id, item.actor_assignments, item.appearance_overrides, full_db)
                     tasks = create_image_generation_tasks(prompts, cut, scene, full_db)
+
+                    # メタデータを作成
+                    char_names, work_titles = [], set()
+                    for role in cut.roles:
+                        if (actor_id := item.actor_assignments.get(role.id)) and \
+                           (actor := self.db_data.get("actors", {}).get(actor_id)) and \
+                           (char := self.db_data.get("characters", {}).get(actor.character_id)):
+                            if char_name := getattr(char, "name", ""): char_names.append(char_name)
+                            if (work := self.db_data.get("works", {}).get(char.work_id)) and \
+                               (work_title := getattr(work, "title_jp", "")): work_titles.add(work_title)
+                    
+                    metadata = BatchMetadata(
+                        sequence_name=getattr(sequence, "name", "N/A"),
+                        scene_name=getattr(scene, "name", "N/A"),
+                        main_character=char_names[0] if char_names else "",
+                        sub_characters=char_names[1:] if len(char_names) > 1 else [],
+                        work_titles=sorted(list(work_titles)),
+                    )
                     
                     for task in tasks:
                         if is_debug:
@@ -798,7 +816,8 @@ class MainWindow(QMainWindow):
                             task.height = max(64, math.floor(task.height * 0.7))
                         task.batch_size, task.n_iter = batch_size, n_iter
                         if seed != -1: task.seed = seed
-                    
+                        task.metadata = metadata # ★ タスクにメタデータを設定
+
                     all_tasks.extend(tasks)
 
             if all_tasks:
