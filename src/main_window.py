@@ -142,6 +142,7 @@ class MainWindow(QMainWindow):
         self.generated_prompts: List[GeneratedPrompt] = []
         self.image_output_base_dir: str = "data/output_images"
         self.data_handler = DataHandler(self)
+        self.open_editors: Dict[str, QDialog] = {} # 開いているエディタを追跡
 
         # --- 2. DBとConfigからすべてのデータを読み込む ---
         _db_data, _batch_queue, initial_scene_id = self.data_handler.load_all_data()
@@ -481,16 +482,13 @@ class MainWindow(QMainWindow):
     def _handle_delete_item(self, db_key_str: str, item_id: str):
         self.delete_item(db_key_str, item_id)
 
-    @Slot(str, object, QWidget)
+    @Slot(str, object)
     def _handle_open_nested_editor(
         self,
         modal_type: str,
         initial_data: Optional[Any],
-        target_widget: QWidget,
     ):
-        self.open_edit_dialog(
-            modal_type, initial_data, target_widget_to_update=target_widget
-        )
+        self.open_edit_dialog(modal_type, initial_data)
 
     @Slot()
     def generate_prompts(self):
@@ -627,49 +625,76 @@ class MainWindow(QMainWindow):
         # Batch Panel
         self.batch_panel.set_data_reference(self.db_data.get("sequences", {}), self.batch_queue)
 
+    def _on_editor_finished(self, editor_id: str):
+        if editor_id in self.open_editors:
+            # print(f"[DEBUG] Editor for {editor_id} finished. Removing from tracking.")
+            del self.open_editors[editor_id]
+
     def open_edit_dialog(
         self,
         modal_type: str,
         item_data: Optional[Any],
-        target_widget_to_update: Optional[QWidget] = None,
     ):
         dialog_info = self.editor_dialog_mapping.get(modal_type)
         if not dialog_info: return
 
         DialogClass, db_key = dialog_info
-
+        
+        editor_id = getattr(item_data, "id", f"new_{modal_type}_{time.time()}")
+        if item_data and editor_id in self.open_editors:
+            existing_editor = self.open_editors[editor_id]
+            existing_editor.show()
+            existing_editor.activateWindow()
+            existing_editor.raise_()
+            return
+            
         try:
             if DialogClass == SimplePartEditorDialog:
-                dialog = DialogClass(item_data, modal_type, self.db_data, self)
+                dialog = DialogClass(item_data, modal_type, self.db_data, db_key, self)
             else:
-                dialog = DialogClass(item_data, self.db_data, self)
+                dialog = DialogClass(item_data, self.db_data, db_key, self)
+            
+            dialog.setProperty("editor_id", editor_id)
+
             if isinstance(dialog, BaseEditorDialog):
                 dialog.request_open_editor.connect(self._handle_open_nested_editor)
+                dialog.dataSaved.connect(self._handle_data_saved_from_dialog)
+                dialog.finished.connect(lambda result, id=editor_id: self._on_editor_finished(id))
+
         except Exception as e:
             QMessageBox.critical(self, "Dialog Error", f"Failed to create dialog for {modal_type}: {e}")
+            traceback.print_exc()
             return
 
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            saved_data = getattr(dialog, 'saved_data', None)
+        self.open_editors[editor_id] = dialog
+        dialog.show()
 
-            if saved_data and (item_id_to_select := getattr(saved_data, "id", None)):
-                if db_key not in self.db_data: self.db_data[db_key] = {}
-                self.db_data[db_key][item_id_to_select] = saved_data
-                self.data_handler.save_single_item(db_key, saved_data)
-                
-                if target_widget_to_update:
-                    parent_dialog = target_widget_to_update.parent()
-                    while parent_dialog and not isinstance(parent_dialog, QDialog):
-                        parent_dialog = parent_dialog.parent()
-                    if isinstance(parent_dialog, BaseEditorDialog):
-                        parent_dialog.update_combo_box_after_edit(target_widget_to_update, db_key, item_id_to_select)
-                else:
-                    self.update_ui_after_data_change(db_key)
-                    if db_key == "sequences":
-                        if items := self.batch_panel.sequence_list.findItems(f"({item_id_to_select})", Qt.MatchFlag.MatchContains):
-                            self.batch_panel.sequence_list.setCurrentItem(items[0])
-                    else:
-                        self.library_panel.select_item_by_id(item_id_to_select)
+    @Slot(str, object, object)
+    def _handle_data_saved_from_dialog(self, db_key: str, saved_data: Any, original_data: Optional[Any]):
+        """ダイアログからデータが保存されたときに呼び出されるスロット"""
+        if saved_data and (item_id_to_select := getattr(saved_data, "id", None)):
+            if db_key not in self.db_data: self.db_data[db_key] = {}
+            is_new_item = original_data is None
+            self.db_data[db_key][item_id_to_select] = saved_data
+            self.data_handler.save_single_item(db_key, saved_data)
+            
+            # --- 他のエディタとメインウィンドウに更新を通知 ---
+            self.update_ui_after_data_change(db_key)
+            self.broadcast_data_update(db_key, saved_data, is_new_item)
+
+            if db_key == "sequences":
+                if items := self.batch_panel.sequence_list.findItems(f"({item_id_to_select})", Qt.MatchFlag.MatchContains):
+                    self.batch_panel.sequence_list.setCurrentItem(items[0])
+            else:
+                self.library_panel.select_item_by_id(item_id_to_select)
+
+    def broadcast_data_update(self, db_key: str, updated_item: Any, is_new: bool):
+        """開いているすべてのエディタにデータ更新を通知する"""
+        print(f"[DEBUG] Broadcasting update for {db_key} - {getattr(updated_item, 'id', 'N/A')}")
+        for editor in self.open_editors.values():
+            if isinstance(editor, BaseEditorDialog):
+                editor.handle_external_data_update(db_key, updated_item, is_new)
+
 
     def _get_modal_type_from_db_key(self, db_key: str) -> Optional[str]:
         for modal_type, (_, key_str) in self.editor_dialog_mapping.items():

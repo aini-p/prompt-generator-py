@@ -22,9 +22,7 @@ from ..models import Cut, SceneRole
 
 
 class CutEditorDialog(BaseEditorDialog):
-    def __init__(
-        self, initial_data: Optional[Cut], db_dict: Dict[str, Dict], parent=None
-    ):
+    def __init__(self, initial_data: Optional[Cut], db_dict: Dict, db_key: str, parent=None):
         # 内部状態 (Roles編集用) - super().__init__ より先に初期化
         self.current_roles: List[SceneRole] = []
         # initial_data は super() より前で参照可能
@@ -33,7 +31,7 @@ class CutEditorDialog(BaseEditorDialog):
         # --- ▲▲▲ 移動ここまで ▲▲▲ ---
 
         # db_dict は使わない想定だがインターフェースを合わせる
-        super().__init__(initial_data, db_dict, "カット (Cut)", parent)
+        super().__init__(initial_data, db_dict, db_key, "Cut", parent)
 
     def _populate_fields(self):
         self.form_layout = self.setup_form_layout()

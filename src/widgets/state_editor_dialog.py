@@ -11,13 +11,12 @@ from ..models import State  # ★ モデルを State に変更
 class StateEditorDialog(BaseEditorDialog):  # ★ クラス名を変更
     def __init__(
         self,
-        initial_data: Optional[State],  # ★ 型ヒントを State に変更
-        # objectType: str, # 不要
-        db_dict: Dict[str, Dict],  # db_dict は BaseEditorDialog が必要とする
+        initial_data: Optional[State],
+        db_dict: Dict,
+        db_key: str,
         parent=None,
     ):
-        # ★ objectType を固定で渡す
-        super().__init__(initial_data, db_dict, "状態 (State)", parent)
+        super().__init__(initial_data, db_dict, db_key, "State", parent)
         # self.object_type_key = "state" # ID生成用に保持 (BaseEditorDialog でやるので不要)
 
     def _populate_fields(self):

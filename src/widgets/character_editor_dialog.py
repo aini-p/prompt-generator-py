@@ -16,10 +16,8 @@ from ..models import Character, Work
 
 
 class CharacterEditorDialog(BaseEditorDialog):
-    def __init__(
-        self, initial_data: Optional[Character], db_dict: Dict[str, Dict], parent=None
-    ):
-        super().__init__(initial_data, db_dict, "キャラクター (Character)", parent)
+    def __init__(self, initial_data: Optional[Character], db_dict: Dict, db_key: str, parent=None):
+        super().__init__(initial_data, db_dict, db_key, "Character", parent)
         # UI構築 (_populate_fields が呼ばれる)
 
     def _populate_fields(self):

@@ -17,9 +17,9 @@ from ..models import Actor, Work, Character  # 必要なモデルをインポー
 
 class ActorEditorDialog(BaseEditorDialog):
     def __init__(
-        self, initial_data: Optional[Actor], db_dict: Dict[str, Dict], parent=None
+        self, initial_data: Optional[Actor], db_dict: Dict, db_key: str, parent=None
     ):
-        super().__init__(initial_data, db_dict, "役者 (Actor)", parent)
+        super().__init__(initial_data, db_dict, db_key, "Actor", parent)
         # UI構築 (_populate_fields が呼ばれる)
 
     def _populate_fields(self):

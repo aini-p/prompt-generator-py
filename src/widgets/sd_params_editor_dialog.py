@@ -17,11 +17,11 @@ class SDParamsEditorDialog(BaseEditorDialog):
     def __init__(
         self,
         initial_data: Optional[StableDiffusionParams],
-        db_dict: Dict[str, Dict],
+        db_dict: Dict,
+        db_key: str,
         parent=None,
     ):
-        # ★ initial_data が None (新規作成) の場合も考慮
-        super().__init__(initial_data, db_dict, "SD Parameters", parent)
+        super().__init__(initial_data, db_dict, db_key, "SD Params", parent)
 
     def _populate_fields(self):
         """UI要素を作成し、配置します。"""

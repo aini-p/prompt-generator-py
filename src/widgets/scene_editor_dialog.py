@@ -247,9 +247,7 @@ class RoleAssignmentWidget(QWidget):
 # SceneEditorDialog
 # ==============================================================================
 class SceneEditorDialog(BaseEditorDialog):
-    def __init__(
-        self, initial_data: Optional[Scene], db_dict: Dict[str, Dict], parent=None
-    ):
+    def __init__(self, initial_data: Optional[Scene], db_dict: Dict, db_key: str, parent=None):
         self.current_role_assignments: List[RoleAppearanceAssignment] = []
         self.current_state_categories: List[str] = []
         self.current_additional_prompt_ids: List[str] = []
@@ -278,7 +276,7 @@ class SceneEditorDialog(BaseEditorDialog):
             if hasattr(initial_data, "sd_param_ids"):
                 self.current_sd_param_ids = list(initial_data.sd_param_ids)
 
-        super().__init__(initial_data, db_dict, "シーン (Scene)", parent)
+        super().__init__(initial_data, db_dict, db_key, "Scene", parent)
 
     def _populate_fields(self):
         self.form_layout = self.setup_form_layout()

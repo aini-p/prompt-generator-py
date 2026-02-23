@@ -36,7 +36,7 @@ CHARACTER_COLOR_REFS = {
 
 class CostumeEditorDialog(BaseEditorDialog):
     def __init__(
-        self, initial_data: Optional[Costume], db_dict: Dict[str, Dict], parent=None
+        self, initial_data: Optional[Costume], db_dict: Dict, db_key: str, parent=None
     ):
         # 内部状態 (カラーパレット編集用) - super().__init__ より先に初期化
         self.current_palette_items: List[ColorPaletteItem] = []
@@ -52,7 +52,7 @@ class CostumeEditorDialog(BaseEditorDialog):
             # Deep copy (文字列リストなので単純コピーでOK)
             self.current_state_ids = list(initial_data.state_ids)
 
-        super().__init__(initial_data, db_dict, "衣装 (Costume)", parent)
+        super().__init__(initial_data, db_dict, db_key, "Costume", parent)
 
         # UI構築
         # _populate_fields は基底クラスの __init__ から呼ばれる

@@ -23,11 +23,11 @@ class SimplePartEditorDialog(BaseEditorDialog):
         initial_data: Optional[PromptPartBase],
         objectType: str,
         db_dict: Dict[str, Dict],
+        db_key: str,
         parent=None,
     ):
-        # db_dict は使わないが、呼び出し側との互換性のために受け取る
-        super().__init__(initial_data, db_dict, objectType.capitalize(), parent)
-        self.object_type_key = objectType.lower()  # ID生成用に保持
+        super().__init__(initial_data, db_dict, db_key, objectType.capitalize(), parent)
+        self.object_type_key = objectType.lower()
         self.type_map = {
             "pose": Pose,
             "expression": Expression,
