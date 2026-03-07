@@ -146,11 +146,7 @@ class RoleAssignmentWidget(QWidget):
     def _populate_list(self, list_widget: QListWidget, db_key: str, id_list: List[str]):
         list_widget.clear()
         all_items = self.db_dict.get(db_key, {})
-        current_id_order = {item_id: i for i, item_id in enumerate(id_list)}
-        sorted_ids = sorted(
-            id_list, key=lambda item_id: current_id_order.get(item_id, float("inf"))
-        )
-        for item_id in sorted_ids:
+        for item_id in id_list:
             item_obj = all_items.get(item_id)
             item_text = f"ID not found: {item_id}"
             if item_obj:
@@ -277,6 +273,7 @@ class SceneEditorDialog(BaseEditorDialog):
                 self.current_sd_param_ids = list(initial_data.sd_param_ids)
 
         super().__init__(initial_data, db_dict, db_key, "Scene", parent)
+        self.resize(1000, 800)
 
     def _populate_fields(self):
         self.form_layout = self.setup_form_layout()
@@ -394,7 +391,7 @@ class SceneEditorDialog(BaseEditorDialog):
         assignment_scroll = QScrollArea()
         assignment_scroll.setWidgetResizable(True)
         assignment_scroll.setWidget(assignment_scroll_content)
-        assignment_scroll.setMinimumHeight(200)
+        assignment_scroll.setMinimumHeight(300)
         group_layout = QVBoxLayout(self.assignment_group)
         group_layout.addWidget(assignment_scroll)
         self.form_layout.addRow(self.assignment_group)
@@ -518,7 +515,7 @@ class SceneEditorDialog(BaseEditorDialog):
     @Slot()
     def _handle_add_new_sdp(self):
         """新規 SDParams 作成ダイアログを開くリクエスト"""
-        self.request_open_editor.emit("SDPARAMS", None, None)
+        self.request_open_editor.emit("SDPARAMS", None)
 
     @Slot()
     def _remove_selected_sdp(self):
@@ -537,7 +534,7 @@ class SceneEditorDialog(BaseEditorDialog):
         sdp_id = item.data(Qt.ItemDataRole.UserRole)
         sdp_data = self.db_dict.get("sdParams", {}).get(sdp_id)
         if sdp_data:
-            self.request_open_editor.emit("SDPARAMS", sdp_data, None)
+            self.request_open_editor.emit("SDPARAMS", sdp_data)
         else:
             QMessageBox.warning(
                 self, "Error", f"Could not find SDParams data for ID: {sdp_id}"
@@ -608,7 +605,7 @@ class SceneEditorDialog(BaseEditorDialog):
     def _handle_add_new_comp(self):
         """新規 Composition 作成ダイアログを開くリクエスト"""
         print("[DEBUG] Requesting editor for new COMPOSITION from SceneEditorDialog")
-        self.request_open_editor.emit("COMPOSITION", None, None)
+        self.request_open_editor.emit("COMPOSITION", None)
 
     @Slot()
     def _remove_selected_comp(self):
@@ -628,7 +625,7 @@ class SceneEditorDialog(BaseEditorDialog):
         comp_data = self.db_dict.get("compositions", {}).get(comp_id)
         if comp_data:
             print(f"[DEBUG] Requesting editor for COMPOSITION {comp_id}")
-            self.request_open_editor.emit("COMPOSITION", comp_data, None)
+            self.request_open_editor.emit("COMPOSITION", comp_data)
         else:
             QMessageBox.warning(
                 self, "Error", f"Could not find Composition data for ID: {comp_id}"
@@ -698,7 +695,7 @@ class SceneEditorDialog(BaseEditorDialog):
         print(
             "[DEBUG] Requesting editor for new ADDITIONAL_PROMPT from SceneEditorDialog"
         )
-        self.request_open_editor.emit("ADDITIONAL_PROMPT", None, None)
+        self.request_open_editor.emit("ADDITIONAL_PROMPT", None)
 
     @Slot()
     def _remove_selected_ap(self):
@@ -716,7 +713,7 @@ class SceneEditorDialog(BaseEditorDialog):
         ap_data = self.db_dict.get("additional_prompts", {}).get(ap_id)
         if ap_data:
             print(f"[DEBUG] Requesting editor for ADDITIONAL_PROMPT {ap_id}")
-            self.request_open_editor.emit("ADDITIONAL_PROMPT", ap_data, None)
+            self.request_open_editor.emit("ADDITIONAL_PROMPT", ap_data)
         else:
             QMessageBox.warning(
                 self, "Error", f"Could not find Additional Prompt data for ID: {ap_id}"
@@ -842,7 +839,7 @@ class SceneEditorDialog(BaseEditorDialog):
         print(
             f"[DEBUG] SceneEditorDialog relaying request for new {modal_type} (for role {role_id})"
         )
-        self.request_open_editor.emit(modal_type, None, None)
+        self.request_open_editor.emit(modal_type, None)
 
     @Slot(str, str)
     def _handle_request_edit_appearance(self, modal_type: str, item_id: str):
@@ -859,7 +856,7 @@ class SceneEditorDialog(BaseEditorDialog):
             print(
                 f"[DEBUG] SceneEditorDialog relaying request to edit {modal_type} {item_id}"
             )
-            self.request_open_editor.emit(modal_type, item_data, None)
+            self.request_open_editor.emit(modal_type, item_data)
         else:
             QMessageBox.warning(
                 self, "Error", f"Data not found for {modal_type} ID: {item_id}"
