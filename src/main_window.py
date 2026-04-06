@@ -895,9 +895,18 @@ class MainWindow(QMainWindow):
 
         try:
             wc, wu = self._sync_works_from_csv(work_file)
-            cc, cu, cs = self._sync_characters_from_csv(char_file)
+            cc, cu, cs, ac = self._sync_characters_from_csv(char_file)
             self.update_ui_after_data_change()
-            QMessageBox.information(self, "同期完了", f"CSV同期が完了しました。\n\n作品: 新規{wc}, 更新{wu}\nキャラクター: 新規{cc}, 更新{cu}, スキップ{cs}")
+            QMessageBox.information(
+                self,
+                "同期完了",
+                (
+                    "CSV同期が完了しました。\n\n"
+                    f"作品: 新規{wc}, 更新{wu}\n"
+                    f"キャラクター: 新規{cc}, 更新{cu}, スキップ{cs}\n"
+                    f"Actor自動作成: 新規{ac}"
+                ),
+            )
         except Exception as e:
             QMessageBox.critical(self, "同期エラー", f"CSVの処理中にエラーが発生しました:\n{e}")
             traceback.print_exc()
@@ -926,8 +935,8 @@ class MainWindow(QMainWindow):
                 self.db_data["works"][work_id] = work_obj
         return created_count, updated_count
 
-    def _sync_characters_from_csv(self, file_path: str) -> Tuple[int, int, int]:
-        created, updated, skipped = 0, 0, 0
+    def _sync_characters_from_csv(self, file_path: str) -> Tuple[int, int, int, int]:
+        created, updated, skipped, actor_created = 0, 0, 0, 0
         work_map = {w.tags[0].strip(): w.id for w in self.db_data.get("works", {}).values() if w.tags}
         
         with open(file_path, "r", encoding="utf-8-sig") as f:
@@ -952,7 +961,35 @@ class MainWindow(QMainWindow):
                 db.save_character(char_obj)
                 if "characters" not in self.db_data: self.db_data["characters"] = {}
                 self.db_data["characters"][char_id] = char_obj
-        return created, updated, skipped
+
+                # Characterに紐づくActorが未作成なら自動作成する
+                if "actors" not in self.db_data:
+                    self.db_data["actors"] = {}
+
+                actors_dict = self.db_data.get("actors", {})
+                has_linked_actor = any(
+                    getattr(actor, "character_id", "") == char_id
+                    for actor in actors_dict.values()
+                )
+
+                if not has_linked_actor:
+                    base_actor_id = f"actor_{char_id}"
+                    actor_id = base_actor_id
+                    suffix = 1
+                    while actor_id in actors_dict:
+                        actor_id = f"{base_actor_id}_{suffix}"
+                        suffix += 1
+
+                    actor_obj = Actor(
+                        id=actor_id,
+                        name=char_obj.name or char_id,
+                        character_id=char_id,
+                    )
+                    db.save_actor(actor_obj)
+                    self.db_data["actors"][actor_id] = actor_obj
+                    actor_created += 1
+
+        return created, updated, skipped, actor_created
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
