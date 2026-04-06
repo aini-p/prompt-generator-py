@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QSpinBox,
     QDoubleSpinBox,
+    QSizePolicy,
 )
 from PySide6.QtCore import Signal, Slot, Qt
 from PySide6.QtGui import QIcon  # (未使用だがインポートが残っていても問題ない)
@@ -175,10 +176,14 @@ class BaseEditorDialog(QDialog):
 
     def _create_reference_editor_widget(self, field_name: str, current_id: Optional[str], reference_db_key: str, reference_modal_type: str, allow_none: bool = False, none_text: str = "(なし)", display_attr: str = "name") -> QWidget:
         widget = QWidget()
+        widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
         combo = QComboBox()
-        combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        combo.setMinimumContentsLength(12)
         layout.addWidget(combo, 1)
 
         self._reference_widgets[field_name] = {
@@ -190,14 +195,21 @@ class BaseEditorDialog(QDialog):
         edit_btn = QPushButton("✎")
         edit_btn.setToolTip(f"Edit selected {reference_modal_type}")
         edit_btn.setEnabled(bool(current_id))
+        edit_btn.setFixedWidth(32)
         edit_btn.clicked.connect(lambda: self._edit_reference(field_name))
         layout.addWidget(edit_btn)
         self._reference_widgets[field_name]["edit_btn"] = edit_btn
 
         add_btn = QPushButton("＋")
         add_btn.setToolTip(f"Add new {reference_modal_type}")
+        add_btn.setFixedWidth(32)
         add_btn.clicked.connect(lambda: self._add_reference(field_name))
         layout.addWidget(add_btn)
+
+        row_height = combo.sizeHint().height()
+        widget.setFixedHeight(row_height)
+        edit_btn.setFixedHeight(row_height)
+        add_btn.setFixedHeight(row_height)
 
         combo.currentIndexChanged.connect(lambda index, btn=edit_btn, f_name=field_name: self._toggle_edit_button(index, btn, f_name))
         return widget
