@@ -159,7 +159,9 @@ class ActorEditorDialog(BaseEditorDialog):
             }
 
         sorted_chars = sorted(
-            filtered_chars.values(), key=lambda c: getattr(c, "name", "").lower()
+            filtered_chars.values(),
+            key=lambda c: getattr(c, "created_at", 0) or 0,
+            reverse=True,
         )
         for char in sorted_chars:
             char_id = getattr(char, "id", None)

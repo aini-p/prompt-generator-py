@@ -16,6 +16,11 @@ from typing import Dict, List, Optional, Set, Any, Tuple
 from ..models import Sequence, Scene, Cut, Actor, SceneRole
 
 
+def _recent_first(items: List[Any]) -> List[Any]:
+    """created_at の降順（新しい順）でソートする。"""
+    return sorted(items, key=lambda item: getattr(item, "created_at", 0) or 0, reverse=True)
+
+
 class ActorAssignmentDialog(QDialog):
     def __init__(
         self,
@@ -94,9 +99,7 @@ class ActorAssignmentDialog(QDialog):
 
         # --- アクターリスト準備 ---
         actors_data = self.db_data.get("actors", {})
-        sorted_actors = sorted(
-            actors_data.values(), key=lambda a: getattr(a, "name", "")
-        )
+        sorted_actors = _recent_first(list(actors_data.values()))
         # ★★★ QComboBox 用のリスト (ID を itemData に設定するため変更) ★★★
         # actor_names = ["-- Select Actor --"] + [getattr(a, "name", "Unnamed") for a in sorted_actors]
         # actor_ids = [""] + [getattr(a, "id", None) for a in sorted_actors]
@@ -115,7 +118,7 @@ class ActorAssignmentDialog(QDialog):
             db_key: str, default_label: str
         ) -> List[Tuple[str, Optional[str]]]:
             data = self.db_data.get(db_key, {})
-            sorted_items = sorted(data.values(), key=lambda a: getattr(a, "name", ""))
+            sorted_items = _recent_first(list(data.values()))
             # "default" を、アクターのベース設定を使用する識別子として itemData に設定
             items_list = [(f"({default_label})", "default")]
             for item in sorted_items:

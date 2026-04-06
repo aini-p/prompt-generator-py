@@ -50,10 +50,7 @@ class PromptPanel(QWidget):
         """MainWindow から現在のシーンIDが変更されたときに呼ばれます。"""
         if self._current_scene_id != scene_id:
             self._current_scene_id = scene_id
-            scene_list = sorted(
-                self._db_data_ref.get("scenes", {}).values(),
-                key=lambda s: getattr(s, "name", "").lower(),
-            )
+            scene_list = self._get_recent_first_items("scenes")
             scene_ids = [getattr(s, "id", None) for s in scene_list]
             try:
                 valid_scene_ids = [sid for sid in scene_ids if sid]
@@ -124,10 +121,7 @@ class PromptPanel(QWidget):
     def update_scene_combo(self):
         self.scene_combo.blockSignals(True)
         self.scene_combo.clear()
-        scene_list = sorted(
-            self._db_data_ref.get("scenes", {}).values(),
-            key=lambda s: getattr(s, "name", "").lower(),
-        )
+        scene_list = self._get_recent_first_items("scenes")
 
         if not scene_list:
             self.scene_combo.addItem("No scenes available")
@@ -196,7 +190,7 @@ class PromptPanel(QWidget):
             return
 
         # --- Actor List ---
-        actor_list = sorted(self._db_data_ref.get("actors", {}).values(), key=lambda a: getattr(a, "name", "").lower())
+        actor_list = self._get_recent_first_items("actors")
         actor_names = ["-- Select Actor --"] + [getattr(a, "name", "Unnamed") for a in actor_list]
         actor_ids = [""] + [getattr(a, "id", None) for a in actor_list]
         valid_actor_ids = [aid for aid in actor_ids if aid is not None]
@@ -242,10 +236,7 @@ class PromptPanel(QWidget):
 
     @Slot(int)
     def _on_scene_changed(self, index: int):
-        scene_list = sorted(
-            self._db_data_ref.get("scenes", {}).values(),
-            key=lambda s: getattr(s, "name", "").lower(),
-        )
+        scene_list = self._get_recent_first_items("scenes")
         new_scene_id = (
             getattr(scene_list[index], "id", None)
             if 0 <= index < len(scene_list)
@@ -254,6 +245,11 @@ class PromptPanel(QWidget):
 
         if new_scene_id != self._current_scene_id:
             self.sceneChanged.emit(new_scene_id or "")
+
+    def _get_recent_first_items(self, db_key: str) -> List[Any]:
+        """created_at の降順（新しい順）で並べたリストを返す。"""
+        items = list(self._db_data_ref.get(db_key, {}).values())
+        return sorted(items, key=lambda item: getattr(item, "created_at", 0) or 0, reverse=True)
 
     @Slot(str, str)
     def _on_actor_assigned(self, role_id: str, actor_id: str):
