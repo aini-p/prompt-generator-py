@@ -379,6 +379,9 @@ class MainWindow(QMainWindow):
 
             new_id_base = db_key[:-1] if db_key.endswith("s") else db_key
             item_dict["id"] = f"{new_id_base}_copy_{int(time.time() * 1000)}"
+            # Copy generated objects must be treated as newly created for recent-first UI ordering.
+            if "created_at" in item_dict:
+                item_dict["created_at"] = time.time()
 
             if db_key == "works":
                 item_dict["title_jp"] = f"{item_dict.get('title_jp', '')} (Copy)"
