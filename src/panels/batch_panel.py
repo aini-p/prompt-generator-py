@@ -138,8 +138,11 @@ class BatchPanel(QWidget):
         #       表示順序用のデータを別に持つ必要がある。
         #       ここでは表示のみ更新する。
         # sorted_sequences = sorted(self._sequences_ref.values(), key=lambda s: s.name) # 名前順
-        sorted_sequences = list(self._sequences_ref.values())  # DBからの読み込み順 (仮)
-        sorted_sequences.reverse() # 新しいものが上に来るように逆順にする
+        sorted_sequences = sorted(
+            self._sequences_ref.values(),
+            key=lambda seq: getattr(seq, "created_at", 0) or 0,
+            reverse=True,
+        )
         for seq in sorted_sequences:
             item = QListWidgetItem(f"{seq.name} ({seq.id})")
             item.setData(Qt.ItemDataRole.UserRole, seq.id)
@@ -149,8 +152,12 @@ class BatchPanel(QWidget):
     def update_queue_list(self):
         self.queue_list.blockSignals(True)
         self.queue_list.clear()
-        # order 順に並んでいるはず
-        for item_data in self._queue_ref:
+        sorted_queue_items = sorted(
+            self._queue_ref,
+            key=lambda item: getattr(item, "order", 0),
+            reverse=True,
+        )
+        for item_data in sorted_queue_items:
             seq_name = self._sequences_ref.get(
                 item_data.sequence_id, Sequence(id="", name="Unknown Sequence")
             ).name

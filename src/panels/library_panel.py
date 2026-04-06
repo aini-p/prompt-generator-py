@@ -221,8 +221,11 @@ class LibraryPanel(QWidget):
                 else:
                     return getattr(item, "name", "") or getattr(item, "id", "Unnamed")
 
-            items_to_display = list(items_dict.values())
-            items_to_display.reverse()
+            items_to_display = sorted(
+                items_dict.values(),
+                key=lambda item: getattr(item, "created_at", 0) or 0,
+                reverse=True,
+            )
 
             for item_obj in items_to_display:
                 item_name = get_display_name(item_obj) or "Unnamed"

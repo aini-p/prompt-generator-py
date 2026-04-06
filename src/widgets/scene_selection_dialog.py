@@ -53,9 +53,11 @@ class SceneSelectionDialog(QDialog):
     def _populate_list(self):
         """リストウィジェットに全シーンを表示します。"""
         self.scene_list_widget.clear()
-        # DBから読み込まれた順序 (created_at 降順) を維持し、表示のために逆順にする
-        scenes_to_display = list(self.all_scenes.values())
-        scenes_to_display.reverse()
+        scenes_to_display = sorted(
+            self.all_scenes.values(),
+            key=lambda scene: getattr(scene, "created_at", 0) or 0,
+            reverse=True,
+        )
         for scene in scenes_to_display:
             item = QListWidgetItem(f"{scene.name} ({scene.id})")
             item.setData(Qt.ItemDataRole.UserRole, scene.id)

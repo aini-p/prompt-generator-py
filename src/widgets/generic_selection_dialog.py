@@ -79,10 +79,11 @@ class GenericSelectionDialog(QDialog):
                 print(f"[WARN] Failed to sort items in GenericSelectionDialog: {e}")
                 # ソート失敗時は元の順序で表示
         else:
-            # デフォルトソート (表示名でソートを試みる)
+            # デフォルトソート (created_at 降順)
             try:
                 items_to_display.sort(
-                    key=lambda item: self.display_func(item[1]).lower()
+                    key=lambda item: getattr(item[1], "created_at", 0) or 0,
+                    reverse=True,
                 )
             except Exception:
                 pass  # ソート失敗時は元の順序

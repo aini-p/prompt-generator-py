@@ -192,13 +192,10 @@ class CostumeEditorDialog(BaseEditorDialog):
         """State ID リストウィジェットの内容を更新"""
         self.state_list_widget.clear()
         all_states = self.db_dict.get("states", {})
-        # ▼▼▼ current_state_ids の順番を保持するように修正 ▼▼▼
-        current_id_order = {
-            state_id: i for i, state_id in enumerate(self.current_state_ids)
-        }
         sorted_ids = sorted(
             self.current_state_ids,
-            key=lambda state_id: current_id_order.get(state_id, float("inf")),
+            key=lambda state_id: getattr(all_states.get(state_id), "created_at", 0) or 0,
+            reverse=True,
         )
 
         for state_id in sorted_ids:  # ★ ソート済みのリストを使用
@@ -229,13 +226,10 @@ class CostumeEditorDialog(BaseEditorDialog):
         def display_state(state: State) -> str:
             return f"{getattr(state, 'name', 'N/A')} [{getattr(state, 'category', 'N/A')}] ({getattr(state, 'id', 'N/A')})"
 
-        # ソート用の関数 (カテゴリ -> 名前)
-        def sort_state_key(item: Tuple[str, State]) -> Tuple[str, str]:
+        # ソート用の関数 (新しい作成順)
+        def sort_state_key(item: Tuple[str, State]) -> float:
             state = item[1]
-            return (
-                getattr(state, "category", "").lower(),
-                getattr(state, "name", "").lower(),
-            )
+            return -(getattr(state, "created_at", 0) or 0)
 
         dialog = GenericSelectionDialog(
             items_data=available_states,

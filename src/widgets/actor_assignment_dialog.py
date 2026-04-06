@@ -52,6 +52,7 @@ class ActorAssignmentDialog(QDialog):
 
         # --- 必要な Role ID を収集 ---
         required_role_ids: Set[str] = set()
+        required_role_ids_in_order: List[str] = []
         scenes_data = self.db_data.get("scenes", {})
         cuts_data = self.db_data.get("cuts", {})
         unique_roles_info: Dict[str, List[str]] = {}
@@ -76,7 +77,9 @@ class ActorAssignmentDialog(QDialog):
             for role in cut.roles:
                 if not role.id:
                     continue
-                required_role_ids.add(role.id)
+                if role.id not in required_role_ids:
+                    required_role_ids.add(role.id)
+                    required_role_ids_in_order.append(role.id)
                 if (
                     role.id not in unique_roles_info
                 ):  # (unique_roles_info の収集ロジック)
@@ -138,8 +141,7 @@ class ActorAssignmentDialog(QDialog):
         if not required_role_ids:
             self.form_layout.addRow(QLabel("No roles found in enabled scenes."))
         else:
-            sorted_role_ids = sorted(list(required_role_ids))
-            for role_id in sorted_role_ids:
+            for role_id in required_role_ids_in_order:
                 # --- アクター割り当て (変更なし) ---
                 combo = QComboBox()
                 for name, actor_id_data in actor_items:

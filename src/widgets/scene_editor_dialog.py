@@ -178,8 +178,8 @@ class RoleAssignmentWidget(QWidget):
         def display_func(item: Any) -> str:
             return f"{getattr(item, 'name', 'N/A')} ({getattr(item, 'id', 'N/A')})"
 
-        def sort_func(item_tuple: Tuple[str, Any]) -> str:
-            return getattr(item_tuple[1], "name", "").lower()
+        def sort_func(item_tuple: Tuple[str, Any]) -> float:
+            return -(getattr(item_tuple[1], "created_at", 0) or 0)
 
         dialog = GenericSelectionDialog(
             items_data=selectable_items,
@@ -452,12 +452,10 @@ class SceneEditorDialog(BaseEditorDialog):
         """選択済みの SDParams リストを更新します。"""
         self.selected_sdp_list.clear()
         all_sdps = self.db_dict.get("sdParams", {})
-        current_id_order = {
-            sdp_id: i for i, sdp_id in enumerate(self.current_sd_param_ids)
-        }
         sorted_ids = sorted(
             self.current_sd_param_ids,
-            key=lambda sdp_id: current_id_order.get(sdp_id, float("inf")),
+            key=lambda sdp_id: getattr(all_sdps.get(sdp_id), "created_at", 0) or 0,
+            reverse=True,
         )
         for sdp_id in sorted_ids:
             sdp = all_sdps.get(sdp_id)
@@ -492,9 +490,9 @@ class SceneEditorDialog(BaseEditorDialog):
         def display_sdp(sdp: StableDiffusionParams) -> str:
             return f"{getattr(sdp, 'name', 'N/A')} ({getattr(sdp, 'id', 'N/A')})"
 
-        def sort_sdp_key(item: Tuple[str, StableDiffusionParams]) -> str:
+        def sort_sdp_key(item: Tuple[str, StableDiffusionParams]) -> float:
             sdp = item[1]
-            return getattr(sdp, "name", "").lower()
+            return -(getattr(sdp, "created_at", 0) or 0)
 
         dialog = GenericSelectionDialog(
             items_data=selectable_sdps,
@@ -545,12 +543,10 @@ class SceneEditorDialog(BaseEditorDialog):
         """選択済みの Composition リストを更新します。"""
         self.selected_comp_list.clear()
         all_comps = self.db_dict.get("compositions", {})
-        current_id_order = {
-            comp_id: i for i, comp_id in enumerate(self.current_composition_ids)
-        }
         sorted_ids = sorted(
             self.current_composition_ids,
-            key=lambda comp_id: current_id_order.get(comp_id, float("inf")),
+            key=lambda comp_id: getattr(all_comps.get(comp_id), "created_at", 0) or 0,
+            reverse=True,
         )
         for comp_id in sorted_ids:
             comp = all_comps.get(comp_id)
@@ -581,9 +577,9 @@ class SceneEditorDialog(BaseEditorDialog):
         def display_comp(comp: Composition) -> str:
             return f"{getattr(comp, 'name', 'N/A')} ({getattr(comp, 'id', 'N/A')})"
 
-        def sort_comp_key(item: Tuple[str, Composition]) -> str:
+        def sort_comp_key(item: Tuple[str, Composition]) -> float:
             comp = item[1]
-            return getattr(comp, "name", "").lower()
+            return -(getattr(comp, "created_at", 0) or 0)
 
         dialog = GenericSelectionDialog(
             items_data=selectable_comps,
@@ -637,12 +633,10 @@ class SceneEditorDialog(BaseEditorDialog):
     def _populate_ap_list(self):
         self.selected_ap_list.clear()
         all_aps = self.db_dict.get("additional_prompts", {})
-        current_id_order = {
-            ap_id: i for i, ap_id in enumerate(self.current_additional_prompt_ids)
-        }
         sorted_ids = sorted(
             self.current_additional_prompt_ids,
-            key=lambda ap_id: current_id_order.get(ap_id, float("inf")),
+            key=lambda ap_id: getattr(all_aps.get(ap_id), "created_at", 0) or 0,
+            reverse=True,
         )
         for ap_id in sorted_ids:
             ap = all_aps.get(ap_id)
@@ -671,9 +665,9 @@ class SceneEditorDialog(BaseEditorDialog):
         def display_ap(ap: AdditionalPrompt) -> str:
             return f"{getattr(ap, 'name', 'N/A')} ({getattr(ap, 'id', 'N/A')})"
 
-        def sort_ap_key(item: Tuple[str, AdditionalPrompt]) -> str:
+        def sort_ap_key(item: Tuple[str, AdditionalPrompt]) -> float:
             ap = item[1]
-            return getattr(ap, "name", "").lower()
+            return -(getattr(ap, "created_at", 0) or 0)
 
         dialog = GenericSelectionDialog(
             items_data=selectable_aps,
@@ -724,18 +718,26 @@ class SceneEditorDialog(BaseEditorDialog):
     # --- ▼▼▼ State Category リスト関連メソッド (変更なし) ▼▼▼ ---
     def _get_available_categories(self) -> List[str]:
         all_states = self.db_dict.get("states", {})
-        available_categories: Set[str] = set()
+        latest_created_at_by_category: Dict[str, float] = {}
         if isinstance(all_states, dict):
             for state in all_states.values():
                 category = getattr(state, "category", "").strip()
                 if category:
-                    available_categories.add(category)
-        return sorted(list(available_categories))
+                    created_at = getattr(state, "created_at", 0) or 0
+                    if created_at > latest_created_at_by_category.get(category, 0):
+                        latest_created_at_by_category[category] = created_at
+        return [
+            category
+            for category, _ in sorted(
+                latest_created_at_by_category.items(),
+                key=lambda pair: pair[1],
+                reverse=True,
+            )
+        ]
 
     def _populate_category_list(self):
         self.selected_categories_list.clear()
-        sorted_selected = sorted(self.current_state_categories)
-        for category in sorted_selected:
+        for category in self.current_state_categories:
             self.selected_categories_list.addItem(category)
 
     @Slot()
@@ -924,7 +926,7 @@ class SceneEditorDialog(BaseEditorDialog):
 
             composition_ids = self.current_composition_ids
             sd_param_ids = self.current_sd_param_ids
-            state_categories = sorted(self.current_state_categories)
+            state_categories = self.current_state_categories
             additional_prompt_ids = self.current_additional_prompt_ids
 
             current_role_assignments_from_widgets: List[RoleAppearanceAssignment] = []
