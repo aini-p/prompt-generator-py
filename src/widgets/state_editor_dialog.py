@@ -1,11 +1,10 @@
 # src/widgets/state_editor_dialog.py
 import time
-from PySide6.QtWidgets import QLabel, QLineEdit, QTextEdit, QMessageBox, QFormLayout
-from PySide6.QtCore import Slot
-from typing import Optional, Dict, Any
+from PySide6.QtWidgets import QLineEdit, QTextEdit, QMessageBox
+from typing import Optional, Dict
 
 from .base_editor_dialog import BaseEditorDialog
-from ..models import State  # ★ モデルを State に変更
+from ..models import State
 
 
 class StateEditorDialog(BaseEditorDialog):  # ★ クラス名を変更
@@ -27,9 +26,6 @@ class StateEditorDialog(BaseEditorDialog):  # ★ クラス名を変更
         # UI Elements
         self.name_edit = QLineEdit(getattr(self.initial_data, "name", ""))
         # ▼▼▼ category フィールドを追加 ▼▼▼
-        self.category_edit = QLineEdit(getattr(self.initial_data, "category", ""))
-        self.category_edit.setPlaceholderText("例: damaged, wet, casual")
-        # ▲▲▲ 追加ここまで ▲▲▲
         self.tags_edit = QLineEdit(", ".join(getattr(self.initial_data, "tags", [])))
         self.prompt_edit = QTextEdit()
         self.prompt_edit.setPlainText(
@@ -43,30 +39,36 @@ class StateEditorDialog(BaseEditorDialog):  # ★ クラス名を変更
         )
         self.negative_prompt_edit.setFixedHeight(60)
 
+        category_ref_widget = self._create_reference_editor_widget(
+            field_name="category",
+            current_id=getattr(self.initial_data, "category", None),
+            reference_db_key="state_categories",
+            reference_modal_type="STATE_CATEGORY",
+            allow_none=False,
+            none_text="- カテゴリを選択 -",
+        )
+
         # Layout
         self.form_layout.addRow("名前 (Name):", self.name_edit)
-        # ▼▼▼ category フィールドを配置 ▼▼▼
-        self.form_layout.addRow("カテゴリ (Category):", self.category_edit)
-        # ▲▲▲ 追加ここまで ▲▲▲
+        self.form_layout.addRow("カテゴリ (Category):", category_ref_widget)
         self.form_layout.addRow("タグ (Tags):", self.tags_edit)
         self.form_layout.addRow("プロンプト (Positive):", self.prompt_edit)
         self.form_layout.addRow("ネガティブ (Negative):", self.negative_prompt_edit)
 
         # _widgets
         self._widgets["name"] = self.name_edit
-        self._widgets["category"] = self.category_edit  # ★ 追加
         self._widgets["tags"] = self.tags_edit
         self._widgets["prompt"] = self.prompt_edit
         self._widgets["negative_prompt"] = self.negative_prompt_edit
 
     def get_data(self) -> Optional[State]:  # ★ 戻り値型を State に変更
         name = self.name_edit.text().strip()
-        category = self.category_edit.text().strip()  # ★ カテゴリ取得
+        category = self._get_widget_value("category")
 
         if not name:
             QMessageBox.warning(self, "入力エラー", "Name は必須です。")
             return None
-        if not category:  # ★ カテゴリも必須とする
+        if not category:
             QMessageBox.warning(self, "入力エラー", "Category は必須です。")
             return None
 
@@ -74,6 +76,7 @@ class StateEditorDialog(BaseEditorDialog):  # ★ クラス名を変更
         if self.initial_data:
             updated_state = self.initial_data  # ★ 変数名変更
             self._update_object_from_widgets(updated_state)
+            updated_state.category = category
             return updated_state
         else:
             new_state = State(  # ★ State で初期化

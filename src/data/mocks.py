@@ -5,6 +5,7 @@ from src.models import (
     FullDatabase,
     StableDiffusionParams,
     Actor,
+    StateCategory,
     Costume,
     Pose,
     Expression,
@@ -36,10 +37,14 @@ ap_lens_effect = AdditionalPrompt(
     negative_prompt="",
 )
 
+state_category_damaged = StateCategory(id="damaged", name="damaged")
+state_category_wet = StateCategory(id="wet", name="wet")
+state_category_casual = StateCategory(id="casual", name="casual")
+
 state_damaged = State(
     id="state_damaged_1",
     name="破損状態1",
-    category="damaged",
+    category=state_category_damaged.id,
     tags=["broken", "torn"],
     prompt="torn clothes, scratches",
     negative_prompt="",
@@ -47,7 +52,7 @@ state_damaged = State(
 state_wet = State(
     id="state_wet_1",
     name="濡れ状態1",
-    category="wet",
+    category=state_category_wet.id,
     tags=["soaked"],
     prompt="wet clothes, dripping water, wet hair",
     negative_prompt="dry",
@@ -55,7 +60,7 @@ state_wet = State(
 state_casual_clothes = State(
     id="state_casual_1",
     name="私服状態1",
-    category="casual",
+    category=state_category_casual.id,
     tags=["plain clothes"],
     prompt="wearing casual clothes, hoodie, jeans",
     negative_prompt="uniform, dress",
@@ -274,7 +279,7 @@ initialMockDatabase: FullDatabase = FullDatabase(
             ],
             style_id=style_default.id,
             sd_param_ids=[default_sd_params.id],  # ★ 変更
-            state_categories=["damaged"],
+            state_categories=[state_category_damaged.id],
             additional_prompt_ids=[ap_quality_up.id],
         ),
         "scene_default_pair": Scene(
@@ -307,7 +312,7 @@ initialMockDatabase: FullDatabase = FullDatabase(
             ],
             style_id=style_anime.id,
             sd_param_ids=[default_sd_params.id],  # ★ 変更
-            state_categories=["wet", "damaged"],
+            state_categories=[state_category_wet.id, state_category_damaged.id],
             additional_prompt_ids=[ap_quality_up.id, ap_lens_effect.id],
         ),
         "scene_no_state": Scene(
@@ -333,7 +338,7 @@ initialMockDatabase: FullDatabase = FullDatabase(
             role_assignments=[RoleAppearanceAssignment(role_id="r1")],
             style_id=style_anime.id,
             sd_param_ids=[default_sd_params.id],  # ★ 変更
-            state_categories=["casual"],
+            state_categories=[state_category_casual.id],
             additional_prompt_ids=[ap_quality_up.id],
         ),
     },
@@ -343,6 +348,11 @@ initialMockDatabase: FullDatabase = FullDatabase(
         style_anime.id: style_anime,
     },
     sdParams={default_sd_params.id: default_sd_params},
+    state_categories={
+        state_category_damaged.id: state_category_damaged,
+        state_category_wet.id: state_category_wet,
+        state_category_casual.id: state_category_casual,
+    },
     states={
         state_damaged.id: state_damaged,
         state_wet.id: state_wet,

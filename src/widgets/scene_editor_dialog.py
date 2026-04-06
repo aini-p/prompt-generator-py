@@ -31,6 +31,7 @@ from ..models import (
     FullDatabase,
     SceneRole,
     Cut,
+    StateCategory,
     Style,
     StableDiffusionParams,
     State,
@@ -402,13 +403,19 @@ class SceneEditorDialog(BaseEditorDialog):
         self.selected_categories_list.setSelectionMode(
             QAbstractItemView.SelectionMode.SingleSelection
         )
+        self.selected_categories_list.itemDoubleClicked.connect(
+            self._handle_category_double_clicked
+        )
         self._populate_category_list()
         category_btn_layout = QHBoxLayout()
         add_category_btn = QPushButton("＋ カテゴリを選択...")
+        add_new_category_btn = QPushButton("＋ 新規カテゴリを作成")
         remove_category_btn = QPushButton("－ 選択したカテゴリを削除")
         add_category_btn.clicked.connect(self._add_category_dialog)
+        add_new_category_btn.clicked.connect(self._handle_add_new_state_category)
         remove_category_btn.clicked.connect(self._remove_selected_category)
         category_btn_layout.addWidget(add_category_btn)
+        category_btn_layout.addWidget(add_new_category_btn)
         category_btn_layout.addWidget(remove_category_btn)
         category_btn_layout.addStretch()
         self.form_layout.addRow(self.selected_categories_list)
@@ -717,61 +724,82 @@ class SceneEditorDialog(BaseEditorDialog):
 
     # --- ▼▼▼ State Category リスト関連メソッド (変更なし) ▼▼▼ ---
     def _get_available_categories(self) -> List[str]:
-        all_states = self.db_dict.get("states", {})
-        latest_created_at_by_category: Dict[str, float] = {}
-        if isinstance(all_states, dict):
-            for state in all_states.values():
-                category = getattr(state, "category", "").strip()
-                if category:
-                    created_at = getattr(state, "created_at", 0) or 0
-                    if created_at > latest_created_at_by_category.get(category, 0):
-                        latest_created_at_by_category[category] = created_at
+        categories = self.db_dict.get("state_categories", {})
         return [
-            category
-            for category, _ in sorted(
-                latest_created_at_by_category.items(),
-                key=lambda pair: pair[1],
+            category.id
+            for category in sorted(
+                categories.values(),
+                key=lambda item: getattr(item, "created_at", 0) or 0,
                 reverse=True,
             )
+            if getattr(category, "id", None)
         ]
 
     def _populate_category_list(self):
         self.selected_categories_list.clear()
-        for category in self.current_state_categories:
-            self.selected_categories_list.addItem(category)
+        categories = self.db_dict.get("state_categories", {})
+        sorted_category_ids = sorted(
+            self.current_state_categories,
+            key=lambda category_id: getattr(categories.get(category_id), "created_at", 0) or 0,
+            reverse=True,
+        )
+        for category_id in sorted_category_ids:
+            category = categories.get(category_id)
+            label = category_id
+            if category:
+                label = f"{getattr(category, 'name', category_id)} ({category_id})"
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, category_id)
+            self.selected_categories_list.addItem(item)
 
     @Slot()
     def _add_category_dialog(self):
         available_categories = self._get_available_categories()
-        selectable_categories = [
-            cat
-            for cat in available_categories
-            if cat not in self.current_state_categories
-        ]
+        selectable_categories = {
+            category_id: self.db_dict.get("state_categories", {}).get(category_id)
+            for category_id in available_categories
+            if category_id not in self.current_state_categories
+            and self.db_dict.get("state_categories", {}).get(category_id) is not None
+        }
         if not selectable_categories:
             QMessageBox.information(
                 self, "カテゴリ追加", "追加可能なカテゴリがありません。"
             )
             return
-        category_to_add, ok = QInputDialog.getItem(
-            self,
-            "カテゴリ追加",
-            "追加する状態カテゴリを選択してください:",
-            selectable_categories,
-            0,
-            False,
+
+        def display_category(category: StateCategory) -> str:
+            return f"{getattr(category, 'name', 'N/A')} ({getattr(category, 'id', 'N/A')})"
+
+        dialog = GenericSelectionDialog(
+            items_data=selectable_categories,
+            display_func=display_category,
+            window_title="Select State Category to Add",
+            filter_placeholder="Filter by name or ID...",
+            parent=self,
         )
-        if ok and category_to_add:
-            if category_to_add not in self.current_state_categories:
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            category_to_add = dialog.get_selected_item_id()
+            if category_to_add and category_to_add not in self.current_state_categories:
                 self.current_state_categories.append(category_to_add)
                 self._populate_category_list()
                 self._mark_data_changed()
 
     @Slot()
+    def _handle_add_new_state_category(self):
+        self.request_open_editor.emit("STATE_CATEGORY", None)
+
+    @Slot(QListWidgetItem)
+    def _handle_category_double_clicked(self, item: QListWidgetItem):
+        category_id = item.data(Qt.ItemDataRole.UserRole)
+        category = self.db_dict.get("state_categories", {}).get(category_id)
+        if category:
+            self.request_open_editor.emit("STATE_CATEGORY", category)
+
+    @Slot()
     def _remove_selected_category(self):
         selected_items = self.selected_categories_list.selectedItems()
         if selected_items:
-            category_to_remove = selected_items[0].text()
+            category_to_remove = selected_items[0].data(Qt.ItemDataRole.UserRole)
             if category_to_remove in self.current_state_categories:
                 self.current_state_categories.remove(category_to_remove)
                 self._populate_category_list()
@@ -891,6 +919,11 @@ class SceneEditorDialog(BaseEditorDialog):
                 "[DEBUG] SceneEditorDialog detected State change. Repopulating category lists."
             )
             self._populate_category_list()
+        elif db_key == "state_categories":
+            print(
+                "[DEBUG] SceneEditorDialog detected State Category change. Repopulating category lists."
+            )
+            self._populate_category_list()
         elif db_key == "additional_prompts":
             print(
                 "[DEBUG] SceneEditorDialog detected Additional Prompt change. Repopulating AP list."
@@ -993,5 +1026,10 @@ class SceneEditorDialog(BaseEditorDialog):
                 self, "Error", f"An error occurred while getting data: {e}"
             )
             return None
+
+    def handle_external_data_update(self, db_key: str, updated_item: Any, is_new: bool):
+        super().handle_external_data_update(db_key, updated_item, is_new)
+        if db_key in {"state_categories", "states"}:
+            self._populate_category_list()
 
     # --- ▲▲▲ 修正ここまで ▲▲▲ ---

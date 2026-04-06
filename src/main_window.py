@@ -38,6 +38,7 @@ from . import database as db
 from .models import (
     Scene,
     Actor,
+    StateCategory,
     PromptPartBase,
     StableDiffusionParams,
     Costume,
@@ -97,6 +98,7 @@ from .widgets.cut_editor_dialog import CutEditorDialog
 from .widgets.sequence_editor_dialog import SequenceEditorDialog
 from .widgets.actor_assignment_dialog import ActorAssignmentDialog
 from .widgets.state_editor_dialog import StateEditorDialog
+from .widgets.state_category_editor_dialog import StateCategoryEditorDialog
 from .widgets.generic_selection_dialog import GenericSelectionDialog
 from .widgets.generation_options_dialog import GenerationOptionsDialog
 
@@ -127,6 +129,7 @@ class MainWindow(QMainWindow):
             "LIGHTING": (SimplePartEditorDialog, "lighting"),
             "COMPOSITION": (SimplePartEditorDialog, "compositions"),
             "STYLE": (SimplePartEditorDialog, "styles"),
+            "STATE_CATEGORY": (StateCategoryEditorDialog, "state_categories"),
             "STATE": (StateEditorDialog, "states"),
             "ADDITIONAL_PROMPT": (SimplePartEditorDialog, "additional_prompts"),
             "SDPARAMS": (SDParamsEditorDialog, "sdParams"),
@@ -725,7 +728,7 @@ class MainWindow(QMainWindow):
         deleted, queue_modified = self.data_handler.handle_delete_part(db_key, item_id, self.db_data, self.batch_queue)
         if deleted:
             try:
-                db_delete_map = { "sequences": db.delete_sequence, "cuts": db.delete_cut, "sdParams": db.delete_sd_param, "works": db.delete_work, "characters": db.delete_character, "actors": db.delete_actor, "scenes": db.delete_scene, "costumes": db.delete_costume, "poses": db.delete_pose, "expressions": db.delete_expression, "backgrounds": db.delete_background, "lighting": db.delete_lighting, "compositions": db.delete_composition, "styles": db.delete_style, "states": db.delete_state, "additional_prompts": db.delete_additional_prompt }
+                db_delete_map = { "sequences": db.delete_sequence, "cuts": db.delete_cut, "sdParams": db.delete_sd_param, "works": db.delete_work, "characters": db.delete_character, "actors": db.delete_actor, "scenes": db.delete_scene, "costumes": db.delete_costume, "poses": db.delete_pose, "expressions": db.delete_expression, "backgrounds": db.delete_background, "lighting": db.delete_lighting, "compositions": db.delete_composition, "styles": db.delete_style, "state_categories": db.delete_state_category, "states": db.delete_state, "additional_prompts": db.delete_additional_prompt }
                 if delete_func := db_delete_map.get(db_key):
                     delete_func(item_id)
             except Exception as e:

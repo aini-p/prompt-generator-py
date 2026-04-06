@@ -11,6 +11,7 @@ from .models import (
     Work,
     Character,
     Actor,
+    StateCategory,
     Scene,
     Costume,
     Pose,
@@ -86,6 +87,41 @@ def _add_created_at_if_not_exists(cursor: sqlite3.Cursor, table_name: str):
             print(f"[INFO] 'created_at' column added to '{table_name}' successfully.")
     except sqlite3.Error as e:
         print(f"[WARN] An error occurred during schema migration for '{table_name}': {e}")
+
+
+def _ensure_legacy_state_categories(cursor: sqlite3.Cursor):
+    """既存の文字列カテゴリ参照から state_categories テーブルを補完する。"""
+    try:
+        cursor.execute("SELECT id FROM state_categories")
+        existing_ids = {row[0] for row in cursor.fetchall()}
+
+        legacy_category_ids = set()
+
+        cursor.execute("SELECT category FROM states")
+        for (category_id,) in cursor.fetchall():
+            if category_id:
+                legacy_category_ids.add(category_id)
+
+        cursor.execute("SELECT state_categories FROM scenes")
+        for (raw_categories,) in cursor.fetchall():
+            if not raw_categories:
+                continue
+            try:
+                category_ids = json.loads(raw_categories)
+            except json.JSONDecodeError:
+                category_ids = []
+            for category_id in category_ids:
+                if category_id:
+                    legacy_category_ids.add(category_id)
+
+        for category_id in sorted(legacy_category_ids):
+            if category_id not in existing_ids:
+                cursor.execute(
+                    "INSERT OR REPLACE INTO state_categories (id, name, created_at) VALUES (?, ?, ?)",
+                    (category_id, category_id, 0),
+                )
+    except sqlite3.Error as e:
+        print(f"[WARN] Failed to backfill state categories: {e}")
 
 def initialize_db():
     """
@@ -166,6 +202,12 @@ def initialize_db():
                 negative_prompt TEXT, created_at REAL
             )""")
         cursor.execute("""
+            CREATE TABLE IF NOT EXISTS state_categories (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                created_at REAL
+            )""")
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS sd_params (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL,
                 steps INTEGER, sampler_name TEXT, cfg_scale REAL,
@@ -194,10 +236,12 @@ def initialize_db():
         all_tables = [
             "works", "characters", "actors", "cuts", "scenes", "costumes",
             "poses", "expressions", "backgrounds", "lighting", "compositions",
-            "styles", "additional_prompts", "states", "sd_params", "sequences"
+            "styles", "additional_prompts", "states", "state_categories", "sd_params", "sequences"
         ]
         for table in all_tables:
             _add_created_at_if_not_exists(cursor, table)
+
+        _ensure_legacy_state_categories(cursor)
 
         try:
             cursor.execute("PRAGMA table_info(sd_params)")
@@ -227,6 +271,7 @@ def initialize_db():
                 for composition in initialMockDatabase.compositions.values(): save_composition(composition)
                 for style in initialMockDatabase.styles.values(): save_style(style)
                 for param in initialMockDatabase.sdParams.values(): save_sd_param(param)
+                for category in initialMockDatabase.state_categories.values(): save_state_category(category)
                 for state in initialMockDatabase.states.values(): save_state(state)
                 for ap in initialMockDatabase.additional_prompts.values(): save_additional_prompt(ap)
                 print("[INFO] Initial mock data inserted.")
@@ -615,6 +660,20 @@ def load_sd_params() -> Dict[str, StableDiffusionParams]:
 def delete_sd_param(param_id: str):
     """StableDiffusionParams プリセットを削除します。"""
     _delete_item("sd_params", param_id)
+
+
+# --- State Category ---
+def save_state_category(category: StateCategory):
+    data = category.__dict__.copy()
+    _save_item("state_categories", data)
+
+
+def load_state_categories() -> Dict[str, StateCategory]:
+    return _load_items("state_categories", StateCategory)
+
+
+def delete_state_category(category_id: str):
+    _delete_item("state_categories", category_id)
 
 
 # --- Sequence ---

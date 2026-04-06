@@ -6,10 +6,17 @@ from typing import List, Optional, Dict, Any, Literal, TypeAlias
 
 
 @dataclass
+class StateCategory:
+    id: str
+    name: str
+    created_at: float = field(default_factory=time.time)
+
+
+@dataclass
 class State:  # PromptPartBase を継承しない独立したクラス
     id: str
     name: str
-    category: str = ""  # 状態カテゴリ (例: "damaged", "wet", "casual")
+    category: str = ""  # 状態カテゴリID
     tags: List[str] = field(default_factory=list)  # オプションのタグ
     prompt: str = ""
     negative_prompt: str = ""
@@ -141,7 +148,7 @@ class Scene:
     role_assignments: List[RoleAppearanceAssignment] = field(default_factory=list)
     style_id: Optional[str] = None
     sd_param_ids: List[str] = field(default_factory=list)
-    state_categories: List[str] = field(default_factory=list)
+    state_categories: List[str] = field(default_factory=list)  # 状態カテゴリIDのリスト
     additional_prompt_ids: List[str] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
 
@@ -255,6 +262,7 @@ class FullDatabase:
     styles: Dict[str, Style] = field(default_factory=dict)
     sdParams: Dict[str, StableDiffusionParams] = field(default_factory=dict)
     sequences: Dict[str, Sequence] = field(default_factory=dict)
+    state_categories: Dict[str, StateCategory] = field(default_factory=dict)
     states: Dict[str, State] = field(default_factory=dict)
     additional_prompts: Dict[str, AdditionalPrompt] = field(default_factory=dict)
 
@@ -281,6 +289,7 @@ STORAGE_KEYS: Dict[str, str] = {
     "scenes": "promptBuilder_scenes",
     "styles": "promptBuilder_styles",
     "sdParams": "promptBuilder_sdParams",
+    "state_categories": "promptBuilder_state_categories",
     "states": "promptBuilder_states",
     "additional_prompts": "promptBuilder_additional_prompts",
 }
@@ -301,6 +310,7 @@ DatabaseKey = Literal[
     "styles",
     "sdParams",
     "sequences",
+    "state_categories",
     "states",
     "additional_prompts",
 ]

@@ -10,6 +10,7 @@ from ..models import (
     Work,
     Character,
     Actor,
+    StateCategory,
     Scene,
     Costume,
     Pose,
@@ -204,6 +205,7 @@ class DataHandler:
             db_data["styles"] = db.load_styles()
             db_data["sdParams"] = db.load_sd_params()
             db_data["sequences"] = db.load_sequences()
+            db_data["state_categories"] = db.load_state_categories()
             db_data["states"] = db.load_states()
             db_data["additional_prompts"] = db.load_additional_prompts()
             batch_queue = db.load_batch_queue()
@@ -262,6 +264,8 @@ class DataHandler:
                 db.save_sd_param(param)
             for sequence in db_data.get("sequences", {}).values():
                 db.save_sequence(sequence)
+            for category in db_data.get("state_categories", {}).values():
+                db.save_state_category(category)
             for state in db_data.get("states", {}).values():
                 db.save_state(state)
             for ap in db_data.get("additional_prompts", {}).values():
@@ -391,6 +395,7 @@ class DataHandler:
                         "styles": Style,
                         "sdParams": StableDiffusionParams,
                         "sequences": Sequence,
+                        "state_categories": StateCategory,
                         "states": State,
                         "additional_prompts": AdditionalPrompt,
                     }
@@ -505,6 +510,8 @@ class DataHandler:
                 db.save_sd_param(item_data)
             elif db_key == "sequences" and isinstance(item_data, Sequence):
                 db.save_sequence(item_data)
+            elif db_key == "state_categories" and isinstance(item_data, StateCategory):
+                db.save_state_category(item_data)
             elif db_key == "states" and isinstance(item_data, State):
                 db.save_state(item_data)
             elif db_key == "additional_prompts":
@@ -568,6 +575,20 @@ class DataHandler:
                         costume.state_ids.remove(partId)
                         print(
                             f"[DEBUG] Removed deleted state ID {partId} from costume {costume.id}"
+                        )
+
+            if db_key == "state_categories":
+                for state in db_data.get("states", {}).values():
+                    if getattr(state, "category", "") == partId:
+                        state.category = ""
+                        print(
+                            f"[DEBUG] Cleared deleted state category ID {partId} from state {state.id}"
+                        )
+                for scene in db_data.get("scenes", {}).values():
+                    if hasattr(scene, "state_categories") and partId in scene.state_categories:
+                        scene.state_categories.remove(partId)
+                        print(
+                            f"[DEBUG] Removed deleted state category ID {partId} from scene {scene.id}"
                         )
 
             if db_key == "additional_prompts":
