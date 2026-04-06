@@ -530,6 +530,50 @@ class MainWindow(QMainWindow):
         self.batch_panel.set_status(f"Submitting {len(tasks)} tasks to the queue...", 0)
         self.submit_tasks_signal.emit(tasks)
 
+    def _build_generation_metadata(
+        self,
+        cut: Cut,
+        scene_name: str,
+        sequence_name: str,
+        actor_assignments: Dict[str, str],
+    ) -> BatchMetadata:
+        char_names: List[str] = []
+        work_titles: List[str] = []
+        seen_character_ids = set()
+        seen_work_ids = set()
+
+        for role in cut.roles:
+            actor_id = actor_assignments.get(role.id)
+            actor = self.db_data.get("actors", {}).get(actor_id) if actor_id else None
+            char = (
+                self.db_data.get("characters", {}).get(actor.character_id)
+                if actor and actor.character_id
+                else None
+            )
+            if not char:
+                continue
+
+            if char.id not in seen_character_ids:
+                char_name = getattr(char, "name", "")
+                if char_name:
+                    char_names.append(char_name)
+                seen_character_ids.add(char.id)
+
+            work = self.db_data.get("works", {}).get(char.work_id) if char.work_id else None
+            if work and work.id not in seen_work_ids:
+                work_title = getattr(work, "title_jp", "") or getattr(work, "title_en", "")
+                if work_title:
+                    work_titles.append(work_title)
+                seen_work_ids.add(work.id)
+
+        return BatchMetadata(
+            sequence_name=sequence_name,
+            scene_name=scene_name,
+            main_character=char_names[0] if char_names else "",
+            sub_characters=char_names[1:] if len(char_names) > 1 else [],
+            work_titles=work_titles,
+        )
+
     @Slot()
     def execute_generation(self):
         if not self.generated_prompts:
@@ -558,22 +602,11 @@ class MainWindow(QMainWindow):
                 db=full_db,
             )
             if not tasks: return
-
-            char_names, work_titles = [], set()
-            for role in current_cut.roles:
-                if (actor_id := self.actor_assignments.get(role.id)) and \
-                   (actor := self.db_data.get("actors", {}).get(actor_id)) and \
-                   (char := self.db_data.get("characters", {}).get(actor.character_id)):
-                    if char_name := getattr(char, "name", ""): char_names.append(char_name)
-                    if (work := self.db_data.get("works", {}).get(char.work_id)) and \
-                       (work_title := getattr(work, "title_jp", "")): work_titles.add(work_title)
-
-            metadata = BatchMetadata(
-                sequence_name="Test",
-                scene_name=getattr(current_scene, "name", "N/A"),
-                main_character=char_names[0] if char_names else "",
-                sub_characters=char_names[1:] if len(char_names) > 1 else [],
-                work_titles=sorted(list(work_titles)),
+            metadata = self._build_generation_metadata(
+                current_cut,
+                getattr(current_scene, "name", "N/A"),
+                "Test",
+                self.actor_assignments,
             )
             
             is_debug = self.prompt_panel.is_debug_mode_enabled()
@@ -832,22 +865,11 @@ class MainWindow(QMainWindow):
                     prompts = generate_batch_prompts(scene.id, item.actor_assignments, item.appearance_overrides, full_db)
                     tasks = create_image_generation_tasks(prompts, cut, scene, full_db)
 
-                    # メタデータを作成
-                    char_names, work_titles = [], set()
-                    for role in cut.roles:
-                        if (actor_id := item.actor_assignments.get(role.id)) and \
-                           (actor := self.db_data.get("actors", {}).get(actor_id)) and \
-                           (char := self.db_data.get("characters", {}).get(actor.character_id)):
-                            if char_name := getattr(char, "name", ""): char_names.append(char_name)
-                            if (work := self.db_data.get("works", {}).get(char.work_id)) and \
-                               (work_title := getattr(work, "title_jp", "")): work_titles.add(work_title)
-                    
-                    metadata = BatchMetadata(
-                        sequence_name=getattr(sequence, "name", "N/A"),
-                        scene_name=getattr(scene, "name", "N/A"),
-                        main_character=char_names[0] if char_names else "",
-                        sub_characters=char_names[1:] if len(char_names) > 1 else [],
-                        work_titles=sorted(list(work_titles)),
+                    metadata = self._build_generation_metadata(
+                        cut,
+                        getattr(scene, "name", "N/A"),
+                        getattr(sequence, "name", "N/A"),
+                        item.actor_assignments,
                     )
                     
                     for task in tasks:
