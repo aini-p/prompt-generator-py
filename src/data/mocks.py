@@ -1,5 +1,5 @@
 # src/data/mocks.py
-from src.models import (
+from ..models import (
     Work,
     Character,
     FullDatabase,
