@@ -73,6 +73,109 @@ def _apply_color_palette(
     return result_text
 
 
+def _apply_role_color_references(
+    text: str, 
+    valid_roles: List[SceneRole], 
+    actor_assignments: ActorAssignments,
+    db: FullDatabase
+) -> str:
+    """
+    Cutのプロンプト文字列内の配役カラー参照を置換
+    
+    サポート形式:
+    - [R0_personal_color] - ロール0のキャラクターのpersonal_color
+    - [R1_underwear_color] - ロール1のキャラクターのunderwear_color
+    - [R0C1] - ロール0のC1（personal_color）
+    - [R1C2] - ロール1のC2（underwear_color）
+    """
+    if not text:
+        return text
+    
+    result_text = text
+    
+    # color_index_map: C1 -> personal_color, C2 -> underwear_color など
+    # 将来的に拡張可能
+    color_index_map = {
+        1: "personal_color",
+        2: "underwear_color",
+    }
+    
+    # パターン1: [R<index>_<attribute>] 形式
+    # 例: [R0_personal_color], [R1_underwear_color]
+    pattern1 = r"\[R(\d+)_([a-z_]+)\]"
+    
+    def replace_attribute_format(match: "re.Match") -> str:
+        role_index_str = match.group(1)
+        attr_name = match.group(2)
+        
+        try:
+            role_index = int(role_index_str)
+        except ValueError:
+            return match.group(0)
+        
+        if role_index >= len(valid_roles):
+            return ""  # ロールが存在しない場合は空文字列に置換
+        
+        role = valid_roles[role_index]
+        actor_id = actor_assignments.get(role.id)
+        if not actor_id:
+            return ""
+        
+        actor = db.actors.get(actor_id)
+        if not actor or not actor.character_id:
+            return ""
+        
+        character = db.characters.get(actor.character_id)
+        if not character:
+            return ""
+        
+        color_value = getattr(character, attr_name, "")
+        return color_value if color_value else ""
+    
+    result_text = re.sub(pattern1, replace_attribute_format, result_text)
+    
+    # パターン2: [R<index>C<color_index>] 形式
+    # 例: [R0C1], [R1C2]
+    pattern2 = r"\[R(\d+)C(\d+)\]"
+    
+    def replace_color_index_format(match: "re.Match") -> str:
+        role_index_str = match.group(1)
+        color_index_str = match.group(2)
+        
+        try:
+            role_index = int(role_index_str)
+            color_index = int(color_index_str)
+        except ValueError:
+            return match.group(0)
+        
+        if role_index >= len(valid_roles):
+            return ""
+        
+        attr_name = color_index_map.get(color_index)
+        if not attr_name:
+            return ""  # サポートされていないカラーインデックス
+        
+        role = valid_roles[role_index]
+        actor_id = actor_assignments.get(role.id)
+        if not actor_id:
+            return ""
+        
+        actor = db.actors.get(actor_id)
+        if not actor or not actor.character_id:
+            return ""
+        
+        character = db.characters.get(actor.character_id)
+        if not character:
+            return ""
+        
+        color_value = getattr(character, attr_name, "")
+        return color_value if color_value else ""
+    
+    result_text = re.sub(pattern2, replace_color_index_format, result_text)
+    
+    return result_text
+
+
 def _apply_state_prompts(
     base_prompt: str,
     base_negative: str,
@@ -361,6 +464,15 @@ def generate_batch_prompts(
 
         final_positive = cut_obj.prompt_template
         final_negative = cut_obj.negative_template
+
+        # --- ▼▼▼ Apply role color references (例: [R0_personal_color], [R1C1]) ▼▼▼ ---
+        final_positive = _apply_role_color_references(
+            final_positive, valid_roles_in_scene, actor_assignments, db
+        )
+        final_negative = _apply_role_color_references(
+            final_negative, valid_roles_in_scene, actor_assignments, db
+        )
+        # --- ▲▲▲ Apply role color references end ▲▲▲ ---
 
         # --- ▼▼▼ Auto-complete negative template placeholders ▼▼▼ ---
         positive_placeholders = re.findall(r"(\[R\d+\])", final_positive)
