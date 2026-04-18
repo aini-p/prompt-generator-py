@@ -89,8 +89,8 @@ def _apply_role_color_references(
     - [R#C1] - ロール#のC1（personal_color：担当色）
     - [R#C2] - ロール#のC2（underwear_color：下着色）
     
-    例: [R0C1], [R1C2]
-    注意: [R#] は常に Cut の roles リスト内でのインデックスを参照します。
+    例: [R1C1], [R2C2]
+    注意: [R#] は 1 始まり（R1 が Cut roles の先頭）です。
     """
     if not text or not cut_obj or not hasattr(cut_obj, 'roles'):
         return text
@@ -101,25 +101,27 @@ def _apply_role_color_references(
         2: "underwear_color",
     }
     
-    # パターン: [R<index>C<color_index>] 形式
-    # 例: [R0C1], [R1C2]
+    # パターン: [R<role_number>C<color_index>] 形式
+    # 例: [R1C1], [R2C2]
     pattern = r"\[R(\d+)C([12])\]"
     
     def replace_color_reference(match: "re.Match") -> str:
-        role_index_str = match.group(1)
+        role_number_str = match.group(1)
         color_index_str = match.group(2)
         
         try:
-            role_index = int(role_index_str)
+            role_number = int(role_number_str)
             color_index = int(color_index_str)
         except ValueError:
-            logger.warning(f"Invalid format in [R{role_index_str}C{color_index_str}]")
+            logger.warning(f"Invalid format in [R{role_number_str}C{color_index_str}]")
             return match.group(0)
+
+        role_index = role_number - 1
         
         # ロールインデックスの妥当性チェック
-        if role_index >= len(cut_obj.roles):
+        if role_index < 0 or role_index >= len(cut_obj.roles):
             logger.warning(
-                f"Role index {role_index} out of range. Cut has {len(cut_obj.roles)} roles."
+                f"Role number {role_number} out of range. Cut has {len(cut_obj.roles)} roles."
             )
             return match.group(0)
         
@@ -127,7 +129,7 @@ def _apply_role_color_references(
         actor_id = actor_assignments.get(role.id)
         if not actor_id:
             logger.warning(
-                f"No actor assigned for role '{role.name_in_scene}' (role.id: {role.id}, index {role_index})"
+                f"No actor assigned for role '{role.name_in_scene}' (role.id: {role.id}, number {role_number})"
             )
             return match.group(0)
         
@@ -135,7 +137,7 @@ def _apply_role_color_references(
         if not actor:
             logger.warning(
                 f"Actor {actor_id} not found in database "
-                f"(for role '{role.name_in_scene}', index {role_index})"
+                f"(for role '{role.name_in_scene}', number {role_number})"
             )
             return match.group(0)
         
@@ -161,7 +163,7 @@ def _apply_role_color_references(
         color_value = getattr(character, attr_name, "")
         if color_value:
             logger.info(
-                f"Replacing [R{role_index}C{color_index}] with '{color_value}' "
+                f"Replacing [R{role_number}C{color_index}] with '{color_value}' "
                 f"(Actor: {actor.name}, Character: {character.name}, {attr_name})"
             )
             return color_value
