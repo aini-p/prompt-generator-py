@@ -172,7 +172,7 @@ def _apply_role_color_references(
             )
             return match.group(0)
     
-    result_text = re.sub(pattern, replace_color_reference, result_text)
+    result_text = re.sub(pattern, replace_color_reference, text)
     
     return result_text
 
