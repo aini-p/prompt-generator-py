@@ -140,7 +140,7 @@ def initialize_db():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS works (
                 id TEXT PRIMARY KEY, title_jp TEXT, title_en TEXT,
-                tags TEXT, sns_tags TEXT, created_at REAL
+                title_file_safe_jp TEXT, tags TEXT, sns_tags TEXT, created_at REAL
             )""")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS characters (
@@ -252,6 +252,16 @@ def initialize_db():
                 print("[INFO] 'model' column added to 'sd_params' successfully.")
         except sqlite3.Error as e:
             print(f"[WARN] An error occurred during schema migration: {e}")
+
+        try:
+            cursor.execute("PRAGMA table_info(works)")
+            columns = [column[1] for column in cursor.fetchall()]
+            if "title_file_safe_jp" not in columns:
+                print("[INFO] Migrating 'works' table: Adding 'title_file_safe_jp' column.")
+                cursor.execute("ALTER TABLE works ADD COLUMN title_file_safe_jp TEXT")
+                print("[INFO] 'title_file_safe_jp' column added to 'works' successfully.")
+        except sqlite3.Error as e:
+            print(f"[WARN] An error occurred during schema migration for works: {e}")
 
         if not works_table_existed_before:
             print(

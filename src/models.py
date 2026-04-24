@@ -29,6 +29,7 @@ class Work:
     id: str
     title_jp: str = ""
     title_en: str = ""
+    title_file_safe_jp: str = ""
     tags: List[str] = field(default_factory=list)
     sns_tags: str = ""
     created_at: float = field(default_factory=time.time)

@@ -561,7 +561,11 @@ class MainWindow(QMainWindow):
 
             work = self.db_data.get("works", {}).get(char.work_id) if char.work_id else None
             if work and work.id not in seen_work_ids:
-                work_title = getattr(work, "title_jp", "") or getattr(work, "title_en", "")
+                work_title = (
+                    getattr(work, "title_file_safe_jp", "")
+                    or getattr(work, "title_jp", "")
+                    or getattr(work, "title_en", "")
+                )
                 if work_title:
                     work_titles.append(work_title)
                 seen_work_ids.add(work.id)

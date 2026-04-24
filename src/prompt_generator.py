@@ -652,7 +652,10 @@ def create_image_generation_tasks(
             if prompt_data.firstActorInfo:
                 work = prompt_data.firstActorInfo.get("work")
                 if work:
-                    work_title = getattr(work, "title_jp", work_title)
+                    work_title = (
+                        getattr(work, "title_file_safe_jp", "")
+                        or getattr(work, "title_jp", work_title)
+                    )
 
             safe_work = _sanitize_filename(work_title)
             safe_sdp_name = _sanitize_filename(

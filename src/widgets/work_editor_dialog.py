@@ -25,18 +25,21 @@ class WorkEditorDialog(BaseEditorDialog):
         # UI Elements
         self.title_jp_edit = QLineEdit(getattr(self.initial_data, "title_jp", ""))
         self.title_en_edit = QLineEdit(getattr(self.initial_data, "title_en", ""))
+        self.title_file_safe_jp_edit = QLineEdit(getattr(self.initial_data, "title_file_safe_jp", ""))
         self.tags_edit = QLineEdit(", ".join(getattr(self.initial_data, "tags", [])))
         self.sns_tags_edit = QLineEdit(getattr(self.initial_data, "sns_tags", ""))
 
         # Layout (基底クラスの form_layout を使用)
         self.form_layout.addRow("タイトル (日本語):", self.title_jp_edit)
         self.form_layout.addRow("タイトル (英語):", self.title_en_edit)
+        self.form_layout.addRow("ファイルセーフ日本語名:", self.title_file_safe_jp_edit)
         self.form_layout.addRow("タグ (カンマ区切り):", self.tags_edit)
         self.form_layout.addRow("SNS ハッシュタグ:", self.sns_tags_edit)
 
         # _widgets への登録
         self._widgets["title_jp"] = self.title_jp_edit
         self._widgets["title_en"] = self.title_en_edit
+        self._widgets["title_file_safe_jp"] = self.title_file_safe_jp_edit
         self._widgets["tags"] = self.tags_edit
         self._widgets["sns_tags"] = self.sns_tags_edit
 
@@ -55,6 +58,7 @@ class WorkEditorDialog(BaseEditorDialog):
                 id=f"work_{int(time.time())}",
                 title_jp=title_jp,
                 title_en=self.title_en_edit.text().strip(),
+                title_file_safe_jp=self.title_file_safe_jp_edit.text().strip(),
                 tags=[t.strip() for t in self.tags_edit.text().split(",") if t.strip()],
                 sns_tags=self.sns_tags_edit.text().strip(),
             )
