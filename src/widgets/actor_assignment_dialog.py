@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Slot, Qt  # ★ Qt をインポート
 from typing import Dict, List, Optional, Set, Any, Tuple
+import copy
 
 from ..models import Sequence, Scene, Cut, Actor, SceneRole
 
@@ -34,7 +35,7 @@ class ActorAssignmentDialog(QDialog):
         self.sequence = sequence
         self.db_data = db_data
         self.assignments = initial_assignments.copy()  # 編集用のコピー
-        self.overrides = initial_overrides.copy()
+        self.overrides = copy.deepcopy(initial_overrides)
         self.role_override_combos: Dict[str, Dict[str, QComboBox]] = {}
         self.role_combos: Dict[str, QComboBox] = {}
 
@@ -56,9 +57,6 @@ class ActorAssignmentDialog(QDialog):
         scenes_data = self.db_data.get("scenes", {})
         cuts_data = self.db_data.get("cuts", {})
         unique_roles_info: Dict[str, List[str]] = {}
-        roles_with_empty_costumes: Set[str] = set()
-        roles_with_empty_poses: Set[str] = set()
-        roles_with_empty_expressions: Set[str] = set()
 
         for entry in self.sequence.scene_entries:
             if not entry.is_enabled:
@@ -71,8 +69,6 @@ class ActorAssignmentDialog(QDialog):
             cut: Optional[Cut] = cuts_data.get(scene.cut_id) if scene.cut_id else None
             if not cut:
                 continue
-
-            scene_assignments_map = {ra.role_id: ra for ra in scene.role_assignments}
 
             for role in cut.roles:
                 if not role.id:
@@ -90,15 +86,6 @@ class ActorAssignmentDialog(QDialog):
                 ):
                     unique_roles_info[role.id].append(role.name_in_scene)
 
-                # --- 空スロットのチェック ---
-                role_assignment = scene_assignments_map.get(role.id)
-                # シーンに設定がない(None)か、あってもリストが空([])の場合
-                if not role_assignment or not role_assignment.costume_ids:
-                    roles_with_empty_costumes.add(role.id)
-                if not role_assignment or not role_assignment.pose_ids:
-                    roles_with_empty_poses.add(role.id)
-                if not role_assignment or not role_assignment.expression_ids:
-                    roles_with_empty_expressions.add(role.id)
 
         # --- アクターリスト準備 ---
         actors_data = self.db_data.get("actors", {})
@@ -122,7 +109,7 @@ class ActorAssignmentDialog(QDialog):
         ) -> List[Tuple[str, Optional[str]]]:
             data = self.db_data.get(db_key, {})
             sorted_items = _recent_first(list(data.values()))
-            # "default" を、アクターのベース設定を使用する識別子として itemData に設定
+            # "default" は、シーン設定 or アクターデフォルトにフォールバックする識別子
             items_list = [(f"({default_label})", "default")]
             for item in sorted_items:
                 item_id = getattr(item, "id", None)
@@ -131,10 +118,10 @@ class ActorAssignmentDialog(QDialog):
                     items_list.append((f"{item_name} ({item_id})", item_id))
             return items_list
 
-        costume_items = get_appearance_items("costumes", "Actor Default Costume")
-        pose_items = get_appearance_items("poses", "Actor Default Pose")
+        costume_items = get_appearance_items("costumes", "Use Scene/Actor Default Costume")
+        pose_items = get_appearance_items("poses", "Use Scene/Actor Default Pose")
         expression_items = get_appearance_items(
-            "expressions", "Actor Default Expression"
+            "expressions", "Use Scene/Actor Default Expression"
         )
 
         # --- UI構築 ---
@@ -191,15 +178,12 @@ class ActorAssignmentDialog(QDialog):
                     )  # QFormLayout に追加
                     self.role_override_combos[role_id][key] = combo
 
-                # シーン側でリストが空だった項目についてのみ、コンボボックスを追加
-                if role_id in roles_with_empty_costumes:
-                    add_override_combo(role_id, "costume_id", "Costume", costume_items)
-                if role_id in roles_with_empty_poses:
-                    add_override_combo(role_id, "pose_id", "Pose", pose_items)
-                if role_id in roles_with_empty_expressions:
-                    add_override_combo(
-                        role_id, "expression_id", "Expression", expression_items
-                    )
+                # BatchQueue では常に手動オーバーライド可能にする
+                add_override_combo(role_id, "costume_id", "Costume", costume_items)
+                add_override_combo(role_id, "pose_id", "Pose", pose_items)
+                add_override_combo(
+                    role_id, "expression_id", "Expression", expression_items
+                )
 
         scroll.setWidget(content_widget)
         layout.addWidget(scroll)
