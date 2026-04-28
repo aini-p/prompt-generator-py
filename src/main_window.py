@@ -661,7 +661,15 @@ class MainWindow(QMainWindow):
         if not updated_db_key or updated_db_key == "scenes":
             self.prompt_panel.set_assignments(self.actor_assignments)
             self.prompt_panel.update_scene_combo()
-        elif updated_db_key in ["actors", "cuts", "characters", "works"]:
+        elif updated_db_key in [
+            "actors",
+            "cuts",
+            "characters",
+            "works",
+            "costumes",
+            "poses",
+            "expressions",
+        ]:
             self.prompt_panel.set_assignments(self.actor_assignments)
             self.prompt_panel.build_role_assignment_ui()
             
