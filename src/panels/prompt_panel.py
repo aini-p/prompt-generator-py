@@ -195,6 +195,17 @@ class PromptPanel(QWidget):
         actor_ids = [""] + [getattr(a, "id", None) for a in actor_list]
         valid_actor_ids = [aid for aid in actor_ids if aid is not None]
 
+        # --- Costume / Pose / Expression item lists ---
+        def _build_item_list(db_key: str):
+            items = self._get_recent_first_items(db_key)
+            names = ["-- Default --"] + [getattr(i, "name", "Unnamed") for i in items]
+            ids = [""] + [getattr(i, "id", None) for i in items]
+            return names, ids
+
+        costume_names, costume_ids = _build_item_list("costumes")
+        pose_names, pose_ids = _build_item_list("poses")
+        expression_names, expression_ids = _build_item_list("expressions")
+
         # --- Build UI for Roles ---
         for role in roles_to_display:
             role_id = getattr(role, "id", None)
@@ -202,29 +213,58 @@ class PromptPanel(QWidget):
                 continue
 
             role_name = getattr(role, "name_in_scene", "Unknown Role")
-            role_layout = QHBoxLayout()
-            label_text = f"{role_name} ([{role_id.upper()}])"
-            role_layout.addWidget(QLabel(label_text))
-            
-            combo = QComboBox()
-            combo.addItems(actor_names)
 
+            # Role group box
+            role_group = QGroupBox(f"{role_name}  [{role_id.upper()}]")
+            role_form = QFormLayout(role_group)
+            role_form.setContentsMargins(6, 4, 6, 4)
+
+            # --- Actor combo ---
+            actor_combo = QComboBox()
+            actor_combo.addItems(actor_names)
             assigned_actor_id = self._current_assignments.get(role_id)
-            current_index = 0
+            actor_index = 0
             if assigned_actor_id and assigned_actor_id in valid_actor_ids:
                 try:
-                    current_index = valid_actor_ids.index(assigned_actor_id)
+                    actor_index = valid_actor_ids.index(assigned_actor_id)
                 except ValueError:
-                    pass  # Actor not found, will default to index 0
-
-            combo.setCurrentIndex(current_index)
-            combo.currentIndexChanged.connect(
+                    pass
+            actor_combo.setCurrentIndex(actor_index)
+            actor_combo.currentIndexChanged.connect(
                 lambda index, r_id=role_id, ids=list(actor_ids): self._on_actor_assigned(
                     r_id, ids[index] if 0 <= index < len(ids) else ""
                 )
             )
-            role_layout.addWidget(combo)
-            layout.addLayout(role_layout)
+            role_form.addRow("Actor:", actor_combo)
+
+            # --- Override combos (Costume / Pose / Expression) ---
+            role_overrides = self._current_overrides.get(role_id, {})
+            override_specs = [
+                ("Costume:", costume_names, costume_ids, "costume_id"),
+                ("Pose:", pose_names, pose_ids, "pose_id"),
+                ("Expression:", expression_names, expression_ids, "expression_id"),
+            ]
+            self._role_override_combos[role_id] = {}
+            for label, names, ids, key in override_specs:
+                ov_combo = QComboBox()
+                ov_combo.addItems(names)
+                saved_id = role_overrides.get(key, "")
+                ov_index = 0
+                if saved_id and saved_id in ids:
+                    try:
+                        ov_index = ids.index(saved_id)
+                    except ValueError:
+                        pass
+                ov_combo.setCurrentIndex(ov_index)
+                ov_combo.currentIndexChanged.connect(
+                    lambda index, r_id=role_id, k=key, id_list=list(ids): self._on_override_assigned(
+                        r_id, k, id_list[index] if 0 <= index < len(id_list) else ""
+                    )
+                )
+                self._role_override_combos[role_id][key] = ov_combo
+                role_form.addRow(label, ov_combo)
+
+            layout.addWidget(role_group)
 
         layout.addStretch()
         
@@ -259,5 +299,11 @@ class PromptPanel(QWidget):
             del self._current_assignments[role_id]
         self.assignmentChanged.emit(self._current_assignments.copy())
 
-    # _on_override_assigned and related functions are removed for simplicity
-    # as the core issue is with role assignment UI updates. They can be added back if needed.
+    @Slot(str, str, str)
+    def _on_override_assigned(self, role_id: str, key: str, value: str):
+        if role_id not in self._current_overrides:
+            self._current_overrides[role_id] = {}
+        if value:
+            self._current_overrides[role_id][key] = value
+        else:
+            self._current_overrides[role_id].pop(key, None)
