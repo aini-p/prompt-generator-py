@@ -931,7 +931,7 @@ class MainWindow(QMainWindow):
         if not char_file: return
 
         try:
-            wc, wu = self._sync_works_from_csv(work_file)
+            wc, wu, ws = self._sync_works_from_csv(work_file)
             cc, cu, cs, ac = self._sync_characters_from_csv(char_file)
             self.update_ui_after_data_change()
             QMessageBox.information(
@@ -939,8 +939,8 @@ class MainWindow(QMainWindow):
                 "同期完了",
                 (
                     "CSV同期が完了しました。\n\n"
-                    f"作品: 新規{wc}, 更新{wu}\n"
-                    f"キャラクター: 新規{cc}, 更新{cu}, スキップ{cs}\n"
+                    f"作品: 新規{wc}, スキップ(既存){ws}\n"
+                    f"キャラクター: 新規{cc}, スキップ(既存){cu}, スキップ(作品不明){cs}\n"
                     f"Actor自動作成: 新規{ac}"
                 ),
             )
@@ -948,8 +948,8 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "同期エラー", f"CSVの処理中にエラーが発生しました:\n{e}")
             traceback.print_exc()
 
-    def _sync_works_from_csv(self, file_path: str) -> Tuple[int, int]:
-        created_count, updated_count = 0, 0
+    def _sync_works_from_csv(self, file_path: str) -> Tuple[int, int, int]:
+        created_count, updated_count, skipped_count = 0, 0, 0
         with open(file_path, "r", encoding="utf-8-sig") as f:
             reader = csv.reader(f)
             header = {h: i for i, h in enumerate(next(reader))}
@@ -958,10 +958,12 @@ class MainWindow(QMainWindow):
                 if not (work_id := row[header["ファイルセーフ英語"]]): continue
                 
                 is_new = work_id not in self.db_data.get("works", {})
-                work_obj = self.db_data.get("works", {}).get(work_id, Work(id=work_id))
-                if is_new: created_count += 1
-                else: updated_count += 1
-                    
+                if not is_new:
+                    skipped_count += 1
+                    continue
+
+                created_count += 1
+                work_obj = Work(id=work_id)
                 work_obj.title_jp = row[header["フルタイトル日本語"]]
                 work_obj.title_en = row[header["フルタイトル英語"]]
                 work_obj.sns_tags = row[header["ハッシュタグ英語"]]
@@ -970,7 +972,7 @@ class MainWindow(QMainWindow):
                 db.save_work(work_obj)
                 if "works" not in self.db_data: self.db_data["works"] = {}
                 self.db_data["works"][work_id] = work_obj
-        return created_count, updated_count
+        return created_count, updated_count, skipped_count
 
     def _sync_characters_from_csv(self, file_path: str) -> Tuple[int, int, int, int]:
         created, updated, skipped, actor_created = 0, 0, 0, 0
@@ -987,10 +989,12 @@ class MainWindow(QMainWindow):
                     continue
                 
                 is_new = char_id not in self.db_data.get("characters", {})
-                char_obj = self.db_data.get("characters", {}).get(char_id, Character(id=char_id))
-                if is_new: created += 1
-                else: updated += 1
-                
+                if not is_new:
+                    updated += 1
+                    continue
+
+                created += 1
+                char_obj = Character(id=char_id)
                 char_obj.name = row[header["ファイルセーフ日本語"]]
                 char_obj.work_id = work_id
                 char_obj.tags = [row[header[h]] for h in ["フルネーム日本語", "フルネーム英語", "ショートネーム日本語", "ハッシュタグ日本語"] if row[header[h]]]

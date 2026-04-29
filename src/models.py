@@ -222,6 +222,8 @@ class GeneratedPrompt:
 class SequenceSceneEntry:
     scene_id: str
     is_enabled: bool = True
+    scene_title: str = ""  # シーンの表示用タイトル（ユーザー編集可能）
+    notes: str = ""  # シーケンスプランニング用のメモ
     # order: int = 0 # 順序はリストのインデックスで管理
 
 
