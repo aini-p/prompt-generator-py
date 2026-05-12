@@ -33,6 +33,7 @@ class PromptPanel(QWidget):
     executeGenerationClicked = Signal()
     sceneChanged = Signal(str)
     assignmentChanged = Signal(dict)
+    appearanceOverridesChanged = Signal(dict)
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -307,3 +308,9 @@ class PromptPanel(QWidget):
             self._current_overrides[role_id][key] = value
         else:
             self._current_overrides[role_id].pop(key, None)
+
+        # Keep override payload clean to avoid stale empty role entries.
+        if role_id in self._current_overrides and not self._current_overrides[role_id]:
+            del self._current_overrides[role_id]
+
+        self.appearanceOverridesChanged.emit(self.get_current_overrides())

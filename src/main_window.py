@@ -305,6 +305,9 @@ class MainWindow(QMainWindow):
         self.prompt_panel.assignmentChanged.connect(
             self._handle_assignment_change_and_save_config
         )
+        self.prompt_panel.appearanceOverridesChanged.connect(
+            self._handle_overrides_change_and_save_config
+        )
 
         # Library Panel
         self.library_panel.library_list_widget.itemDoubleClicked.connect(
@@ -429,6 +432,18 @@ class MainWindow(QMainWindow):
     def _handle_assignment_change_and_save_config(self, new_assignments: dict):
         self.actor_assignments = new_assignments.copy()
         self.appearance_overrides = self.prompt_panel.get_current_overrides()
+        self.generated_prompts = []
+        self.update_prompt_display()
+        self.data_handler.save_config(
+            self.current_scene_id,
+            self.actor_assignments,
+            self.appearance_overrides,
+            self.image_output_base_dir,
+        )
+
+    @Slot(dict)
+    def _handle_overrides_change_and_save_config(self, new_overrides: dict):
+        self.appearance_overrides = copy.deepcopy(new_overrides)
         self.generated_prompts = []
         self.update_prompt_display()
         self.data_handler.save_config(

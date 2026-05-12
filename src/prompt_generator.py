@@ -64,15 +64,25 @@ def _apply_color_palette(
     result_text = text
     replacements = {}
     for item in costume.color_palette:
-        placeholder = item.placeholder
-        attr_name = item.color_ref
+        placeholder = getattr(item, "placeholder", "")
+        attr_name = getattr(item, "color_ref", "")
+        if isinstance(item, dict):
+            placeholder = item.get("placeholder", placeholder)
+            attr_name = item.get("color_ref", attr_name)
+
+        placeholder = (placeholder or "").strip()
+        attr_name = (attr_name or "").strip()
+        if not placeholder or not attr_name:
+            continue
+
         if hasattr(character, attr_name):
             color_value = getattr(character, attr_name, "")
             if color_value:
                 replacements[placeholder] = color_value
     sorted_placeholders = sorted(replacements.keys(), key=len, reverse=True)
     for ph in sorted_placeholders:
-        result_text = result_text.replace(ph, replacements[ph])
+        # Replace placeholder case-insensitively so [C1]/[c1] both work.
+        result_text = re.sub(re.escape(ph), replacements[ph], result_text, flags=re.IGNORECASE)
     return result_text
 
 
@@ -183,6 +193,7 @@ def _apply_state_prompts(
     base_prompt: str,
     base_negative: str,
     costume: Optional[Costume],
+    character: Optional[Character],
     scene: Scene,
     db: FullDatabase,
 ) -> Tuple[str, str]:
@@ -190,8 +201,8 @@ def _apply_state_prompts(
     if not costume or not hasattr(costume, "state_ids"):
         return base_prompt, base_negative
 
-    final_prompt = base_prompt
-    final_negative = base_negative
+    final_prompt = _apply_color_palette(base_prompt, costume, character)
+    final_negative = _apply_color_palette(base_negative, costume, character)
     applicable_states: List[State] = []
     scene_categories = set(getattr(scene, "state_categories", []))
 
@@ -203,9 +214,15 @@ def _apply_state_prompts(
                 applicable_states.append(state)
 
     if applicable_states:
-        state_prompts = [s.prompt for s in applicable_states if s.prompt]
+        state_prompts = [
+            _apply_color_palette(s.prompt, costume, character)
+            for s in applicable_states
+            if s.prompt
+        ]
         state_neg_prompts = [
-            s.negative_prompt for s in applicable_states if s.negative_prompt
+            _apply_color_palette(s.negative_prompt, costume, character)
+            for s in applicable_states
+            if s.negative_prompt
         ]
         if state_prompts:
             final_prompt = ", ".join(filter(None, [final_prompt] + state_prompts))
@@ -450,7 +467,7 @@ def generate_batch_prompts(
             )
 
             role_pos, role_neg = _apply_state_prompts(
-                role_pos, role_neg, costume_obj, scene, db
+                role_pos, role_neg, costume_obj, character, scene, db
             )
             role_pos = _apply_color_palette(role_pos, costume_obj, character)
             role_neg = _apply_color_palette(role_neg, costume_obj, character)
