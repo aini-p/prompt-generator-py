@@ -932,7 +932,7 @@ class MainWindow(QMainWindow):
 
         try:
             wc, wu, ws = self._sync_works_from_csv(work_file)
-            cc, cu, cs, ac = self._sync_characters_from_csv(char_file)
+            cc, cu, cs, ac, coc = self._sync_characters_from_csv(char_file)
             self.update_ui_after_data_change()
             QMessageBox.information(
                 self,
@@ -941,7 +941,8 @@ class MainWindow(QMainWindow):
                     "CSV同期が完了しました。\n\n"
                     f"作品: 新規{wc}, スキップ(既存){ws}\n"
                     f"キャラクター: 新規{cc}, スキップ(既存){cu}, スキップ(作品不明){cs}\n"
-                    f"Actor自動作成: 新規{ac}"
+                    f"Actor自動作成: 新規{ac}\n"
+                    f"Costume自動作成: 新規{coc}"
                 ),
             )
         except Exception as e:
@@ -974,8 +975,8 @@ class MainWindow(QMainWindow):
                 self.db_data["works"][work_id] = work_obj
         return created_count, updated_count, skipped_count
 
-    def _sync_characters_from_csv(self, file_path: str) -> Tuple[int, int, int, int]:
-        created, updated, skipped, actor_created = 0, 0, 0, 0
+    def _sync_characters_from_csv(self, file_path: str) -> Tuple[int, int, int, int, int]:
+        created, updated, skipped, actor_created, costume_created = 0, 0, 0, 0, 0
         work_map = {w.tags[0].strip(): w.id for w in self.db_data.get("works", {}).values() if w.tags}
         
         with open(file_path, "r", encoding="utf-8-sig") as f:
@@ -1006,14 +1007,22 @@ class MainWindow(QMainWindow):
                 # Characterに紐づくActorが未作成なら自動作成する
                 if "actors" not in self.db_data:
                     self.db_data["actors"] = {}
+                if "costumes" not in self.db_data:
+                    self.db_data["costumes"] = {}
 
                 actors_dict = self.db_data.get("actors", {})
+                costumes_dict = self.db_data.get("costumes", {})
                 has_linked_actor = any(
                     getattr(actor, "character_id", "") == char_id
                     for actor in actors_dict.values()
                 )
+                actor_name = (char_obj.name or char_id).strip()
+                has_same_name_actor = any(
+                    getattr(actor, "name", "").strip() == actor_name
+                    for actor in actors_dict.values()
+                )
 
-                if not has_linked_actor:
+                if not has_linked_actor and not has_same_name_actor:
                     base_actor_id = f"actor_{char_id}"
                     actor_id = base_actor_id
                     suffix = 1
@@ -1021,16 +1030,32 @@ class MainWindow(QMainWindow):
                         actor_id = f"{base_actor_id}_{suffix}"
                         suffix += 1
 
+                    base_costume_id = f"costume_{actor_id}_base"
+                    costume_id = base_costume_id
+                    costume_suffix = 1
+                    while costume_id in costumes_dict:
+                        costume_id = f"{base_costume_id}_{costume_suffix}"
+                        costume_suffix += 1
+
+                    costume_obj = Costume(
+                        id=costume_id,
+                        name=f"{actor_name}の衣装",
+                    )
+                    db.save_costume(costume_obj)
+                    self.db_data["costumes"][costume_id] = costume_obj
+                    costume_created += 1
+
                     actor_obj = Actor(
                         id=actor_id,
-                        name=char_obj.name or char_id,
+                        name=actor_name,
                         character_id=char_id,
+                        base_costume_id=costume_id,
                     )
                     db.save_actor(actor_obj)
                     self.db_data["actors"][actor_id] = actor_obj
                     actor_created += 1
 
-        return created, updated, skipped, actor_created
+        return created, updated, skipped, actor_created, costume_created
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
