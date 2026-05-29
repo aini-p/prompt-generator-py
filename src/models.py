@@ -109,6 +109,7 @@ class Actor(PromptPartBase):
     base_costume_id: str = ""
     base_pose_id: str = ""
     base_expression_id: str = ""
+    setting_image_path: str = ""
 
 
 @dataclass
@@ -151,6 +152,8 @@ class Scene:
     sd_param_ids: List[str] = field(default_factory=list)
     state_categories: List[str] = field(default_factory=list)  # 状態カテゴリIDのリスト
     additional_prompt_ids: List[str] = field(default_factory=list)
+    reference_image_path: str = ""
+    reference_mode: str = "none"
     created_at: float = field(default_factory=time.time)
 
 

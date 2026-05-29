@@ -89,6 +89,29 @@ def _add_created_at_if_not_exists(cursor: sqlite3.Cursor, table_name: str):
         print(f"[WARN] An error occurred during schema migration for '{table_name}': {e}")
 
 
+def _add_column_if_not_exists(
+    cursor: sqlite3.Cursor, table_name: str, column_name: str, column_def: str
+):
+    """テーブルに指定カラムがなければ追加するヘルパー関数"""
+    try:
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        columns = [column[1] for column in cursor.fetchall()]
+        if column_name not in columns:
+            print(
+                f"[INFO] Migrating '{table_name}' table: Adding '{column_name}' column."
+            )
+            cursor.execute(
+                f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}"
+            )
+            print(
+                f"[INFO] '{column_name}' column added to '{table_name}' successfully."
+            )
+    except sqlite3.Error as e:
+        print(
+            f"[WARN] An error occurred during schema migration for '{table_name}.{column_name}': {e}"
+        )
+
+
 def _ensure_legacy_state_categories(cursor: sqlite3.Cursor):
     """既存の文字列カテゴリ参照から state_categories テーブルを補完する。"""
     try:
@@ -152,7 +175,8 @@ def initialize_db():
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, tags TEXT,
                 prompt TEXT, negative_prompt TEXT, created_at REAL,
                 character_id TEXT,
-                base_costume_id TEXT, base_pose_id TEXT, base_expression_id TEXT
+                base_costume_id TEXT, base_pose_id TEXT, base_expression_id TEXT,
+                setting_image_path TEXT
             )""")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS cuts (
@@ -171,7 +195,10 @@ def initialize_db():
                 role_assignments TEXT,
                 style_id TEXT,
                 sd_param_ids TEXT,
-                state_categories TEXT,additional_prompt_ids TEXT, created_at REAL
+                state_categories TEXT,additional_prompt_ids TEXT,
+                reference_image_path TEXT,
+                reference_mode TEXT,
+                created_at REAL
             )""")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS costumes (
@@ -240,6 +267,14 @@ def initialize_db():
         ]
         for table in all_tables:
             _add_created_at_if_not_exists(cursor, table)
+
+        _add_column_if_not_exists(cursor, "actors", "setting_image_path", "TEXT DEFAULT ''")
+        _add_column_if_not_exists(
+            cursor, "scenes", "reference_image_path", "TEXT DEFAULT ''"
+        )
+        _add_column_if_not_exists(
+            cursor, "scenes", "reference_mode", "TEXT DEFAULT 'none'"
+        )
 
         _ensure_legacy_state_categories(cursor)
 
