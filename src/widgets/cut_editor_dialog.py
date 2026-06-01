@@ -55,7 +55,14 @@ class CutEditorDialog(BaseEditorDialog):
             getattr(self.initial_data, "reference_image_path", "")
         )
         self.image_mode_combo = QComboBox()
-        self.image_mode_combo.addItems(["txt2img", "img2img", "img2img_polish"])
+        self.image_mode_combo.addItems(
+            [
+                "txt2img",
+                "img2img",
+                "img2img_polish",
+                "img2img_controlnet_canny_openpose",
+            ]
+        )
         self.image_mode_combo.setCurrentText(
             getattr(self.initial_data, "image_mode", "txt2img")
         )
