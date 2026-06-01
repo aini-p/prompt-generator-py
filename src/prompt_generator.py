@@ -718,9 +718,10 @@ def create_image_generation_tasks(
             if not source_image_path or mode == "txt2img":
                 mode = "txt2img"
                 source_image_path = ""
-            denoising_strength = (
-                sd_params.denoising_strength if mode != "txt2img" else None
-            )
+            # Keep SD Param value on the task regardless of initial mode.
+            # The caller may override mode later (e.g., scene reference_mode),
+            # and in that case this value should still be available.
+            denoising_strength = sd_params.denoising_strength
 
             task = ImageGenerationTask(
                 prompt=prompt_data.positive,
