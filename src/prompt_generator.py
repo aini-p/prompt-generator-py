@@ -738,10 +738,20 @@ def create_image_generation_tasks(
                 mode = "img2img"
             elif scene_ref_mode == "direct_img2img_raw":
                 mode = "img2img_raw"
-            elif scene_ref_mode == "img2img_controlnet_canny_openpose":
+            elif scene_ref_mode in [
+                "img2img_controlnet_canny_openpose",
+                "img2img_controlnet_canny_openpose_grayscale",
+            ]:
                 mode = "img2img_controlnet_canny_openpose"
-            elif scene_ref_mode == "img2img_controlnet_openpose":
+            elif scene_ref_mode == "img2img_controlnet_canny_openpose_raw":
+                mode = "img2img_controlnet_canny_openpose_raw"
+            elif scene_ref_mode in [
+                "img2img_controlnet_openpose",
+                "img2img_controlnet_openpose_grayscale",
+            ]:
                 mode = "img2img_controlnet_openpose"
+            elif scene_ref_mode == "img2img_controlnet_openpose_raw":
+                mode = "img2img_controlnet_openpose_raw"
 
             if not source_image_path or mode == "txt2img":
                 mode = "txt2img"
