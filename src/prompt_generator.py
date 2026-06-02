@@ -734,8 +734,10 @@ def create_image_generation_tasks(
             source_image_path = scene_source or cut_source
 
             # Scene reference_mode can override the cut mode.
-            if scene_ref_mode == "direct_img2img":
+            if scene_ref_mode in ["direct_img2img", "direct_img2img_grayscale"]:
                 mode = "img2img"
+            elif scene_ref_mode == "direct_img2img_raw":
+                mode = "img2img_raw"
             elif scene_ref_mode == "img2img_controlnet_canny_openpose":
                 mode = "img2img_controlnet_canny_openpose"
             elif scene_ref_mode == "img2img_controlnet_openpose":
