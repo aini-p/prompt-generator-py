@@ -408,6 +408,10 @@ def _load_items(table_name: str, class_type: Type[T]) -> Dict[str, T]:
                 row_dict["tags"] = []
 
         if class_type == Scene:
+            row_dict["reference_image_path"] = (
+                row_dict.get("reference_image_path") or ""
+            )
+            row_dict["reference_mode"] = row_dict.get("reference_mode") or "none"
             row_dict["state_categories"] = json_str_to_list(
                 row_dict.get("state_categories"), str
             )

@@ -713,8 +713,26 @@ def create_image_generation_tasks(
             prompt_data.cut = task_index  # 最終タスクインデックスとして上書き
             task_index += 1
 
-            mode = getattr(cut, "image_mode", "txt2img")
-            source_image_path = getattr(cut, "reference_image_path", "")
+            cut_mode = (getattr(cut, "image_mode", "txt2img") or "txt2img").strip()
+            cut_source = (getattr(cut, "reference_image_path", "") or "").strip()
+            scene_source = (
+                getattr(scene, "reference_image_path", "") or ""
+            ).strip()
+            scene_ref_mode = (
+                getattr(scene, "reference_mode", "none") or "none"
+            ).strip()
+
+            mode = cut_mode
+            source_image_path = scene_source or cut_source
+
+            # Scene reference_mode can override the cut mode.
+            if scene_ref_mode == "direct_img2img":
+                mode = "img2img"
+            elif scene_ref_mode == "img2img_controlnet_canny_openpose":
+                mode = "img2img_controlnet_canny_openpose"
+            elif scene_ref_mode == "img2img_controlnet_openpose":
+                mode = "img2img_controlnet_openpose"
+
             if not source_image_path or mode == "txt2img":
                 mode = "txt2img"
                 source_image_path = ""
