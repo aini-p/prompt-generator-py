@@ -713,11 +713,19 @@ def create_image_generation_tasks(
             prompt_data.cut = task_index  # 最終タスクインデックスとして上書き
             task_index += 1
 
+            def _strip_path_quotes(p: str) -> str:
+                p = (p or "").strip()
+                if len(p) >= 2 and p[0] in ('"', "'") and p[0] == p[-1]:
+                    p = p[1:-1].strip()
+                return p
+
             cut_mode = (getattr(cut, "image_mode", "txt2img") or "txt2img").strip()
-            cut_source = (getattr(cut, "reference_image_path", "") or "").strip()
-            scene_source = (
+            cut_source = _strip_path_quotes(
+                getattr(cut, "reference_image_path", "") or ""
+            )
+            scene_source = _strip_path_quotes(
                 getattr(scene, "reference_image_path", "") or ""
-            ).strip()
+            )
             scene_ref_mode = (
                 getattr(scene, "reference_mode", "none") or "none"
             ).strip()
