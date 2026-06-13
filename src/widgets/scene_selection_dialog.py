@@ -29,7 +29,7 @@ class SceneSelectionDialog(QDialog):
         filter_layout = QHBoxLayout()
         filter_layout.addWidget(QLabel("Search:"))
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Filter by name or ID...")
+        self.search_edit.setPlaceholderText("Filter by scene name or ID...")
         self.search_edit.textChanged.connect(self._filter_list)
         filter_layout.addWidget(self.search_edit)
         layout.addLayout(filter_layout)
@@ -59,8 +59,9 @@ class SceneSelectionDialog(QDialog):
             reverse=True,
         )
         for scene in scenes_to_display:
-            item = QListWidgetItem(f"{scene.name} ({scene.id})")
+            item = QListWidgetItem(scene.name)
             item.setData(Qt.ItemDataRole.UserRole, scene.id)
+            item.setToolTip(scene.name)
             self.scene_list_widget.addItem(item)
 
     @Slot(str)
@@ -69,8 +70,9 @@ class SceneSelectionDialog(QDialog):
         search_term = text.lower()
         for i in range(self.scene_list_widget.count()):
             item = self.scene_list_widget.item(i)
-            item_text = item.text().lower()
-            item.setHidden(search_term not in item_text)
+            scene_id = str(item.data(Qt.ItemDataRole.UserRole) or "")
+            searchable_text = f"{item.text()} {scene_id}".lower()
+            item.setHidden(search_term not in searchable_text)
 
     @Slot()
     def _accept_selection(self):

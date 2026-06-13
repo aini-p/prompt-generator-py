@@ -225,6 +225,8 @@ class GeneratedPrompt:
 class SequenceSceneEntry:
     scene_id: str
     is_enabled: bool = True
+    is_generated: bool = False  # シーケンスプランニング用: 生成済みチェック
+    thumbnail_path: str = ""  # シーケンスプランニング用: サムネイル画像パス
     scene_title: str = ""  # シーンの表示用タイトル（ユーザー編集可能）
     notes: str = ""  # シーケンスプランニング用のメモ
     # order: int = 0 # 順序はリストのインデックスで管理
