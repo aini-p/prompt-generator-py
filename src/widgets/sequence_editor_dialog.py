@@ -23,6 +23,13 @@ from ..models import Scene, Sequence, SequenceSceneEntry
 from .scene_selection_dialog import SceneSelectionDialog
 
 
+STATUS_LABELS = {
+    "not_started": "未着手",
+    "needs_adjustment": "要調整",
+    "completed": "完成",
+}
+
+
 # ドラッグアンドドロップ可能なリストウィジェット (BatchPanelと同じものを使うか再定義)
 class DraggableListWidget(QListWidget):
     # ... (BatchPanel と同じ実装) ...
@@ -41,7 +48,10 @@ class ScenePlanSettingsDialog(QDialog):
         form_layout.addRow("Scene:", self.scene_name_label)
 
         self.generated_check = QCheckBox("生成済み")
-        self.generated_check.setChecked(getattr(entry, "is_generated", False))
+        progress_status = getattr(entry, "progress_status", "not_started") or "not_started"
+        self.generated_check.setChecked(
+            progress_status == "completed" or getattr(entry, "is_generated", False)
+        )
         form_layout.addRow("Status:", self.generated_check)
 
         thumb_layout = QHBoxLayout()
@@ -174,8 +184,11 @@ class SequenceEditorDialog(QDialog):
 
         display_name = getattr(scene, "name", "Unnamed")
         status_tokens = []
-        if getattr(entry, "is_generated", False):
-            status_tokens.append("生成済み")
+                progress_status = getattr(entry, "progress_status", "not_started") or "not_started"
+                if progress_status in STATUS_LABELS:
+                    status_tokens.append(STATUS_LABELS[progress_status])
+                elif getattr(entry, "is_generated", False):
+                    status_tokens.append("完成")
         if getattr(entry, "thumbnail_path", ""):
             status_tokens.append("サムネあり")
         status_suffix = f" [{' / '.join(status_tokens)}]" if status_tokens else ""
@@ -246,6 +259,7 @@ class SequenceEditorDialog(QDialog):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             is_generated, thumbnail_path = dialog.get_values()
             entry.is_generated = is_generated
+            entry.progress_status = "completed" if is_generated else "not_started"
             entry.thumbnail_path = thumbnail_path
 
             selected_item = selected_items[0]
@@ -277,6 +291,11 @@ class SequenceEditorDialog(QDialog):
                         scene_title=getattr(original_entry, "scene_title", ""),
                         notes=getattr(original_entry, "notes", ""),
                         is_generated=getattr(original_entry, "is_generated", False),
+                        progress_status=getattr(
+                            original_entry,
+                            "progress_status",
+                            "completed" if getattr(original_entry, "is_generated", False) else "not_started",
+                        ),
                         thumbnail_path=getattr(original_entry, "thumbnail_path", ""),
                     )
                 )

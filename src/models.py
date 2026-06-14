@@ -226,6 +226,7 @@ class SequenceSceneEntry:
     scene_id: str
     is_enabled: bool = True
     is_generated: bool = False  # シーケンスプランニング用: 生成済みチェック
+    progress_status: str = "not_started"  # not_started / needs_adjustment / completed
     thumbnail_path: str = ""  # シーケンスプランニング用: サムネイル画像パス
     scene_title: str = ""  # シーンの表示用タイトル（ユーザー編集可能）
     notes: str = ""  # シーケンスプランニング用のメモ
