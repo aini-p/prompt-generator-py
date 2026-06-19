@@ -184,6 +184,7 @@ class BatchMetadata:
     main_character: Optional[str] = None
     sub_characters: List[str] = field(default_factory=list)
     work_titles: List[str] = field(default_factory=list)
+    output_layout: str = "legacy"
 
 
 @dataclass
