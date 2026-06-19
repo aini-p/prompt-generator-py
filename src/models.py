@@ -185,6 +185,8 @@ class BatchMetadata:
     sub_characters: List[str] = field(default_factory=list)
     work_titles: List[str] = field(default_factory=list)
     output_layout: str = "legacy"
+    episode_id: Optional[int] = None
+    actor_id: Optional[str] = None
 
 
 @dataclass
