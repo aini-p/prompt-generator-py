@@ -775,6 +775,12 @@ def create_image_generation_tasks(
                 source_image_path=source_image_path,
                 denoising_strength=denoising_strength,
                 model=sd_params.model,
+                adetailer_enabled=bool(
+                    getattr(scene, "adetailer_enabled", False)
+                ),
+                adetailer_models=list(
+                    getattr(scene, "adetailer_models", []) or []
+                ),
                 metadata=BatchMetadata(),
                 # n_iter と batch_size は MainWindow 側で設定される
             )

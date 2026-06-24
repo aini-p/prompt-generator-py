@@ -198,6 +198,8 @@ def initialize_db():
                 state_categories TEXT,additional_prompt_ids TEXT,
                 reference_image_path TEXT,
                 reference_mode TEXT,
+                adetailer_enabled INTEGER DEFAULT 0,
+                adetailer_models TEXT DEFAULT '[]',
                 created_at REAL
             )""")
         cursor.execute("""
@@ -274,6 +276,12 @@ def initialize_db():
         )
         _add_column_if_not_exists(
             cursor, "scenes", "reference_mode", "TEXT DEFAULT 'none'"
+        )
+        _add_column_if_not_exists(
+            cursor, "scenes", "adetailer_enabled", "INTEGER DEFAULT 0"
+        )
+        _add_column_if_not_exists(
+            cursor, "scenes", "adetailer_models", "TEXT DEFAULT '[]'"
         )
 
         _ensure_legacy_state_categories(cursor)
@@ -412,6 +420,12 @@ def _load_items(table_name: str, class_type: Type[T]) -> Dict[str, T]:
                 row_dict.get("reference_image_path") or ""
             )
             row_dict["reference_mode"] = row_dict.get("reference_mode") or "none"
+            row_dict["adetailer_enabled"] = bool(
+                row_dict.get("adetailer_enabled")
+            )
+            row_dict["adetailer_models"] = json_str_to_list(
+                row_dict.get("adetailer_models"), str
+            )
             row_dict["state_categories"] = json_str_to_list(
                 row_dict.get("state_categories"), str
             )
@@ -533,6 +547,8 @@ def delete_actor(actor_id: str):
 def save_scene(scene: Scene):
     data = scene.__dict__.copy()
     data["tags"] = json.dumps(data.get("tags", []))
+    data["adetailer_enabled"] = 1 if data.get("adetailer_enabled") else 0
+    data["adetailer_models"] = list_to_json_str(data.get("adetailer_models", []))
     data["role_assignments"] = dataclass_list_to_json_str(
         data.get("role_assignments", [])
     )

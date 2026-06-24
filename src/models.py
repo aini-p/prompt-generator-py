@@ -154,6 +154,8 @@ class Scene:
     additional_prompt_ids: List[str] = field(default_factory=list)
     reference_image_path: str = ""
     reference_mode: str = "none"
+    adetailer_enabled: bool = False
+    adetailer_models: List[str] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
 
 
@@ -206,6 +208,8 @@ class ImageGenerationTask:
     model: Optional[str] = None
     batch_size: int = 2
     n_iter: int = 1
+    adetailer_enabled: bool = False
+    adetailer_models: List[str] = field(default_factory=list)
     metadata: BatchMetadata = field(default_factory=BatchMetadata)
 
 
