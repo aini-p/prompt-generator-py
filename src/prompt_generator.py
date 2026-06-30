@@ -485,15 +485,6 @@ def generate_batch_prompts(
         final_positive = cut_obj.prompt_template
         final_negative = cut_obj.negative_template
 
-        # --- ▼▼▼ Apply role color references (例: [R0C1], [R1C2]) ▼▼▼ ---
-        final_positive = _apply_role_color_references(
-            final_positive, cut_obj, actor_assignments, db
-        )
-        final_negative = _apply_role_color_references(
-            final_negative, cut_obj, actor_assignments, db
-        )
-        # --- ▲▲▲ Apply role color references end ▲▲▲ ---
-
         # --- ▼▼▼ Auto-complete negative template placeholders ▼▼▼ ---
         positive_placeholders = re.findall(r"(\[R\d+\])", final_positive)
         if positive_placeholders:
@@ -554,6 +545,18 @@ def generate_batch_prompts(
 
         final_positive = _clean_prompt(_combine_prompts(*common_pos_parts))
         final_negative = _clean_prompt(_combine_prompts(*common_neg_parts))
+
+        # --- ▼▼▼ Apply role color references after full prompt assembly ▼▼▼ ---
+        # [R1C1] などのプレースホルダーを、全オブジェクト結合後の最終プロンプトに対して適用する。
+        # (Cut テンプレートだけでなく、Actor/Costume/Pose/Expression 等に書かれた
+        #  プレースホルダーも確実に置換されるようにするため、最後に実行する)
+        final_positive = _apply_role_color_references(
+            final_positive, cut_obj, actor_assignments, db
+        )
+        final_negative = _apply_role_color_references(
+            final_negative, cut_obj, actor_assignments, db
+        )
+        # --- ▲▲▲ Apply role color references end ▲▲▲ ---
 
         # --- ▼▼▼ 修正箇所 ▼▼▼ ---
 
