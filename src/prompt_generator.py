@@ -496,19 +496,12 @@ def generate_batch_prompts(
                     placeholders_to_add.append(ph)
 
             if placeholders_to_add:
-                # Create the string part to be added
                 additional_template_part = ", ".join(placeholders_to_add)
 
-                # Add a comma to the existing negative template if it's not empty and doesn't end with a comma
                 if final_negative and not final_negative.strip().endswith(","):
                     final_negative += ", "
 
-                # Append the missing placeholders
                 final_negative += additional_template_part
-
-                print(
-                    f"[INFO] Auto-added missing placeholders to negative prompt generation: {additional_template_part}"
-                )
         # --- ▲▲▲ Auto-completion logic ends ▲▲▲ ---
 
         for role_id, role_pos_prompt in positive_prompts_per_role.items():
