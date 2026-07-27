@@ -722,32 +722,46 @@ def create_image_generation_tasks(
             scene_source = _strip_path_quotes(
                 getattr(scene, "reference_image_path", "") or ""
             )
+            cut_ref_mode = (
+                getattr(cut, "reference_mode", "none") or "none"
+            ).strip()
             scene_ref_mode = (
                 getattr(scene, "reference_mode", "none") or "none"
             ).strip()
 
-            mode = cut_mode
-            source_image_path = scene_source or cut_source
+            def _normalize_reference_mode(ref_mode: str) -> str:
+                if ref_mode in ["direct_img2img", "direct_img2img_grayscale"]:
+                    return "img2img"
+                if ref_mode == "direct_img2img_raw":
+                    return "img2img_raw"
+                if ref_mode in [
+                    "img2img_controlnet_canny_openpose",
+                    "img2img_controlnet_canny_openpose_grayscale",
+                ]:
+                    return "img2img_controlnet_canny_openpose"
+                if ref_mode == "img2img_controlnet_canny_openpose_raw":
+                    return "img2img_controlnet_canny_openpose_raw"
+                if ref_mode in [
+                    "img2img_controlnet_openpose",
+                    "img2img_controlnet_openpose_grayscale",
+                ]:
+                    return "img2img_controlnet_openpose"
+                if ref_mode == "img2img_controlnet_openpose_raw":
+                    return "img2img_controlnet_openpose_raw"
+                return ""
 
-            # Scene reference_mode can override the cut mode.
-            if scene_ref_mode in ["direct_img2img", "direct_img2img_grayscale"]:
-                mode = "img2img"
-            elif scene_ref_mode == "direct_img2img_raw":
-                mode = "img2img_raw"
-            elif scene_ref_mode in [
-                "img2img_controlnet_canny_openpose",
-                "img2img_controlnet_canny_openpose_grayscale",
-            ]:
-                mode = "img2img_controlnet_canny_openpose"
-            elif scene_ref_mode == "img2img_controlnet_canny_openpose_raw":
-                mode = "img2img_controlnet_canny_openpose_raw"
-            elif scene_ref_mode in [
-                "img2img_controlnet_openpose",
-                "img2img_controlnet_openpose_grayscale",
-            ]:
-                mode = "img2img_controlnet_openpose"
-            elif scene_ref_mode == "img2img_controlnet_openpose_raw":
-                mode = "img2img_controlnet_openpose_raw"
+            mode = cut_mode
+            source_image_path = cut_source or scene_source
+
+            # Priority: scene reference_mode > cut reference_mode > cut image_mode.
+            scene_mode = _normalize_reference_mode(scene_ref_mode)
+            cut_reference_mode = _normalize_reference_mode(cut_ref_mode)
+            if scene_mode:
+                mode = scene_mode
+                source_image_path = scene_source or cut_source
+            elif cut_reference_mode:
+                mode = cut_reference_mode
+                source_image_path = cut_source or scene_source
 
             if not source_image_path or mode == "txt2img":
                 mode = "txt2img"
