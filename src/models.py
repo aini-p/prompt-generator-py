@@ -189,6 +189,9 @@ class BatchMetadata:
     output_layout: str = "legacy"
     episode_id: Optional[int] = None
     actor_id: Optional[str] = None
+    # 出力フォルダ名に使うアクター名（同一キャラクターのバリアント違いを区別するため）。
+    # 未設定の場合は main_character（キャラクター名）にフォールバックする。
+    main_actor_name: Optional[str] = None
 
 
 @dataclass
