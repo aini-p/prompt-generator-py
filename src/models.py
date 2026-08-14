@@ -156,6 +156,17 @@ class Scene:
     reference_mode: str = "none"
     adetailer_enabled: bool = False
     adetailer_models: List[str] = field(default_factory=list)
+    # --- マスク領域限定描画 (inpainting) 用設定 ---
+    # reference_mode が img2img_mask / img2img_mask_raw のときに使用される。
+    # 背景は reference_image_path を流用し (未指定なら background_color の単色キャンバスを生成)、
+    # mask_image_path の白領域のみを再描画する。
+    mask_image_path: str = ""
+    background_color: str = ""  # 例: "#ffffff"。reference_image_path が空のときの単色背景に使用
+    mask_blur: int = 4  # Automatic1111 の mask_blur (px)
+    mask_padding: int = 32  # Automatic1111 の inpaint_full_res_padding (px)
+    inpainting_fill: str = "original"  # fill / original / latent_noise / latent_nothing
+    inpaint_full_res: bool = True  # True: マスク領域のみ拡大して処理 / False: 画像全体を処理
+    mask_invert: bool = False
     created_at: float = field(default_factory=time.time)
 
 
@@ -213,6 +224,14 @@ class ImageGenerationTask:
     n_iter: int = 1
     adetailer_enabled: bool = False
     adetailer_models: List[str] = field(default_factory=list)
+    # --- マスク領域限定描画 (inpainting) 用設定。Scene 側の同名フィールドを参照。 ---
+    mask_image_path: str = ""
+    background_color: str = ""
+    mask_blur: int = 4
+    mask_padding: int = 32
+    inpainting_fill: str = "original"
+    inpaint_full_res: bool = True
+    mask_invert: bool = False
     metadata: BatchMetadata = field(default_factory=BatchMetadata)
 
 

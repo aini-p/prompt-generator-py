@@ -748,6 +748,10 @@ def create_image_generation_tasks(
                     return "img2img_controlnet_openpose"
                 if ref_mode == "img2img_controlnet_openpose_raw":
                     return "img2img_controlnet_openpose_raw"
+                if ref_mode in ["img2img_mask", "img2img_mask_grayscale"]:
+                    return "img2img_mask"
+                if ref_mode == "img2img_mask_raw":
+                    return "img2img_mask_raw"
                 return ""
 
             mode = cut_mode
@@ -763,7 +767,17 @@ def create_image_generation_tasks(
                 mode = cut_reference_mode
                 source_image_path = cut_source or scene_source
 
-            if not source_image_path or mode == "txt2img":
+            # マスク領域限定描画 (img2img_mask/img2img_mask_raw) は、背景画像
+            # (reference_image_path) の代わりに単色背景 (background_color) を使うことが
+            # できるため、この場合に限り source_image_path が空でも txt2img へ落とさない。
+            mask_image_path = _strip_path_quotes(
+                getattr(scene, "mask_image_path", "") or ""
+            )
+            background_color = (getattr(scene, "background_color", "") or "").strip()
+            is_mask_mode = mode in ("img2img_mask", "img2img_mask_raw")
+            has_synthetic_background = is_mask_mode and bool(background_color)
+
+            if (not source_image_path and not has_synthetic_background) or mode == "txt2img":
                 mode = "txt2img"
                 source_image_path = ""
             # Keep SD Param value on the task regardless of initial mode.
@@ -791,6 +805,15 @@ def create_image_generation_tasks(
                 adetailer_models=list(
                     getattr(scene, "adetailer_models", []) or []
                 ),
+                mask_image_path=mask_image_path,
+                background_color=background_color,
+                mask_blur=int(getattr(scene, "mask_blur", 4) or 4),
+                mask_padding=int(getattr(scene, "mask_padding", 32) or 32),
+                inpainting_fill=(
+                    getattr(scene, "inpainting_fill", "original") or "original"
+                ),
+                inpaint_full_res=bool(getattr(scene, "inpaint_full_res", True)),
+                mask_invert=bool(getattr(scene, "mask_invert", False)),
                 metadata=BatchMetadata(),
                 # n_iter と batch_size は MainWindow 側で設定される
             )

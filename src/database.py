@@ -200,6 +200,13 @@ def initialize_db():
                 reference_mode TEXT,
                 adetailer_enabled INTEGER DEFAULT 0,
                 adetailer_models TEXT DEFAULT '[]',
+                mask_image_path TEXT DEFAULT '',
+                background_color TEXT DEFAULT '',
+                mask_blur INTEGER DEFAULT 4,
+                mask_padding INTEGER DEFAULT 32,
+                inpainting_fill TEXT DEFAULT 'original',
+                inpaint_full_res INTEGER DEFAULT 1,
+                mask_invert INTEGER DEFAULT 0,
                 created_at REAL
             )""")
         cursor.execute("""
@@ -282,6 +289,27 @@ def initialize_db():
         )
         _add_column_if_not_exists(
             cursor, "scenes", "adetailer_models", "TEXT DEFAULT '[]'"
+        )
+        _add_column_if_not_exists(
+            cursor, "scenes", "mask_image_path", "TEXT DEFAULT ''"
+        )
+        _add_column_if_not_exists(
+            cursor, "scenes", "background_color", "TEXT DEFAULT ''"
+        )
+        _add_column_if_not_exists(
+            cursor, "scenes", "mask_blur", "INTEGER DEFAULT 4"
+        )
+        _add_column_if_not_exists(
+            cursor, "scenes", "mask_padding", "INTEGER DEFAULT 32"
+        )
+        _add_column_if_not_exists(
+            cursor, "scenes", "inpainting_fill", "TEXT DEFAULT 'original'"
+        )
+        _add_column_if_not_exists(
+            cursor, "scenes", "inpaint_full_res", "INTEGER DEFAULT 1"
+        )
+        _add_column_if_not_exists(
+            cursor, "scenes", "mask_invert", "INTEGER DEFAULT 0"
         )
 
         _ensure_legacy_state_categories(cursor)
@@ -426,6 +454,23 @@ def _load_items(table_name: str, class_type: Type[T]) -> Dict[str, T]:
             row_dict["adetailer_models"] = json_str_to_list(
                 row_dict.get("adetailer_models"), str
             )
+            row_dict["mask_image_path"] = row_dict.get("mask_image_path") or ""
+            row_dict["background_color"] = row_dict.get("background_color") or ""
+            try:
+                row_dict["mask_blur"] = int(row_dict.get("mask_blur") or 4)
+            except (TypeError, ValueError):
+                row_dict["mask_blur"] = 4
+            try:
+                row_dict["mask_padding"] = int(row_dict.get("mask_padding") or 32)
+            except (TypeError, ValueError):
+                row_dict["mask_padding"] = 32
+            row_dict["inpainting_fill"] = row_dict.get("inpainting_fill") or "original"
+            row_dict["inpaint_full_res"] = (
+                bool(row_dict.get("inpaint_full_res"))
+                if row_dict.get("inpaint_full_res") is not None
+                else True
+            )
+            row_dict["mask_invert"] = bool(row_dict.get("mask_invert"))
             row_dict["state_categories"] = json_str_to_list(
                 row_dict.get("state_categories"), str
             )
@@ -549,6 +594,8 @@ def save_scene(scene: Scene):
     data["tags"] = json.dumps(data.get("tags", []))
     data["adetailer_enabled"] = 1 if data.get("adetailer_enabled") else 0
     data["adetailer_models"] = list_to_json_str(data.get("adetailer_models", []))
+    data["inpaint_full_res"] = 1 if data.get("inpaint_full_res") else 0
+    data["mask_invert"] = 1 if data.get("mask_invert") else 0
     data["role_assignments"] = dataclass_list_to_json_str(
         data.get("role_assignments", [])
     )
